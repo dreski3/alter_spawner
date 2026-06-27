@@ -1,0 +1,5 @@
+{
+  "default_model": "zai-coding-plan/glm-5.2",
+  "max_depth": 5,
+  "run_timeout_ms": 180000
+}

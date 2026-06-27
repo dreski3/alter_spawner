@@ -1,0 +1,2 @@
+# Alter homes are ephemeral run artifacts; keep the kit tracked.
+.alters/alter_*/
