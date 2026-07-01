@@ -37,15 +37,57 @@ answer) and also saved to `<home>/result.md` (+ `result.json` with stats).
 | `--allow <abs-path>` (repeat) | grant external READ (read/glob/grep) to a file/dir |
 | `--allow-write <abs-path>` (repeat) | grant external READ+WRITE to a file/dir |
 | `--nestable` | allow this Alter to spawn its own children (scoped shell + kit copy) |
+| `--web` | allow `webfetch`/`websearch` (denied by default) |
 | `--timeout <ms>` | per-run timeout (default `180000`) |
 | `--rm` | delete the home after the run (default: keep) |
 | `--verbose` | also print run stats to stdout |
+| `--catalog <name>` | spawn a predefined harness from `.alters/catalog/<name>/manifest.json` |
+| `--max-tokens <n>` | kill the run if its token usage crosses this budget |
+| `--fallback-model <provider/model>` | model to escalate to after same-model retries fail |
+| `--prompt-prefix <text>` / `--prompt-suffix <text>` | text wrapped around the prompt |
+
+## Catalog: predefined harnesses
+`.alters/catalog/<name>/manifest.json` defines a reusable, named harness (model,
+description, token budget, fallback model, grants, optional `AGENTS.md` override
+and extra skills). Spawn one with `--catalog <name>`; any flag you pass
+explicitly overrides that catalog field, anything you omit is filled from the
+catalog manifest (grant lists are override-not-merge: passing even one `--allow`
+replaces the catalog's grants entirely).
+```bash
+node .alters/alter.mjs catalog list                  # see available harnesses
+node .alters/alter.mjs catalog show researcher        # print a harness's manifest.json
+node .alters/alter.mjs spawn --catalog researcher "what changed in opencode 2.0?"
+node .alters/alter.mjs catalog save my-harness --from <alter-id>   # promote a spawned alter
+node .alters/alter.mjs catalog save my-harness --description "..." --model ... --max-tokens 100000
+```
+Catalog resolution is local-folder-based today (`source.type: "local"` in each
+manifest); the field is a reserved seam for a future non-local (e.g. MCP) source.
+
+## Token budgets
+`--max-tokens <n>` (or a catalog's `max_tokens`) kills the Alter's process as
+soon as its running token total crosses the cap. **Caveat:** enforcement fires
+as soon as usage becomes visible on stdout. Whether that is genuinely mid-run or
+only once opencode has already finished and flushed everything at once depends
+on opencode's own buffering for `--format json`, which this tool does not
+control. In the worst case it is equivalent to "reject after the fact" — the run
+has already spent its tokens, and the effect is limited to `result.json`
+recording `ok:false, budget_exceeded:true` with no further retries proceeding.
+
+## Failure fallback
+On failure (non-zero exit, timeout, or budget overrun), a spawn retries
+according to `.alters/config.json`'s `retry` block (default: 1 retry on the same
+model, then 1 retry on a fallback model — `--fallback-model`, else a catalog
+entry's `fallback_model`, else the parent's own model for ad-hoc spawns). A
+budget overrun does **not** retry (the same cap would just fail again). The full
+attempt history — model used, outcome, tokens — is recorded in
+`result.json.attempts`.
 
 ## Default sandbox (locked to its home)
 - `read`/`glob`/`grep`/`edit`/`write`: allowed **inside the home only**.
 - `bash`, `webfetch`, `websearch`, `task`, `todowrite`, `question`: **denied**.
 - `external_directory`: **denied** (cannot reach outside the home).
-- Open holes with `--allow` (read) and/or `--allow-write` (read+write).
+- Open holes with `--allow` (read), `--allow-write` (read+write), and/or `--web`
+  (webfetch/websearch — needed for anything that must actually browse the live web).
 - `--nestable` adds a shell scoped to **only** `node .../alter.mjs ...`.
 
 ## Nesting & the prefilter pattern
@@ -70,6 +112,7 @@ node .alters/alter.mjs list                        # list homes + status
 node .alters/alter.mjs tree                        # nesting tree
 node .alters/alter.mjs show <id>                   # print a home's result.json
 node .alters/alter.mjs rm <id>                     # delete a home
+node .alters/alter.mjs catalog list|show|save      # manage predefined harnesses
 ```
 
 ## Model inheritance
