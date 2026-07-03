@@ -1,0 +1,15 @@
+{
+  "name": "mind",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "mind": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "profiles"
+  ],
+  "dependencies": {
+    "@mind/core": "^0.1.0"
+  }
+}
