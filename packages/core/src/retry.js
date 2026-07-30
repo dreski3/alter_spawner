@@ -51,6 +51,7 @@ export const runWithRetries = async (o, cfg, home, prompt, timeout, depth, harne
       exit_code: res.exitCode,
       killed: res.killed,
       budget_exceeded: res.budget_exceeded || false,
+      empty_output: res.empty_output || false,
       tokens: res.tokens,
       started_at: startedAt,
       ended_at: endedAt,
@@ -59,6 +60,9 @@ export const runWithRetries = async (o, cfg, home, prompt, timeout, depth, harne
     o.model = attemptModel;
     // A budget overrun is terminal: retrying under the same fixed cap would deterministically
     // fail again regardless of model, so it doesn't advance to the fallback tier.
+    // An empty result (`res.empty_output`, so `ok:false`) is *not* terminal and falls through
+    // to the next attempt — returning no final message is often model-specific, so the
+    // same-model retry and then the fallback model are both worth spending.
     if (res.ok || res.budget_exceeded) break;
   }
   return { res, attempts };

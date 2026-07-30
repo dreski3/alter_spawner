@@ -12,8 +12,15 @@
 //   killed: boolean,
 //   ok: boolean,
 //   budget_exceeded: boolean,
+//   empty_output: boolean,
 // }>
 // opts: { timeout, depth, alterId, maxTokens }
+//
+// `ok` is the adapter's own verdict, not just "exited 0": an adapter folds the
+// semantic failures it can detect (budget overrun, a clean exit with no final
+// message) into it, and reports each as its own boolean so callers can tell the
+// reasons apart. retry.js only branches on `ok`/`budget_exceeded`, so a new
+// adapter that always reports `empty_output: false` still behaves correctly.
 
 export const HARNESS_ADAPTERS = new Map();
 

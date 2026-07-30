@@ -26,22 +26,34 @@ Neither is a sandbox/permission bug — the engine allowed exactly what it
 should. It's the model failing to reliably compose a shell command inside a
 locked-down bash rule.
 
-Proposed hardening:
-- When `mind`'s `index.js` gets an unrecognized `cmd`, currently it just
-  prints usage and exits (see `packages/cli/src/index.js`'s `main()`). Make
-  this louder/more actionable: echo back what was actually parsed (e.g.
-  `mind: unrecognized command "..." (argv: [...])`) so a model reading bash
-  stderr has a concrete reason to retry differently, instead of a generic
-  usage dump indistinguishable from "you ran `mind` with no args."
-- Consider a `bash_allow`/nestable pattern that's more forgiving of quoting
-  variance — or document in the `alter` skill (`packages/core/templates/
-  alter-home/.opencode/skills/alter/SKILL.md`) an exact, copy-pasteable
-  invocation example for the nested-spawn case, since the model is currently
-  only told the flag reference, not a worked example inside its own sandbox.
-- Add an integration test that spawns a nestable Alter and has it spawn a
-  child for real, asserting the child's run folder exists and its result is
-  `ok:true` — this is the one path most exercised by the actual vision
-  (alters spawning alters) and currently has zero automated coverage.
+Root cause found: a nestable Alter's `AGENTS.md`/skill doc told it to run bare
+`mind spawn ...`, but `mind` is never on a spawned Alter's `PATH` — the only
+bash pattern its permission rule actually allows is the literal
+`node <resolved-mind-bin-path> ...`. That fully explains both observed
+failures (Run 2: the bare command really would be denied, so "blocked by
+permissions" wasn't wrong, just untried against the right command; Run 3:
+composing the unfamiliar `node <path> spawn ...` form by hand is exactly where
+a quoting mistake creeps in).
+
+Status: **done**, this session —
+- `mind`'s unrecognized-command path now echoes back the parsed argv
+  (`packages/cli/src/index.js`) instead of a bare usage dump.
+- `packages/core/src/frontmatter.js`'s `NESTING_BLOCK` now bakes in the exact
+  resolved `node <path> spawn ...` invocation (not bare `mind`) plus an
+  explicit warning against wrapping the whole call in one quoted string;
+  `packages/core/templates/alter-home/.opencode/skills/alter/SKILL.md` now
+  tells a nestable Alter to use that AGENTS.md example instead of the generic
+  flag reference.
+- Added `packages/core/test/integration/nested-spawn.test.js`, a real
+  (non-mocked) end-to-end test: spawns a nestable Alter, has it spawn a real
+  grandchild, asserts the grandchild's run folder + `result.json.ok === true`.
+  Opt-in (`MIND_LIVE_TESTS=1 npm run test:live:nested-spawn`) since it hits a
+  real model/opencode process — passed on first live run after the doc fix.
+
+Still open: this only reduces the failure mode, it doesn't eliminate model
+unreliability structurally. Worth revisiting if the live test starts flaking
+again — e.g. a more forgiving `bash_allow` pattern (accepting minor quoting
+variance) rather than requiring one exact literal command form.
 
 ## 2. Silent-empty-output detection
 
@@ -51,28 +63,58 @@ zero output tokens. `result.md` ends up as `(no output)`. Confirmed via raw
 `opencode run --format json` output: only `step_start`/`step_finish` events,
 no `text` event at all, `output` token count of ~1.
 
-Proposed hardening (`packages/core/src/harness/opencode.js` and/or
-`packages/core/src/retry.js`):
-- In `runAgent`'s `finish()`, if `exitCode === 0 && !killed` but
-  `acc.text.trim() === ""`, consider that a distinct outcome — e.g. set
-  `res.empty_output = true` — and thread it into `result.json`.
-- Decide whether `buildAttemptPlan`/`runWithRetries` should treat
-  `empty_output` like a failure worth retrying (same-model retry, then
-  fallback), the way `budget_exceeded` is handled today, instead of silently
-  recording success with nothing to show for it.
+Status: **done**, this session.
+
+Decided: an empty result is a **failure that retries**. The alter-home
+`AGENTS.md` tells every Alter its final message "is all your parent will receive
+from you", so a clean exit with nothing in it is a broken contract, not a
+success — and unlike a budget overrun (deterministic under the same cap) it's
+usually model-specific, so it's worth spending the same-model retry and then the
+fallback model. No opt-out flag was added: no catalog entry today is meant to
+return nothing, and a silent-success escape hatch would reintroduce exactly the
+hole this closes.
+
+- `packages/core/src/harness/opencode.js`: new pure, exported
+  `classify({exitCode, killed, budgetExceeded, text})` — the whole outcome
+  table in one place, testable without spawning `opencode`. It sets
+  `empty_output` only for a *clean* exit with blank text (a killed or
+  over-budget run keeps its own reason) and folds it into `ok`, exactly as
+  `budget_exceeded` already was. `finish()` now spreads its result.
+- `packages/core/src/retry.js`: no logic change needed — `empty_output` yields
+  `ok:false, budget_exceeded:false`, so the existing loop already escalates
+  through both tiers. Each attempt now records its own `empty_output`.
+- `packages/core/src/homes.js`: `empty_output` is threaded into `result.json`.
+- `packages/core/src/harness/adapter.js`: contract documents `empty_output` and
+  notes that a new adapter reporting `false` still behaves correctly.
+- `packages/cli/src/commands/{spawn,run}.js`: print a one-line stderr
+  diagnostic naming the model and attempt count, so this case isn't a bare
+  exit 1 with no output at all (which reads like a crash).
+- Tests: `packages/core/test/unit/classify.test.js` (8 outcome-table cases) and
+  `packages/core/test/integration/empty-output-retry.test.js` (fake harness via
+  `registerHarness` — recovers-on-fallback, always-empty, and
+  succeeds-first-try). Both offline; `npm test` runs them.
+
+Still open: detection is text-presence only. An Alter that returns filler prose
+while having done nothing useful is still scored `ok:true` — catching that needs
+ground-truth verification outside the harness (the pattern D3's dispatcher uses:
+re-run the tests, hash the target file).
 
 ## 3. Test coverage
 
-Nothing is automated yet — correctness has only been verified by manual
-`npm link` + real spawns against live models (expensive and non-repeatable).
-Needs:
-- Unit tests for `packages/core/src` — `scaffold`, `catalog` (validate/
-  apply/save), `retry` (`buildAttemptPlan`), `frontmatter` (`buildFrontmatter`
-  output for nestable / `bash_allow` / grants combinations), `homes`
+Started (see #2). `npm test` now runs everything offline —
+`node --test "packages/core/test/**/*.test.js"`, with the live nested-spawn test
+skipping itself unless `MIND_LIVE_TESTS=1`. What exists: `classify`'s outcome
+table (unit) and a fake-harness spawn/retry integration test that exercises
+scaffold → attempt plan → `result.json` with no model and no `opencode` binary.
+The `registerHarness` test-double pattern this item asked for is in
+`test/integration/empty-output-retry.test.js` and generalizes to the rest.
+
+Still needed:
+- Unit tests for `scaffold`, `catalog` (validate/apply/save), `retry`
+  (`buildAttemptPlan` tiers directly), `frontmatter` (`buildFrontmatter` output
+  for nestable / `bash_allow` / grants combinations — the security-relevant
+  one, currently only covered incidentally), `homes`
   (`resolveHome`/`removeHome`'s "most recent wins" logic).
-- An integration test that fakes the harness adapter (register a test
-  double via `registerHarness`) so spawn/retry/catalog flows can be tested
-  without hitting a real model or `opencode` binary.
 - A real pack-and-install smoke test (`npm pack` + install into a temp dir)
   to replace the manual `npm link` verification done so far.
 
@@ -96,7 +138,34 @@ Needs:
   publish both packages together under one scope.
 - No LICENSE file yet anywhere in this repo.
 
-## 6. Vision-level follow-ups (lower priority, exploratory)
+## 6. Token budget counts cached reads (found live)
+
+`--max-tokens` / `max_tokens` is enforced against `acc.tokens.total`, which includes
+`cache_read`. For a multi-step Alter working over one large fixed context, cached
+re-reads dominate that total and the cap fires on re-reading rather than on real
+spend.
+
+Observed in `../D4` (2026-07-30): an Alter was SIGKILLed at `total` 261,510 against
+a 260,000 cap, of which `cache_read` was 176,640 — actual new work was
+input 76,960 + output 5,194 + reasoning 2,716 ≈ 85k, a third of the cap. It died
+mid-write, leaving a partially-written artifact that looked complete enough to be
+misleading (`PROPOSAL.md` finished, but 10 of the 13 files it declared were absent).
+
+Worth deciding what the cap is *for*. If it is a cost control, cached reads are the
+cheapest tokens there are and arguably do not belong in it; if it is a
+runaway-loop guard, `total` is defensible but the current value means very different
+things for a one-shot task and a many-step one. Options: cap on
+`input + output + reasoning` (excluding `cache_read`), expose both numbers and let a
+catalog entry choose, or keep `total` and document that a long-context Alter needs a
+cap several times its apparent context size.
+
+Related: `budget_exceeded` is terminal by design (no retry), which is right for a
+deterministic overrun — but combined with the above, an Alter can be killed for
+re-reading and get no second chance, and `result.md` still holds whatever partial
+text it had produced. Whatever is decided, a killed-mid-write artifact should be
+easier to distinguish from a finished one than it is today.
+
+## 7. Vision-level follow-ups (lower priority, exploratory)
 
 - A second harness adapter (even a minimal/stub one) to prove
   `packages/core/src/harness/adapter.js`'s interface actually generalizes —

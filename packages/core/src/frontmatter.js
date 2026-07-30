@@ -8,20 +8,40 @@ import { TEMPLATE_AGENT, TEMPLATE_AGENTS_MD } from "./paths.js";
 // case — most catalog entries are single-purpose workers) gets none of this:
 // less boilerplate in its context, and no `alter` skill listed for it to be
 // tempted by.
-const NESTING_BLOCK = `
+// The exact literal example below matters: the two failure modes seen in
+// practice are (1) a model assuming the bare `mind` command works and giving
+// up when it "seems blocked" (it isn't on PATH — only `node <mindBinPath>` is
+// an allowed bash pattern), and (2) a model quoting the whole invocation as
+// one shell string, so `process.argv[2]` is never literally `spawn`. Spelling
+// out the real, resolved path and warning about word-splitting directly
+// addresses both instead of leaving the model to reconstruct this from the
+// flag reference alone.
+const nestingBlock = (mindBinPath) => `
 
 ## Spawning child Alters
-You were spawned as **nestable**: you have a tightly scoped shell that can run
-only the Alter spawner (\`mind spawn ...\`). Load the \`alter\` skill for the
-full reference. You may spawn children to prefilter a prompt, split work, or
-run isolated sub-tasks; children are sandboxed exactly like you.`;
+You were spawned as **nestable**: you have a tightly scoped shell that allows
+exactly one command form — \`node ${mindBinPath} ...\`. The bare \`mind\` command
+is **not** on your PATH and is **not** what your permission rule allows; using
+it will be denied. A worked, copy-pasteable example:
+
+\`\`\`bash
+node ${mindBinPath} spawn --name prefilter --description "cleans up the raw input" "<task prompt>"
+\`\`\`
+
+Pass each flag and value as its own shell word. Do **not** wrap the whole
+invocation (e.g. \`"spawn --name prefilter ... <task prompt>"\`) inside a single
+quoted string — that makes \`spawn\` part of one opaque argument instead of the
+literal first word the CLI expects, and it will fail with a usage dump instead
+of running. Load the \`alter\` skill for the full flag reference. You may spawn
+children to prefilter a prompt, split work, or run isolated sub-tasks; children
+are sandboxed exactly like you.`;
 
 const applyPlaceholders = (tmpl, o) => {
   const role = o.description && o.description.trim()
     ? `## Your role\n${o.description.trim()}`
     : `## Your role\nYou are a general-purpose Alter. Perform the task you were given as well as you can.`;
   let out = tmpl.replace(/\{\{ROLE_BLOCK\}\}/g, role);
-  out = out.replace(/\n?\{\{NESTING_BLOCK\}\}/g, o.nestable ? NESTING_BLOCK : "");
+  out = out.replace(/\n?\{\{NESTING_BLOCK\}\}/g, o.nestable ? nestingBlock(o.mindBinPath) : "");
   return out;
 };
 

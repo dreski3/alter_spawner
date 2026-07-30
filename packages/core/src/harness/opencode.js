@@ -31,6 +31,29 @@ const newAcc = () => ({
   steps: 0,
 });
 
+// Classifies a finished run. Kept pure (and exported) so the outcome table can be
+// tested without spawning a real `opencode` process.
+//
+// A run that exits cleanly but produces no final assistant message is its own
+// failure mode, not a success: an Alter's final message *is* its result — the
+// alter-home AGENTS.md tells it so explicitly ("it is all your parent will
+// receive from you") — so nothing to report means nothing was delivered.
+// Observed with `zai-coding-plan/glm-4.5-air`, which can return exit code 0,
+// no kill, no budget overrun, with only step_start/step_finish events, no `text`
+// event at all, and ~1 output token; `result.md` ends up as "(no output)".
+//
+// `empty_output` folds into `ok` the same way `budget_exceeded` already does, so
+// the existing attempt plan in retry.js treats it as a failed attempt and
+// escalates (same model, then fallback) instead of recording a silent success.
+// Precedence matters: a killed or over-budget run may legitimately have no text
+// yet, and its real reason is the kill/overrun — only a clean exit can be
+// classified as empty.
+export const classify = ({ exitCode, killed, budgetExceeded, text }) => {
+  const clean = exitCode === 0 && !killed && !budgetExceeded;
+  const empty_output = clean && String(text || "").trim() === "";
+  return { ok: clean && !empty_output, empty_output, budget_exceeded: !!budgetExceeded };
+};
+
 // Token-budget enforcement kills the child as soon as usage becomes visible on stdout.
 // Whether that is genuinely mid-run or only once opencode has already finished and flushed
 // everything at once depends on opencode's own buffering for --format json, which this tool
@@ -86,8 +109,7 @@ const run = (home, prompt, { timeout, depth, alterId, maxTokens }) =>
         steps: acc.steps,
         exitCode,
         killed,
-        ok: exitCode === 0 && !killed && !budgetExceeded,
-        budget_exceeded: budgetExceeded,
+        ...classify({ exitCode, killed, budgetExceeded, text: acc.text }),
       });
     };
     timer = setTimeout(() => {

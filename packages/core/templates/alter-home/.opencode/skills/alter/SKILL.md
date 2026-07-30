@@ -74,13 +74,20 @@ already spent its tokens, and the effect is limited to `result.json` recording
 `ok:false, budget_exceeded:true` with no further retries proceeding.
 
 ## Failure fallback
-On failure (non-zero exit, timeout, or budget overrun), a spawn retries
-according to `.alters/config.json`'s `retry` block (default: 1 retry on the same
-model, then 1 retry on a fallback model — `--fallback-model`, else a catalog
-entry's `fallback_model`, else the parent's own model for ad-hoc spawns). A
-budget overrun does **not** retry (the same cap would just fail again). The full
-attempt history — model used, outcome, tokens — is recorded in
+On failure (non-zero exit, timeout, budget overrun, or an empty result), a spawn
+retries according to `.alters/config.json`'s `retry` block (default: 1 retry on
+the same model, then 1 retry on a fallback model — `--fallback-model`, else a
+catalog entry's `fallback_model`, else the parent's own model for ad-hoc
+spawns). A budget overrun does **not** retry (the same cap would just fail
+again). The full attempt history — model used, outcome, tokens — is recorded in
 `result.json.attempts`.
+
+An **empty result** counts as a failure: an Alter that exits cleanly but returns
+no final message has delivered nothing, since that message is the entire result
+its parent receives. It is recorded as `ok:false, empty_output:true` (distinct
+from a budget overrun) and, unlike an overrun, it *does* advance through the
+retry tiers — returning nothing tends to be model-specific, so a same-model
+retry and then a fallback model are both worth spending.
 
 ## Default sandbox (locked to its home)
 - `read`/`glob`/`grep`/`edit`/`write`: allowed **inside the home only**.
@@ -94,6 +101,15 @@ attempt history — model used, outcome, tokens — is recorded in
 An Alter cannot spawn children unless you pass `--nestable`. A nestable Alter
 gets a scoped shell and its own `.alters/config.json` + `catalog/`, so it can
 spawn grandchildren.
+
+**If you are yourself a nestable Alter reading this to spawn a child:** the
+bare `mind` command is **not** on your PATH — your sandboxed shell only allows
+one literal command form, `node <mindBinPath> ...`. Your own `AGENTS.md` (the
+`## Spawning child Alters` section) already has this filled in with your exact
+resolved path and a copy-pasteable example — use that literal command, not
+`mind spawn ...` from the flag reference above. Pass each flag/value as its own
+shell word; do not wrap the whole invocation in one quoted string, or the CLI
+will see a single unparseable argument instead of the `spawn` command.
 
 **Prefilter (parent-driven, simpler):** you spawn a `prefilter` Alter, collect
 its cleaned text from stdout, then spawn the worker Alter with that text as the

@@ -77,6 +77,12 @@ any new catalog entries without touching existing ones.
 id to its most recent matching run, or accept the exact folder name for a
 specific past one.
 
+**Result** — an Alter's final assistant message *is* its result: printed to
+stdout, saved to `<home>/result.md`, with stats in `<home>/result.json` (tokens,
+steps, model, per-attempt history). A run that exits cleanly but returns no
+final message is therefore a failure, not a success — recorded as
+`ok:false, empty_output:true` and retried through the fallback tiers.
+
 **`bash_allow`** — a catalog entry can grant a scoped bash rule for one
 specific external command (e.g. `"python3 /abs/path/cipher.py **"`),
 independent of `nestable`. Lets an Alter shell out to a deterministic script
@@ -91,10 +97,14 @@ instead of paying for an inference call, without opening bash generally.
   per-run disk cost this CLI doesn't control.
 - Only one harness adapter exists (`opencode`); the interface is unexercised
   by a second implementation.
-- A model can silently return `ok:true` with empty output (observed with
-  `zai-coding-plan/glm-4.5-air`) — `mind` doesn't currently flag this.
+- Empty-result detection is text-based: an Alter that exits cleanly with no
+  final message is failed and retried (`empty_output`), but one that returns
+  filler text while doing nothing useful still counts as a success.
 - A nestable Alter occasionally fails to correctly compose its own scoped
   `mind spawn` bash invocation (bad quoting, or assuming it's blocked without
-  trying) — not a permissions bug, a model-reliability one.
+  trying) — not a permissions bug, a model-reliability one. Mitigated (not
+  eliminated): the Alter's own `AGENTS.md` now bakes in the exact resolved
+  invocation instead of the bare `mind` form it can't actually run; see
+  TODO.md #1.
 
 See [TODO.md](TODO.md) for the fuller list and next steps.

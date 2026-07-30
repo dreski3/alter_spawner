@@ -46,6 +46,12 @@ const main = async () => {
   const rest = process.argv.slice(3);
   const loader = COMMANDS[cmd];
   if (!loader) {
+    if (cmd) {
+      console.error(
+        `mind: unrecognized command "${cmd}" (argv: ${JSON.stringify(process.argv.slice(2))})`,
+      );
+      console.error("");
+    }
     usage();
     process.exitCode = cmd ? 1 : 0;
     return;
