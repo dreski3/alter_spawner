@@ -27,6 +27,8 @@ See [TODO.md](TODO.md) for what's left before that's a reasonable thing to do.
   cancel the underlying harness process without shelling out to `mind`.
   `runAlterGraph` executes validated dependency graphs, runs ready branches in
   parallel, interpolates dependency results, and checkpoints a graph trace.
+  Capability registries and approval sessions provide transport-neutral host
+  approvals before a registered executable can run.
 - **`packages/cli`** (`mind`) — the `mind` bin: `init`, `update`, `spawn`,
   `create`, `run`, `list`, `tree`, `show`, `rm`, `catalog`. Ships a default
   project profile under `profiles/default/`.
@@ -179,6 +181,26 @@ final message is therefore a failure, not a success — recorded as
 specific external command (e.g. `"python3 /abs/path/cipher.py **"`),
 independent of `nestable`. Lets an Alter shell out to a deterministic script
 instead of paying for an inference call, without opening bash generally.
+
+**Host capability approvals** — library callers register fixed executable and
+argument vectors with `createCapabilityRegistry`, bind trusted capability IDs
+to catalogs, and create one `createCapabilityApprovalSession` per run. The
+session emits transport-neutral lifecycle events and pauses `execute` until a
+caller returns one of the explicit decisions through `decide`. Approval input
+contains only an opaque request ID and decision; it cannot replace the
+registered executable or provide a shell command. Run grants live in the
+session, while persistent catalog grants are supplied through policy hooks.
+An adapter renders `event.approval`, then passes only its ID and an explicit
+decision back to core:
+
+```js
+const execution = approvals.execute("lan.neighbors.read", {
+  reason: "LAN Inspector needs the current neighbor table."
+});
+
+await approvals.decide(approvalId, "allow-once");
+const result = await execution;
+```
 
 ## Known limitations
 

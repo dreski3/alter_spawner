@@ -1,0 +1,23 @@
+{
+  "name": "general",
+  "description": "General-purpose isolated assistant for reasoning, writing, and task execution.",
+  "model": null,
+  "fallback_model": null,
+  "max_tokens": 6000,
+  "nestable": false,
+  "web": false,
+  "timeout_ms": null,
+  "read_grants": [],
+  "write_grants": [],
+  "prompt_prefix": "Answer the user's request directly and accurately. Keep the final response self-contained. Do not mention internal harness details unless the user asks about them.",
+  "prompt_suffix": null,
+  "agents_md_override": null,
+  "skills_dir": null,
+  "output_contract": {
+    "type": "nonempty",
+    "trim": true
+  },
+  "source": { "type": "local", "ref": null },
+  "created_at": "2026-08-02T00:00:00.000Z",
+  "created_from": null
+}

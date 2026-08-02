@@ -37,6 +37,7 @@ export const runWithRetries = async ({
   depth,
   harnessName = "opencode",
   signal,
+  onEvent,
   pure = true,
   recordEvents = false,
   runtime: runtimeOverride,
@@ -44,6 +45,11 @@ export const runWithRetries = async ({
   const runtime = resolveRuntime(runtimeOverride);
   const harness = getHarness(harnessName);
   const plan = buildAttemptPlan(o, cfg, runtime);
+  const emit = (event) => {
+    try {
+      onEvent?.(event);
+    } catch {}
+  };
   const attempts = [];
   let res;
   for (let i = 0; i < plan.length; i++) {
@@ -57,6 +63,7 @@ export const runWithRetries = async ({
     }
     const startedAt = iso(runtime.now());
     const startMs = runtime.now();
+    emit({ type: "attempt.started", attempt: i + 1, model: attemptModel, reason: plan[i].reason });
     res = await harness.run(home, prompt, {
       timeout,
       depth,
@@ -67,6 +74,7 @@ export const runWithRetries = async ({
       recordEvents,
       attempt: i + 1,
       signal,
+      onEvent: (event) => emit({ ...event, attempt: i + 1, model: attemptModel }),
       environment: runtime.env,
     });
     if (res.ok && o.outputContract) {

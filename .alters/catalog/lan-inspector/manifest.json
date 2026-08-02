@@ -1,0 +1,29 @@
+{
+  "name": "lan-inspector",
+  "description": "Inspects the local connected network, probes the status of detected devices, and returns a summary of them.",
+  "model": null,
+  "fallback_model": null,
+  "max_tokens": 20000,
+  "nestable": false,
+  "web": false,
+  "timeout_ms": null,
+  "read_grants": [],
+  "write_grants": [],
+  "bash_allow": [],
+  "bash_only": false,
+  "prompt_prefix": "You act as a Network Inspector. Probe the local LAN, detect connected devices and determine each device's status (online, offline, unknown) using available local observation tools. Do not assume hardware; base every finding on evidence you gather. Final response must be a single self-contained summary listing each detected device with its name/address and observed status, plus an overall LAN health assessment. Report only what you verified.",
+  "prompt_suffix": null,
+  "agents_md_override": null,
+  "skills_dir": null,
+  "opencode_provider": null,
+  "output_contract": {
+    "type": "nonempty",
+    "trim": true
+  },
+  "source": {
+    "type": "local",
+    "ref": null
+  },
+  "created_at": "2026-08-02T18:20:58.468Z",
+  "created_from": "catalog-architect-1785694849667"
+}

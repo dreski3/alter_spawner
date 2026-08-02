@@ -60,6 +60,11 @@ export type AlterResponse = {
   eventLog?: string | null;
 };
 
+export type AlterRuntimeEvent =
+  | { type: "attempt.started"; attempt: number; model: string; reason: string }
+  | { type: "output.delta"; attempt: number; model: string; delta: string; text: string; sessionID: string | null }
+  | { type: "usage.updated"; attempt: number; model: string; tokens: AlterTokens; steps: number; sessionID: string | null };
+
 export type AlterResult = {
   id: string;
   ok: boolean;
@@ -108,6 +113,7 @@ export function spawnAlter(
     createOnly?: boolean;
     harness?: string;
     signal?: AbortSignal;
+    onEvent?: (event: AlterRuntimeEvent) => void;
     runtime?: Runtime;
   },
 ): Promise<
@@ -141,6 +147,7 @@ export function registerHarness(
         recordEvents: boolean;
         attempt: number;
         signal?: AbortSignal;
+        onEvent?: (event: AlterRuntimeEvent) => void;
         environment?: Record<string, string | undefined>;
       },
     ): Promise<AlterResponse>;
@@ -192,5 +199,90 @@ export function runAlterGraph(
     runtime?: Runtime;
   },
 ): Promise<{ home: string; result: Record<string, unknown> }>;
+
+export type ApprovalDecision = "allow-once" | "allow-run" | "always-catalog" | "deny";
+
+export type CapabilityDefinition = {
+  id: string;
+  name: string;
+  description: string;
+  risk?: string;
+  approval?: "always" | "never";
+  timeoutMs?: number;
+  maxOutputBytes?: number;
+  executors: Record<string, { file: string; args: string[] }>;
+};
+
+export type PublicCapability = Pick<CapabilityDefinition, "id" | "name" | "description" | "risk" | "approval">;
+
+export type CapabilityApproval = {
+  id: string;
+  capabilityId: string;
+  capabilityName: string;
+  description: string;
+  reason: string;
+  risk: string;
+  commandPreview: string;
+  requestedAt: string;
+};
+
+export type CapabilityExecutionResult = {
+  ok: boolean;
+  exitCode: number | null;
+  signal: string | null;
+  stdout: string;
+  stderr: string;
+};
+
+export type CapabilityEvent =
+  | { type: "capability.approval_required"; approval: CapabilityApproval }
+  | { type: "capability.auto_approved"; capabilityId: string; decision: "allow-run" | "always-catalog" | "not-required" }
+  | { type: "capability.approved" | "capability.denied"; capabilityId: string; decision: ApprovalDecision }
+  | { type: "capability.execution_started"; capabilityId: string; commandPreview: string }
+  | { type: "capability.execution_completed"; capabilityId: string; exitCode: number | null; durationMs: number; outputBytes: number }
+  | { type: "capability.execution_failed"; capabilityId: string; exitCode: number | null; durationMs: number; error?: string };
+
+export type CapabilityRegistry = {
+  get(id: string): Readonly<CapabilityDefinition> | null;
+  forCatalog(catalogId: string): Readonly<CapabilityDefinition>[];
+  listPublic(): PublicCapability[];
+  commandPreview(id: string, platform?: string): string;
+  execute(id: string, options?: { signal?: AbortSignal; platform?: string }): Promise<CapabilityExecutionResult>;
+};
+
+export const VALID_APPROVAL_DECISIONS: ReadonlySet<ApprovalDecision>;
+export function createCapabilityRegistry(options?: {
+  definitions?: CapabilityDefinition[] | Record<string, CapabilityDefinition>;
+  catalogCapabilities?: Record<string, string[]>;
+}): CapabilityRegistry;
+
+export function createCapabilityApprovalSession(options: {
+  registry: CapabilityRegistry;
+  catalogId: string;
+  signal?: AbortSignal;
+  isPersistentlyApproved?: (request: { catalogId: string; capabilityId: string }) => boolean;
+  persistApproval?: (decision: { catalogId: string; capabilityId: string; decision: "always-catalog"; approval: CapabilityApproval }) => void | Promise<void>;
+  audit?: (decision: { catalogId: string; capabilityId: string; decision: ApprovalDecision; approval: CapabilityApproval }) => void | Promise<void>;
+  onEvent?: (event: CapabilityEvent) => void;
+  createId?: () => string;
+  now?: () => string;
+  clock?: () => number;
+}): {
+  authorize(capabilityId: string, options?: { reason?: string; platform?: string }): Promise<{ decision: ApprovalDecision | "not-required" }>;
+  decide(approvalId: string, decision: ApprovalDecision): Promise<{ decision: ApprovalDecision }>;
+  execute(capabilityId: string, options?: { reason?: string; platform?: string }): Promise<CapabilityExecutionResult>;
+  getPendingApproval(): CapabilityApproval | null;
+  hasRunGrant(capabilityId: string): boolean;
+};
+
+export type CapabilityPolicy = { catalogGrants: Record<string, string[]> };
+export function readCapabilityPolicy(file: string): CapabilityPolicy;
+export function hasCatalogGrant(policy: CapabilityPolicy, catalogId: string, capabilityId: string): boolean;
+export function grantCatalogCapability(policy: CapabilityPolicy, catalogId: string, capabilityId: string): CapabilityPolicy;
+export function writeCapabilityPolicy(file: string, policy: CapabilityPolicy): void;
+
+export class CapabilityDeniedError extends Error {
+  capabilityId: string;
+}
 
 export class MindError extends Error {}

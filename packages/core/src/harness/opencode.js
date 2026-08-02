@@ -36,7 +36,7 @@ export const classify = classifyOpenCodeResult;
 const run = (
   home,
   prompt,
-  { timeout, depth, alterId, maxTokens, model, pure, recordEvents, attempt, signal, environment = process.env }
+  { timeout, depth, alterId, maxTokens, model, pure, recordEvents, attempt, signal, onEvent, environment = process.env }
 ) =>
   new Promise((resolve) => {
     const args = ["run"];
@@ -89,7 +89,7 @@ const run = (
       const lines = buf.split(/\r?\n/);
       buf = lines.pop();
       for (const line of lines) {
-        consumeOpenCodeEvent(line, acc);
+        consumeOpenCodeEvent(line, acc, onEvent);
         if (!budgetExceeded && maxTokens && acc.tokens.total > maxTokens) {
           budgetExceeded = true;
           killProcessTree("SIGKILL");
@@ -105,7 +105,7 @@ const run = (
       clearTimeout(timer);
       clearTimeout(forceKillTimer);
       signal?.removeEventListener("abort", onAbort);
-      if (buf.trim()) consumeOpenCodeEvent(buf, acc);
+      if (buf.trim()) consumeOpenCodeEvent(buf, acc, onEvent);
       const output = {
         tokens: acc.tokens,
         text: acc.text,

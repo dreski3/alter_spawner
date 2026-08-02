@@ -36,7 +36,7 @@ const prepareSpawn = (root, cfg, o, runtime) => {
 export const spawnAlter = async (
   root,
   o,
-  { createOnly = false, harness = "opencode", signal, runtime: runtimeOverride } = {},
+  { createOnly = false, harness = "opencode", signal, onEvent, runtime: runtimeOverride } = {},
 ) => {
   const runtime = resolveRuntime(runtimeOverride);
   const cfg = readConfig(root);
@@ -56,6 +56,7 @@ export const spawnAlter = async (
     depth: o.depth,
     harnessName: harness,
     signal,
+    onEvent,
     pure: cfg.opencode_pure !== false,
     recordEvents: cfg.opencode_event_log === true,
     runtime,
@@ -72,7 +73,7 @@ export const runExistingAlter = async (
   root,
   homeArg,
   prompt,
-  { harness = "opencode", mindBinPath = null, signal, runtime: runtimeOverride } = {},
+  { harness = "opencode", mindBinPath = null, signal, onEvent, runtime: runtimeOverride } = {},
 ) => {
   const runtime = resolveRuntime(runtimeOverride);
   const home = resolveHome(root, homeArg);
@@ -110,6 +111,7 @@ export const runExistingAlter = async (
     depth,
     harnessName: harness,
     signal,
+    onEvent,
     pure: cfg.opencode_pure !== false,
     recordEvents: cfg.opencode_event_log === true,
     runtime,
