@@ -29,3 +29,13 @@ export { spawnAlter, runExistingAlter, resolveEffectiveModel } from "./engine.js
 export { runAlterGraph } from "./graph.js";
 export { ALTER_HOME_TEMPLATE_DIR, TEMPLATE_AGENT, TEMPLATE_SKILL } from "./paths.js";
 export { registerHarness, getHarness, HARNESS_ADAPTERS } from "./harness/adapter.js";
+export {
+  VALID_APPROVAL_DECISIONS,
+  CapabilityDeniedError,
+  createCapabilityRegistry,
+  createCapabilityApprovalSession,
+  readCapabilityPolicy,
+  hasCatalogGrant,
+  grantCatalogCapability,
+  writeCapabilityPolicy,
+} from "./capabilities.js";
