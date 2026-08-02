@@ -1,11 +1,11 @@
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fail, gitInit, iso, sanitizeName, timestampSlug } from "./util.js";
 import { runsDir } from "./config.js";
 import { ALTER_HOME_TEMPLATE_DIR } from "./paths.js";
 import { buildAgentsMd, buildBody, buildFrontmatter } from "./frontmatter.js";
 import { catalogDirPath } from "./catalog.js";
-import { ALTER_SCHEMA_VERSION } from "./persistence.js";
+import { ALTER_SCHEMA_VERSION, writeJsonAtomic, writeTextAtomic } from "./persistence.js";
 
 // The `id` is a logical identifier only (used for ALTER_ID/parent_id/spawned_by
 // tracking and for `--name`-based lookups) — it is intentionally allowed to
@@ -55,16 +55,15 @@ export const scaffold = (root, cfg, o) => {
       cpSync(src, dest, { recursive: true });
     }
   }
-  writeFileSync(path.join(home, "AGENTS.md"), buildAgentsMd(o));
+  writeTextAtomic(path.join(home, "AGENTS.md"), buildAgentsMd(o));
   const agentDir = path.join(home, ".opencode", "agents");
   mkdirSync(agentDir, { recursive: true });
-  writeFileSync(
+  writeTextAtomic(
     path.join(agentDir, "alter.md"),
     buildFrontmatter(o) + "\n\n" + buildBody(o) + "\n"
   );
-  writeFileSync(
+  writeJsonAtomic(
     path.join(home, "alter.json"),
-    JSON.stringify(
       {
         schema_version: ALTER_SCHEMA_VERSION,
         id: o.id,
@@ -89,22 +88,15 @@ export const scaffold = (root, cfg, o) => {
         output_contract: o.outputContract || null,
         created_at: iso(Date.now()),
         home: path.relative(root, home),
-      },
-      null,
-      2
-    ) + "\n"
+      }
   );
   if (o.opencodeProvider) {
-    writeFileSync(
+    writeJsonAtomic(
       path.join(home, "opencode.json"),
-      JSON.stringify(
         {
           $schema: "https://opencode.ai/config.json",
           provider: o.opencodeProvider,
-        },
-        null,
-        2
-      ) + "\n"
+        }
     );
   }
   if (o.nestable) {
@@ -115,9 +107,8 @@ export const scaffold = (root, cfg, o) => {
     if (existsSync(catalogSrc)) {
       cpSync(catalogSrc, path.join(childKit, catalogDirName), { recursive: true });
     }
-    writeFileSync(
+    writeJsonAtomic(
       path.join(childKit, "config.json"),
-      JSON.stringify(
         {
           default_model: o.model,
           max_depth: cfg.max_depth ?? 5,
@@ -127,10 +118,7 @@ export const scaffold = (root, cfg, o) => {
           opencode_pure: cfg.opencode_pure !== false,
           opencode_event_log: cfg.opencode_event_log === true,
           retry: cfg.retry || { same_harness_retries: 1, fallback_retries: 1 },
-        },
-        null,
-        2
-      ) + "\n"
+        }
     );
   }
   return home;

@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { kitDir } from "./config.js";
 import { spawnAlter } from "./engine.js";
 import { buildGraphSpawnOptions, renderGraphPrompt, validateGraph } from "./graph-spec.js";
 import { createGraphResult } from "./graph-result.js";
+import { writeJsonAtomic } from "./persistence.js";
 import { fail, iso, sanitizeName, timestampSlug } from "./util.js";
 
 export const runAlterGraph = async (
@@ -29,7 +30,7 @@ export const runAlterGraph = async (
   );
   const persist = (endedAt = null) => {
     const document = createGraphResult({ graphId, output, records, startedAt, startMs, endedAt });
-    writeFileSync(path.join(graphHome, "result.json"), JSON.stringify(document, null, 2) + "\n");
+    writeJsonAtomic(path.join(graphHome, "result.json"), document);
     return document;
   };
   persist();

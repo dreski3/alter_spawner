@@ -90,6 +90,8 @@ export function createSpawnOptions(overrides?: Partial<SpawnOptions>): SpawnOpti
 export const ALTER_SCHEMA_VERSION: number;
 export const RESULT_SCHEMA_VERSION: number;
 export const GRAPH_RESULT_SCHEMA_VERSION: number;
+export function writeTextAtomic(file: string, content: string): void;
+export function writeJsonAtomic(file: string, value: unknown): void;
 
 export function spawnAlter(
   root: string,

@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fail, iso, normPath, sanitizeName } from "./util.js";
 import { kitDir } from "./config.js";
 import { validateOutputContract } from "./output-contract.js";
+import { writeJsonAtomic } from "./persistence.js";
 
 export const catalogDirPath = (root, cfg) => path.join(kitDir(root), cfg.catalog_dir || "catalog");
 
@@ -137,6 +138,6 @@ export const saveCatalogEntry = (root, cfg, name, o, { force = false } = {}) => 
   }
   mkdirSync(dir, { recursive: true });
   const manifest = manifestFromOptions(sanitized, o);
-  writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+  writeJsonAtomic(path.join(dir, "manifest.json"), manifest);
   return dir;
 };

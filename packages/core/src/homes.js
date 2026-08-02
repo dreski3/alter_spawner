@@ -1,8 +1,8 @@
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fail } from "./util.js";
 import { runsDir } from "./config.js";
-import { RESULT_SCHEMA_VERSION } from "./persistence.js";
+import { RESULT_SCHEMA_VERSION, writeJsonAtomic, writeTextAtomic } from "./persistence.js";
 
 export const readAlterJson = (home) => {
   try {
@@ -109,7 +109,7 @@ export const writeResult = (root, home, o, res, startedAt, endedAt, durationMs, 
     duration_ms: durationMs,
     attempts: attempts || null,
   };
-  writeFileSync(path.join(home, "result.json"), JSON.stringify(result, null, 2) + "\n");
-  writeFileSync(path.join(home, "result.md"), (res.text || "(no output)\n") + "\n");
+  writeJsonAtomic(path.join(home, "result.json"), result);
+  writeTextAtomic(path.join(home, "result.md"), (res.text || "(no output)\n") + "\n");
   return result;
 };

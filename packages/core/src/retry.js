@@ -1,9 +1,9 @@
-import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { iso } from "./util.js";
 import { buildBody, buildFrontmatter } from "./frontmatter.js";
 import { getHarness } from "./harness/adapter.js";
 import { checkOutputContract } from "./output-contract.js";
+import { writeTextAtomic } from "./persistence.js";
 
 // Attempt plan: initial run, then `same_harness_retries` retries on the same model, then
 // `fallback_retries` retries on an escalated/fallback model (if one is available). A catalog
@@ -46,7 +46,7 @@ export const runWithRetries = async ({
     const attemptModel = plan[i].model;
     if (i > 0 && attemptModel !== plan[i - 1].model) {
       o.model = attemptModel;
-      writeFileSync(
+      writeTextAtomic(
         path.join(home, ".opencode", "agents", "alter.md"),
         buildFrontmatter(o) + "\n\n" + buildBody(o) + "\n"
       );
