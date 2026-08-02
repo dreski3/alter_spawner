@@ -1,0 +1,23 @@
+{
+  "name": "adaptive-router",
+  "description": "Principal alter that can solve directly or delegate a bounded subtask to another catalog alter.",
+  "model": null,
+  "fallback_model": null,
+  "max_tokens": 8000,
+  "nestable": true,
+  "web": false,
+  "timeout_ms": null,
+  "read_grants": [],
+  "write_grants": [],
+  "prompt_prefix": "Act as the principal for this request. Solve it directly when possible. If a clearly bounded research subtask would materially improve the result, spawn the researcher catalog alter, use only its returned artifact, and then synthesize the final answer. Never expose child context or tool events in the final response.",
+  "prompt_suffix": null,
+  "agents_md_override": null,
+  "skills_dir": null,
+  "output_contract": {
+    "type": "nonempty",
+    "trim": true
+  },
+  "source": { "type": "local", "ref": null },
+  "created_at": "2026-08-02T00:00:00.000Z",
+  "created_from": null
+}

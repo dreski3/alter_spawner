@@ -23,3 +23,28 @@ test("OpenCode event parsing ignores malformed and blank lines", () => {
   assert.equal(consumeOpenCodeEvent("not-json", accumulator), false);
   assert.deepEqual(accumulator, createOpenCodeAccumulator());
 });
+
+test("OpenCode events expose incremental output and usage to observers", () => {
+  const accumulator = createOpenCodeAccumulator();
+  const events = [];
+  consumeOpenCodeEvent(
+    JSON.stringify({ type: "text", sessionID: "session-live", part: { text: "stream " } }),
+    accumulator,
+    (event) => events.push(event),
+  );
+  consumeOpenCodeEvent(
+    JSON.stringify({ type: "text", sessionID: "session-live", part: { text: "me" } }),
+    accumulator,
+    (event) => events.push(event),
+  );
+  consumeOpenCodeEvent(
+    JSON.stringify({ type: "step_finish", part: { tokens: { output: 2, total: 2 } } }),
+    accumulator,
+    (event) => events.push(event),
+  );
+
+  assert.deepEqual(events.map((event) => event.type), ["output.delta", "output.delta", "usage.updated"]);
+  assert.equal(events[0].delta, "stream ");
+  assert.equal(events[1].text, "stream me");
+  assert.equal(events[2].tokens.total, 2);
+});

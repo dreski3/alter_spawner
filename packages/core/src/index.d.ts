@@ -60,6 +60,11 @@ export type AlterResponse = {
   eventLog?: string | null;
 };
 
+export type AlterRuntimeEvent =
+  | { type: "attempt.started"; attempt: number; model: string; reason: string }
+  | { type: "output.delta"; attempt: number; model: string; delta: string; text: string; sessionID: string | null }
+  | { type: "usage.updated"; attempt: number; model: string; tokens: AlterTokens; steps: number; sessionID: string | null };
+
 export type AlterResult = {
   id: string;
   ok: boolean;
@@ -108,6 +113,7 @@ export function spawnAlter(
     createOnly?: boolean;
     harness?: string;
     signal?: AbortSignal;
+    onEvent?: (event: AlterRuntimeEvent) => void;
     runtime?: Runtime;
   },
 ): Promise<
@@ -141,6 +147,7 @@ export function registerHarness(
         recordEvents: boolean;
         attempt: number;
         signal?: AbortSignal;
+        onEvent?: (event: AlterRuntimeEvent) => void;
         environment?: Record<string, string | undefined>;
       },
     ): Promise<AlterResponse>;
