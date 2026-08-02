@@ -72,14 +72,18 @@ export const scaffold = (root, cfg, o) => {
         nestable: !!o.nestable,
         web: !!o.webAccess,
         depth: o.depth,
-        parent_id: process.env.ALTER_ID || null,
-        spawned_by: process.env.ALTER_ID || "root",
+        parent_id: o.spawned_by === "root" ? null : o.spawned_by,
+        spawned_by: o.spawned_by,
         read_grants: o.readGrants,
         write_grants: o.writeGrants,
         bash_allow: o.bashAllow || [],
+        bash_only: !!o.bashOnly,
         catalog: o.catalogName || null,
         max_tokens: o.maxTokens ?? null,
         fallback_model: o.fallbackModel || null,
+        graph_id: o.graphId || null,
+        depends_on: o.dependsOn || [],
+        opencode_provider: o.opencodeProvider || null,
         created_at: iso(Date.now()),
         home: path.relative(root, home),
       },
@@ -87,6 +91,19 @@ export const scaffold = (root, cfg, o) => {
       2
     ) + "\n"
   );
+  if (o.opencodeProvider) {
+    writeFileSync(
+      path.join(home, "opencode.json"),
+      JSON.stringify(
+        {
+          $schema: "https://opencode.ai/config.json",
+          provider: o.opencodeProvider,
+        },
+        null,
+        2
+      ) + "\n"
+    );
+  }
   if (o.nestable) {
     const childKit = path.join(home, ".alters");
     mkdirSync(childKit, { recursive: true });
@@ -104,6 +121,8 @@ export const scaffold = (root, cfg, o) => {
           run_timeout_ms: cfg.run_timeout_ms ?? 180000,
           catalog_dir: catalogDirName,
           default_fallback_model: o.fallbackModel || cfg.default_fallback_model || null,
+          opencode_pure: cfg.opencode_pure !== false,
+          opencode_event_log: cfg.opencode_event_log === true,
           retry: cfg.retry || { same_harness_retries: 1, fallback_retries: 1 },
         },
         null,

@@ -4,6 +4,7 @@
   "run_timeout_ms": 180000,
   "catalog_dir": "catalog",
   "default_fallback_model": null,
+  "opencode_pure": true,
   "retry": {
     "same_harness_retries": 1,
     "fallback_retries": 1

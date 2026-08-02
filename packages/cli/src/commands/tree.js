@@ -14,7 +14,15 @@ const cmdTree = (topKit, dir, prefix, isLast, label) => {
     const aj = readAlterJson(h.path);
     const done = existsSync(path.join(h.path, "result.json"));
     const branch = dir === topKit ? prefix : prefix + (isLast ? "   " : "│  ");
-    console.error(branch + (last ? "└─ " : "├─ ") + h.id + (aj.nestable ? " (nestable)" : "") + (done ? "" : " [pending]"));
+    const catalog = aj.catalog ? ` [${aj.catalog}]` : "";
+    console.error(
+      branch +
+        (last ? "└─ " : "├─ ") +
+        h.id +
+        catalog +
+        (aj.nestable ? " (nestable)" : "") +
+        (done ? "" : " [pending]")
+    );
     const childKit = path.join(h.path, ".alters");
     if (existsSync(childKit)) {
       cmdTree(topKit, childKit, branch + (last ? "   " : "│  "), true, "");

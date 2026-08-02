@@ -65,8 +65,10 @@ const catalogSave = (argv) => {
       timeout: null,
       readGrants: aj.read_grants || [],
       writeGrants: aj.write_grants || [],
+      bashOnly: !!aj.bash_only,
       promptPrefix: null,
       promptSuffix: null,
+      opencodeProvider: aj.opencode_provider || null,
       createdFrom: aj.id || fromId,
     };
   } else {

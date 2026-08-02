@@ -115,8 +115,11 @@ Still needed:
   for nestable / `bash_allow` / grants combinations — the security-relevant
   one, currently only covered incidentally), `homes`
   (`resolveHome`/`removeHome`'s "most recent wins" logic).
-- A real pack-and-install smoke test (`npm pack` + install into a temp dir)
-  to replace the manual `npm link` verification done so far.
+- Keep the pack-and-install smoke test green as package metadata evolves.
+
+Added since this list was written: an offline DAG integration test now covers
+a chain that branches into two concurrent Alters and rejoins, with four
+catalog-selected OpenCode provider/model pairs and a durable graph trace.
 
 ## 4. CLI polish
 
@@ -132,10 +135,8 @@ Still needed:
 
 - Decide a real package name/scope (`mind` is almost certainly taken on the
   public registry).
-- `packages/cli/package.json` lists `@mind/core` as a normal dependency
-  (`^0.1.0`); this only resolves via workspace linking today. Add a build
-  step that bundles `@mind/core` into the published `mind` tarball, or
-  publish both packages together under one scope.
+- The CLI tarball now bundles `@mind/core`; keep the pack/install smoke check
+  green as publishing metadata evolves.
 - No LICENSE file yet anywhere in this repo.
 
 ## 6. Token budget counts cached reads (found live)

@@ -22,14 +22,18 @@ const prepareSpawn = (root, cfg, o) => {
   o.id = resolveId(o.name);
   o.name = o.name || o.id;
   o.model = resolveEffectiveModel(o, cfg);
-  o.spawned_by = process.env.ALTER_ID || "root";
+  o.spawned_by = o.spawned_by || process.env.ALTER_ID || "root";
   return o;
 };
 
 // `o` carries the parsed spawn options (see cli's parseSpawnArgs) plus
 // `mindBinPath`: the absolute path to the running `mind` CLI entrypoint,
 // baked into a nestable Alter's scoped bash permission.
-export const spawnAlter = async (root, o, { createOnly = false, harness = "opencode" } = {}) => {
+export const spawnAlter = async (
+  root,
+  o,
+  { createOnly = false, harness = "opencode", signal } = {},
+) => {
   const cfg = readConfig(root);
   prepareSpawn(root, cfg, o);
   const home = scaffold(root, cfg, o);
@@ -38,7 +42,18 @@ export const spawnAlter = async (root, o, { createOnly = false, harness = "openc
   }
   const timeout = o.timeout ?? cfg.run_timeout_ms ?? 180000;
   const effectivePrompt = [o.promptPrefix, o.prompt, o.promptSuffix].filter(Boolean).join("\n\n");
-  const { res, attempts } = await runWithRetries(o, cfg, home, effectivePrompt, timeout, o.depth, harness);
+  const { res, attempts } = await runWithRetries(
+    o,
+    cfg,
+    home,
+    effectivePrompt,
+    timeout,
+    o.depth,
+    harness,
+    signal,
+    cfg.opencode_pure !== false,
+    cfg.opencode_event_log === true,
+  );
   const startedAt = attempts[0].started_at;
   const endedAt = attempts[attempts.length - 1].ended_at;
   const totalDuration = attempts.reduce((s, a) => s + a.duration_ms, 0);
@@ -47,7 +62,12 @@ export const spawnAlter = async (root, o, { createOnly = false, harness = "openc
   return { home, created: false, result, res };
 };
 
-export const runExistingAlter = async (root, homeArg, prompt, { harness = "opencode", mindBinPath = null } = {}) => {
+export const runExistingAlter = async (
+  root,
+  homeArg,
+  prompt,
+  { harness = "opencode", mindBinPath = null, signal } = {},
+) => {
   const home = resolveHome(root, homeArg);
   if (!prompt) fail("usage: mind run <home-or-id> <prompt...>");
   const aj = readAlterJson(home);
@@ -62,6 +82,7 @@ export const runExistingAlter = async (root, homeArg, prompt, { harness = "openc
     readGrants: aj.read_grants || [],
     writeGrants: aj.write_grants || [],
     bashAllow: aj.bash_allow || [],
+    bashOnly: !!aj.bash_only,
     nestable: !!aj.nestable,
     webAccess: !!aj.web,
     maxTokens: aj.max_tokens ?? null,
@@ -71,7 +92,18 @@ export const runExistingAlter = async (root, homeArg, prompt, { harness = "openc
     spawned_by: aj.parent_id || process.env.ALTER_ID || "root",
     mindBinPath,
   };
-  const { res, attempts } = await runWithRetries(o, cfg, home, prompt, timeout, depth, harness);
+  const { res, attempts } = await runWithRetries(
+    o,
+    cfg,
+    home,
+    prompt,
+    timeout,
+    depth,
+    harness,
+    signal,
+    cfg.opencode_pure !== false,
+    cfg.opencode_event_log === true,
+  );
   const startedAt = attempts[0].started_at;
   const endedAt = attempts[attempts.length - 1].ended_at;
   const totalDuration = attempts.reduce((s, a) => s + a.duration_ms, 0);

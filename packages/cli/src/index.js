@@ -15,7 +15,8 @@ const usage = () => {
   console.error("  spawn   --name? --description? --model? --allow <p> --allow-write <p>");
   console.error("          --nestable? --web? --timeout? --rm? --verbose?");
   console.error("          --catalog <name>? --max-tokens <n>? --fallback-model <m>?");
-  console.error("          --prompt-prefix <s>? --prompt-suffix <s>?  <prompt>");
+  console.error("          --prompt-prefix <s>? --prompt-suffix <s>?");
+  console.error("          --opencode-provider-file <json>?  <prompt>");
   console.error("  create  (same flags as spawn; scaffolds a home without running)");
   console.error("  run     <home-or-id> <prompt...>");
   console.error("  list    (list alter homes + status)");

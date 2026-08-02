@@ -7,8 +7,19 @@
   },
   "files": [
     "src",
-    "profiles"
+    "profiles",
+    "scripts"
   ],
+  "engines": {
+    "node": ">=20"
+  },
+  "bundledDependencies": [
+    "@mind/core"
+  ],
+  "scripts": {
+    "prepack": "node scripts/bundle-core.mjs stage",
+    "postpack": "node scripts/bundle-core.mjs clean"
+  },
   "dependencies": {
     "@mind/core": "^0.1.0"
   }

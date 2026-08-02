@@ -25,7 +25,18 @@ export const buildAttemptPlan = (o, cfg) => {
 // description/readGrants/writeGrants/nestable/mindBinPath (needed to regenerate alter.md on a
 // model swap, since the model is baked into that file's frontmatter rather than passed to the
 // harness invocation directly).
-export const runWithRetries = async (o, cfg, home, prompt, timeout, depth, harnessName = "opencode") => {
+export const runWithRetries = async (
+  o,
+  cfg,
+  home,
+  prompt,
+  timeout,
+  depth,
+  harnessName = "opencode",
+  signal,
+  pure = true,
+  recordEvents = false,
+) => {
   const harness = getHarness(harnessName);
   const plan = buildAttemptPlan(o, cfg);
   const attempts = [];
@@ -41,7 +52,17 @@ export const runWithRetries = async (o, cfg, home, prompt, timeout, depth, harne
     }
     const startedAt = iso(Date.now());
     const startMs = Date.now();
-    res = await harness.run(home, prompt, { timeout, depth, alterId: o.id, maxTokens: o.maxTokens });
+    res = await harness.run(home, prompt, {
+      timeout,
+      depth,
+      alterId: o.id,
+      maxTokens: o.maxTokens,
+      model: attemptModel,
+      pure,
+      recordEvents,
+      attempt: i + 1,
+      signal,
+    });
     const endedAt = iso(Date.now());
     attempts.push({
       attempt: i + 1,
@@ -56,6 +77,7 @@ export const runWithRetries = async (o, cfg, home, prompt, timeout, depth, harne
       started_at: startedAt,
       ended_at: endedAt,
       duration_ms: Date.now() - startMs,
+      event_log: res.eventLog ? path.relative(home, res.eventLog) : null,
     });
     o.model = attemptModel;
     // A budget overrun is terminal: retrying under the same fixed cap would deterministically
@@ -63,7 +85,7 @@ export const runWithRetries = async (o, cfg, home, prompt, timeout, depth, harne
     // An empty result (`res.empty_output`, so `ok:false`) is *not* terminal and falls through
     // to the next attempt — returning no final message is often model-specific, so the
     // same-model retry and then the fallback model are both worth spending.
-    if (res.ok || res.budget_exceeded) break;
+    if (res.ok || res.budget_exceeded || res.aborted || signal?.aborted) break;
   }
   return { res, attempts };
 };

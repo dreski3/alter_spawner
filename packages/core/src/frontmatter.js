@@ -74,12 +74,12 @@ export const buildFrontmatter = (o) => {
   L.push("mode: all");
   if (o.model) L.push(`model: ${o.model}`);
   L.push("permission:");
-  L.push("  read: allow");
-  L.push("  glob: allow");
-  L.push("  grep: allow");
-  L.push("  skill: allow");
+  L.push(o.bashOnly ? "  read: deny" : "  read: allow");
+  L.push(o.bashOnly ? "  glob: deny" : "  glob: allow");
+  L.push(o.bashOnly ? "  grep: deny" : "  grep: allow");
+  L.push(o.bashOnly ? "  skill: deny" : "  skill: allow");
   L.push("  edit:");
-  L.push('    "**": allow');
+  L.push(`    "**": ${o.bashOnly ? "deny" : "allow"}`);
   const readDirs = o.readGrants;
   const writeDirs = o.writeGrants;
   for (const d of readDirs) {
@@ -93,7 +93,7 @@ export const buildFrontmatter = (o) => {
     L.push(`    ${yq(d)}: allow`);
   }
   L.push("  write:");
-  L.push('    "**": allow');
+  L.push(`    "**": ${o.bashOnly ? "deny" : "allow"}`);
   const bashRules = bashAllowRules(o);
   if (bashRules.length) {
     L.push("  bash:");

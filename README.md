@@ -11,8 +11,9 @@ one command: `mind spawn --catalog researcher "..."`.
 
 ## Status
 
-Not published. There is no `npx mind` yet — everything here is exercised via
-`npm link` or by invoking `packages/cli/src/index.js` with `node` directly.
+Not published. There is no `npx mind` yet. The CLI now packs as one small
+tarball with `@mind/core` bundled, so local consumers no longer need the old
+two-package `npm link` sequence.
 See [TODO.md](TODO.md) for what's left before that's a reasonable thing to do.
 
 ## Packages
@@ -21,7 +22,11 @@ See [TODO.md](TODO.md) for what's left before that's a reasonable thing to do.
   (walks up from `cwd` for `.alters/config.json`, like `git` finds `.git`),
   catalog resolution, Alter-home scaffolding, retry/fallback, and a
   harness-adapter interface (`src/harness/adapter.js`) with `opencode` as the
-  only implementation today (`src/harness/opencode.js`).
+  only implementation today (`src/harness/opencode.js`). Library callers can
+  use `parseSpawnArgs` plus `spawnAlter` directly and pass an `AbortSignal` to
+  cancel the underlying harness process without shelling out to `mind`.
+  `runAlterGraph` executes validated dependency graphs, runs ready branches in
+  parallel, interpolates dependency results, and checkpoints a graph trace.
 - **`packages/cli`** (`mind`) — the `mind` bin: `init`, `update`, `spawn`,
   `create`, `run`, `list`, `tree`, `show`, `rm`, `catalog`. Ships a default
   project profile under `profiles/default/`.
@@ -34,10 +39,10 @@ scoped bash permission targets the resolved, absolute path of the running
 ## Quickstart (local, unpublished)
 
 ```bash
-# one-time, from this repo
+# from this repo
 npm install
-cd packages/core && npm link
-cd ../cli && npm link @mind/core && npm link   # registers a global `mind` bin
+npm pack --workspace packages/cli
+npm install -g ./mind-0.1.0.tgz
 
 # anywhere else
 mkdir myproject && cd myproject
@@ -62,6 +67,65 @@ holes; `--nestable` lets it run `mind spawn` itself, scoped to nothing else.
 named Alter type (model, description/instructions, grants, nestable, token
 budget, fallback model). `mind spawn --catalog <name> "..."` spawns one; any
 explicit flag overrides the catalog's value for that field.
+
+A catalog entry may include `opencode_provider`, using the same provider map
+accepted by OpenCode's `provider` config key. The map is written to the
+isolated Alter home's `opencode.json`, and the catalog's `model` is passed to
+`opencode run --model` explicitly. Keep credentials out of manifests; use
+OpenCode placeholders such as `{env:MY_PROVIDER_API_KEY}`. A provider map can
+also be supplied while saving a catalog entry with
+`--opencode-provider-file <json>`.
+
+```json
+{
+  "name": "local-reviewer",
+  "description": "Reviews a proposed change.",
+  "model": "local/reviewer",
+  "opencode_provider": {
+    "local": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "http://127.0.0.1:1234/v1",
+        "apiKey": "{env:LOCAL_LLM_API_KEY}"
+      },
+      "models": { "reviewer": {} }
+    }
+  }
+}
+```
+
+**Graph runs** — library callers can define chains and branches with
+`runAlterGraph`. A node consumes a direct dependency using
+`{{result:node-id}}`; nodes whose dependencies are ready run concurrently.
+The output node's text is returned as `result.output`, while the full durable
+trace is saved under `.alters/graphs/<timestamp>_<graph-id>/result.json`.
+
+```js
+import { runAlterGraph } from "@mind/core";
+
+const run = await runAlterGraph(root, {
+  id: "review-pipeline",
+  output: "merge",
+  nodes: [
+    { id: "draft", catalog: "writer", prompt: "Draft the answer." },
+    { id: "facts", catalog: "researcher", depends_on: ["draft"], prompt: "Check {{result:draft}}" },
+    { id: "risks", catalog: "reviewer", depends_on: ["draft"], prompt: "Review {{result:draft}}" },
+    { id: "merge", catalog: "editor", depends_on: ["facts", "risks"], prompt: "Merge {{result:facts}} and {{result:risks}}" }
+  ]
+});
+```
+
+The regular test suite verifies provider routing offline. A credentialed
+OpenCode matrix can be exercised end to end with:
+
+```bash
+MIND_LIVE_PROVIDER_TESTS=1 \
+MIND_LIVE_PROVIDER_MATRIX='[{"model":"provider-a/model-a"},{"model":"provider-b/model-b"}]' \
+node --test packages/core/test/integration/provider-routing.live.test.js
+```
+
+Each matrix entry may also contain an `opencode_provider` map for a custom
+provider; built-in providers can rely on the user's existing OpenCode auth.
 
 **Profile** — what `mind init` scaffolds at a project's root: `AGENTS.md`,
 `opencode.jsonc`, `.opencode/skills/alter/SKILL.md`, `.alters/config.json`,
@@ -90,11 +154,9 @@ instead of paying for an inference call, without opening bash generally.
 
 ## Known limitations
 
-- Not published; `@mind/core` only resolves via workspace/`npm link`, not a
-  registry. No `mind --help`/`--version`, no bundling step.
-- `opencode run --dir <home>` regenerates its own `node_modules` inside every
-  Alter home regardless of what `mind` ships in the template — a real
-  per-run disk cost this CLI doesn't control.
+- Not published. No `mind --help`/`--version` yet.
+- OpenCode runs in `--pure` mode by default to avoid loading external plugins.
+  A custom provider can still require its configured AI SDK runtime package.
 - Only one harness adapter exists (`opencode`); the interface is unexercised
   by a second implementation.
 - Empty-result detection is text-based: an Alter that exits cleanly with no
@@ -108,3 +170,9 @@ instead of paying for an inference call, without opening bash generally.
   TODO.md #1.
 
 See [TODO.md](TODO.md) for the fuller list and next steps.
+
+## Examples
+
+- [`examples/cipher-relay`](examples/cipher-relay/README.md) demonstrates a
+  nestable relay selecting isolated AES decryptor and format-decoder Alters,
+  with separate sessions, homes, tool permissions, and token accounting.

@@ -19,8 +19,25 @@ export const validateManifest = (m, name) => {
   if (m.web != null && typeof m.web !== "boolean") {
     fail(`catalog entry "${name}": web must be a boolean.`);
   }
+  if (m.bash_only != null && typeof m.bash_only !== "boolean") {
+    fail(`catalog entry "${name}": bash_only must be a boolean.`);
+  }
   for (const key of ["read_grants", "write_grants", "bash_allow"]) {
     if (m[key] != null && !Array.isArray(m[key])) fail(`catalog entry "${name}": ${key} must be an array.`);
+  }
+  if (m.opencode_provider != null) {
+    if (
+      typeof m.opencode_provider !== "object" ||
+      Array.isArray(m.opencode_provider) ||
+      Object.keys(m.opencode_provider).length === 0
+    ) {
+      fail(`catalog entry "${name}": opencode_provider must be a non-empty object.`);
+    }
+    for (const [providerId, provider] of Object.entries(m.opencode_provider)) {
+      if (!providerId || typeof provider !== "object" || provider === null || Array.isArray(provider)) {
+        fail(`catalog entry "${name}": opencode_provider.${providerId || "(empty)"} must be an object.`);
+      }
+    }
   }
 };
 
@@ -57,11 +74,13 @@ export const applyCatalog = (o, entry) => {
   if (o.readGrants.length === 0) o.readGrants = (m.read_grants || []).map(normPath);
   if (o.writeGrants.length === 0) o.writeGrants = (m.write_grants || []).map(normPath);
   if (!o.bashAllow || o.bashAllow.length === 0) o.bashAllow = m.bash_allow || [];
+  if (!o.bashOnly) o.bashOnly = !!m.bash_only;
   o.promptPrefix = o.promptPrefix ?? m.prompt_prefix ?? null;
   o.promptSuffix = o.promptSuffix ?? m.prompt_suffix ?? null;
   o.catalogEntryDir = entry.dir;
   o.catalogAgentsOverride = m.agents_md_override || null;
   o.catalogSkillsDir = m.skills_dir || null;
+  if (o.opencodeProvider == null) o.opencodeProvider = m.opencode_provider || null;
   o.catalogName = m.name;
 };
 
@@ -95,10 +114,12 @@ const manifestFromOptions = (name, o) => ({
   read_grants: o.readGrants || [],
   write_grants: o.writeGrants || [],
   bash_allow: o.bashAllow || [],
+  bash_only: !!o.bashOnly,
   prompt_prefix: o.promptPrefix ?? null,
   prompt_suffix: o.promptSuffix ?? null,
   agents_md_override: null,
   skills_dir: null,
+  opencode_provider: o.opencodeProvider || null,
   source: { type: "local", ref: null },
   created_at: iso(Date.now()),
   created_from: o.createdFrom ?? null,

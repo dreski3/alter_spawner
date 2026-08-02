@@ -7,6 +7,8 @@ export const DEFAULT_CONFIG = {
   run_timeout_ms: 180000,
   catalog_dir: "catalog",
   default_fallback_model: null,
+  opencode_pure: true,
+  opencode_event_log: false,
   retry: { same_harness_retries: 1, fallback_retries: 1 },
 };
 

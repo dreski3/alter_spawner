@@ -14,7 +14,7 @@
 //   budget_exceeded: boolean,
 //   empty_output: boolean,
 // }>
-// opts: { timeout, depth, alterId, maxTokens }
+// opts: { timeout, depth, alterId, maxTokens, model, pure, recordEvents, attempt, signal }
 //
 // `ok` is the adapter's own verdict, not just "exited 0": an adapter folds the
 // semantic failures it can detect (budget overrun, a clean exit with no final

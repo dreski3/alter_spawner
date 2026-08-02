@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { createWriteStream } from "node:fs";
+import path from "node:path";
 import { registerHarness } from "./adapter.js";
 
 const parseLine = (line, acc) => {
@@ -60,14 +62,24 @@ export const classify = ({ exitCode, killed, budgetExceeded, text }) => {
 // does not control. In the worst case, enforcement is equivalent to "reject after the fact":
 // the run has already spent its tokens, and the only effect is result.json recording
 // ok:false, budget_exceeded:true with no further retries proceeding.
-const run = (home, prompt, { timeout, depth, alterId, maxTokens }) =>
+const run = (
+  home,
+  prompt,
+  { timeout, depth, alterId, maxTokens, model, pure, recordEvents, attempt, signal }
+) =>
   new Promise((resolve) => {
+    const args = ["run"];
+    if (pure) args.push("--pure");
+    args.push("--agent", "alter", "--dir", home, "--format", "json");
+    if (model) args.push("--model", model);
+    args.push(prompt);
     const child = spawn(
       "opencode",
-      ["run", "--agent", "alter", "--dir", home, "--format", "json", prompt],
+      args,
       {
         cwd: home,
         stdio: ["ignore", "pipe", "pipe"],
+        detached: process.platform !== "win32",
         env: {
           ...process.env,
           ALTER_DEPTH: String(depth),
@@ -79,8 +91,29 @@ const run = (home, prompt, { timeout, depth, alterId, maxTokens }) =>
     const acc = newAcc();
     let settled = false;
     let timer;
+    let forceKillTimer;
     let budgetExceeded = false;
+    let aborted = false;
+    const eventLog = recordEvents ? path.join(home, `attempt-${attempt || 1}.events.jsonl`) : null;
+    const eventStream = eventLog ? createWriteStream(eventLog, { flags: "w" }) : null;
+    const eventStreamDone = eventStream
+      ? new Promise((done) => {
+          eventStream.on("finish", done);
+          eventStream.on("error", done);
+        })
+      : Promise.resolve();
+    const killProcessTree = (signalName) => {
+      try {
+        if (process.platform !== "win32" && child.pid) process.kill(-child.pid, signalName);
+        else child.kill(signalName);
+      } catch {
+        try {
+          child.kill(signalName);
+        } catch {}
+      }
+    };
     child.stdout.on("data", (d) => {
+      eventStream?.write(d);
       buf += d.toString();
       const lines = buf.split(/\r?\n/);
       buf = lines.pop();
@@ -88,9 +121,7 @@ const run = (home, prompt, { timeout, depth, alterId, maxTokens }) =>
         parseLine(line, acc);
         if (!budgetExceeded && maxTokens && acc.tokens.total > maxTokens) {
           budgetExceeded = true;
-          try {
-            child.kill("SIGKILL");
-          } catch {}
+          killProcessTree("SIGKILL");
         }
       }
     });
@@ -101,28 +132,43 @@ const run = (home, prompt, { timeout, depth, alterId, maxTokens }) =>
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(forceKillTimer);
+      signal?.removeEventListener("abort", onAbort);
       if (buf.trim()) parseLine(buf, acc);
-      resolve({
+      const output = {
         tokens: acc.tokens,
         text: acc.text,
         sessionID: acc.sessionID,
         steps: acc.steps,
         exitCode,
         killed,
+        aborted,
+        eventLog,
         ...classify({ exitCode, killed, budgetExceeded, text: acc.text }),
-      });
+      };
+      eventStream?.end();
+      eventStreamDone.then(() => resolve(output));
     };
+    const onAbort = () => {
+      if (settled || aborted) return;
+      aborted = true;
+      killProcessTree("SIGTERM");
+      forceKillTimer = setTimeout(() => {
+        killProcessTree("SIGKILL");
+      }, 2000);
+      forceKillTimer.unref();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
     timer = setTimeout(() => {
-      try {
-        child.kill("SIGKILL");
-      } catch {}
+      killProcessTree("SIGKILL");
       finish(-1, true);
     }, timeout);
     child.on("error", (e) => {
       process.stderr.write("alter spawn error: " + e.message + "\n");
       finish(-2, false);
     });
-    child.on("close", (code) => finish(code, budgetExceeded));
+    child.on("close", (code) => finish(code, budgetExceeded || aborted));
   });
 
 registerHarness("opencode", { run });
