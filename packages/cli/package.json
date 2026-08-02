@@ -3,24 +3,16 @@
   "version": "0.1.0",
   "type": "module",
   "bin": {
-    "mind": "./src/index.js"
+    "mind": "./dist/cli/index.js"
   },
   "files": [
-    "src",
-    "profiles",
-    "scripts"
+    "dist"
   ],
   "engines": {
     "node": ">=20"
   },
-  "bundledDependencies": [
-    "@mind/core"
-  ],
   "scripts": {
-    "prepack": "node scripts/bundle-core.mjs stage",
-    "postpack": "node scripts/bundle-core.mjs clean"
-  },
-  "dependencies": {
-    "@mind/core": "^0.1.0"
+    "build:package": "node scripts/build-package.mjs",
+    "prepack": "npm run build:package"
   }
 }

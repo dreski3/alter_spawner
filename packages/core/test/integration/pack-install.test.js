@@ -32,5 +32,6 @@ test("the CLI packs and installs as one self-contained package", (t) => {
   execFileSync(mind, ["init"], { cwd: consumer, stdio: "pipe" });
   assert.equal(existsSync(mind), true);
   assert.equal(existsSync(path.join(consumer, ".alters", "config.json")), true);
-  assert.equal(existsSync(path.join(consumer, "node_modules", "mind", "node_modules", "@mind", "core")), true);
+  assert.equal(existsSync(path.join(consumer, "node_modules", "mind", "dist", "core", "src", "index.js")), true);
+  assert.equal(existsSync(path.join(consumer, "node_modules", "mind", "node_modules")), false);
 });

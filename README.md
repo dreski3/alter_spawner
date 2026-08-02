@@ -11,9 +11,9 @@ one command: `mind spawn --catalog researcher "..."`.
 
 ## Status
 
-Not published. There is no `npx mind` yet. The CLI now packs as one small
-tarball with `@mind/core` bundled, so local consumers no longer need the old
-two-package `npm link` sequence.
+Not published. There is no `npx mind` yet. The CLI packs as one small,
+self-contained tarball whose deterministic `dist/` artifact includes the core,
+so local consumers no longer need the old two-package `npm link` sequence.
 See [TODO.md](TODO.md) for what's left before that's a reasonable thing to do.
 
 ## Packages
