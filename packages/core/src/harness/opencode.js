@@ -2,36 +2,11 @@ import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import path from "node:path";
 import { registerHarness } from "./adapter.js";
-
-const parseLine = (line, acc) => {
-  const t = line.trim();
-  if (!t) return;
-  let obj;
-  try {
-    obj = JSON.parse(t);
-  } catch {
-    return;
-  }
-  if (obj.type === "step_finish") {
-    const tk = obj.part?.tokens || {};
-    acc.tokens.input += tk.input || 0;
-    acc.tokens.output += tk.output || 0;
-    acc.tokens.reasoning += tk.reasoning || 0;
-    acc.tokens.cache_read += tk.cache?.read || 0;
-    acc.tokens.total += tk.total || 0;
-    acc.steps += 1;
-  } else if (obj.type === "text") {
-    acc.text += obj.part?.text || "";
-  }
-  if (!acc.sessionID && obj.sessionID) acc.sessionID = obj.sessionID;
-};
-
-const newAcc = () => ({
-  tokens: { input: 0, output: 0, reasoning: 0, cache_read: 0, total: 0 },
-  text: "",
-  sessionID: null,
-  steps: 0,
-});
+import {
+  classifyOpenCodeResult,
+  consumeOpenCodeEvent,
+  createOpenCodeAccumulator,
+} from "./opencode-events.js";
 
 // Classifies a finished run. Kept pure (and exported) so the outcome table can be
 // tested without spawning a real `opencode` process.
@@ -50,11 +25,7 @@ const newAcc = () => ({
 // Precedence matters: a killed or over-budget run may legitimately have no text
 // yet, and its real reason is the kill/overrun — only a clean exit can be
 // classified as empty.
-export const classify = ({ exitCode, killed, budgetExceeded, text }) => {
-  const clean = exitCode === 0 && !killed && !budgetExceeded;
-  const empty_output = clean && String(text || "").trim() === "";
-  return { ok: clean && !empty_output, empty_output, budget_exceeded: !!budgetExceeded };
-};
+export const classify = classifyOpenCodeResult;
 
 // Token-budget enforcement kills the child as soon as usage becomes visible on stdout.
 // Whether that is genuinely mid-run or only once opencode has already finished and flushed
@@ -88,7 +59,7 @@ const run = (
       }
     );
     let buf = "";
-    const acc = newAcc();
+    const acc = createOpenCodeAccumulator();
     let settled = false;
     let timer;
     let forceKillTimer;
@@ -118,7 +89,7 @@ const run = (
       const lines = buf.split(/\r?\n/);
       buf = lines.pop();
       for (const line of lines) {
-        parseLine(line, acc);
+        consumeOpenCodeEvent(line, acc);
         if (!budgetExceeded && maxTokens && acc.tokens.total > maxTokens) {
           budgetExceeded = true;
           killProcessTree("SIGKILL");
@@ -134,7 +105,7 @@ const run = (
       clearTimeout(timer);
       clearTimeout(forceKillTimer);
       signal?.removeEventListener("abort", onAbort);
-      if (buf.trim()) parseLine(buf, acc);
+      if (buf.trim()) consumeOpenCodeEvent(buf, acc);
       const output = {
         tokens: acc.tokens,
         text: acc.text,
@@ -144,7 +115,7 @@ const run = (
         killed,
         aborted,
         eventLog,
-        ...classify({ exitCode, killed, budgetExceeded, text: acc.text }),
+        ...classifyOpenCodeResult({ exitCode, killed, budgetExceeded, text: acc.text }),
       };
       eventStream?.end();
       eventStreamDone.then(() => resolve(output));
