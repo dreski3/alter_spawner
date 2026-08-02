@@ -5,22 +5,24 @@ import { spawnAlter } from "./engine.js";
 import { buildGraphSpawnOptions, renderGraphPrompt, validateGraph } from "./graph-spec.js";
 import { createGraphResult } from "./graph-result.js";
 import { writeJsonAtomic } from "./persistence.js";
+import { resolveRuntime } from "./runtime.js";
 import { fail, iso, sanitizeName, timestampSlug } from "./util.js";
 
 export const runAlterGraph = async (
   root,
   graph,
-  { harness = "opencode", signal, concurrency = Infinity, mindBinPath = null } = {},
+  { harness = "opencode", signal, concurrency = Infinity, mindBinPath = null, runtime: runtimeOverride } = {},
 ) => {
+  const runtime = resolveRuntime(runtimeOverride);
   const { nodes, output } = validateGraph(graph);
-  const graphId = sanitizeName(graph.id || `graph_${Math.random().toString(36).slice(2, 8)}`);
+  const graphId = sanitizeName(graph.id || `graph_${runtime.randomId(6)}`);
   const graphRoot = path.join(kitDir(root), "graphs");
-  let graphHome = path.join(graphRoot, `${timestampSlug()}_${graphId}`);
+  let graphHome = path.join(graphRoot, `${timestampSlug(runtime.now())}_${graphId}`);
   if (existsSync(graphHome)) {
-    graphHome = path.join(graphRoot, `${timestampSlug()}_${graphId}-${Math.random().toString(36).slice(2, 8)}`);
+    graphHome = path.join(graphRoot, `${timestampSlug(runtime.now())}_${graphId}-${runtime.randomId(6)}`);
   }
   mkdirSync(graphHome, { recursive: true });
-  const startMs = Date.now();
+  const startMs = runtime.now();
   const startedAt = iso(startMs);
   const records = Object.fromEntries(
     [...nodes.values()].map((node) => [
@@ -29,7 +31,7 @@ export const runAlterGraph = async (
     ])
   );
   const persist = (endedAt = null) => {
-    const document = createGraphResult({ graphId, output, records, startedAt, startMs, endedAt });
+    const document = createGraphResult({ graphId, output, records, startedAt, startMs, endedAt, now: runtime.now() });
     writeJsonAtomic(path.join(graphHome, "result.json"), document);
     return document;
   };
@@ -69,7 +71,7 @@ export const runAlterGraph = async (
               graphId,
               mindBinPath
             );
-            const spawned = await spawnAlter(root, options, { harness, signal });
+            const spawned = await spawnAlter(root, options, { harness, signal, runtime });
             record.home = spawned.home;
             record.result = spawned.result;
             record.state = spawned.result.ok ? "succeeded" : "failed";
@@ -83,6 +85,6 @@ export const runAlterGraph = async (
       );
     }
   }
-  const result = persist(iso(Date.now()));
+  const result = persist(iso(runtime.now()));
   return { home: graphHome, result };
 };

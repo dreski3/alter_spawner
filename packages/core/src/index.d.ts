@@ -6,6 +6,12 @@ export type AlterTokens = {
   total: number;
 };
 
+export type Runtime = {
+  now(): number;
+  randomId(length?: number): string;
+  env: Record<string, string | undefined>;
+};
+
 export type SpawnOptions = {
   name: string | null;
   description: string | null;
@@ -92,6 +98,8 @@ export const RESULT_SCHEMA_VERSION: number;
 export const GRAPH_RESULT_SCHEMA_VERSION: number;
 export function writeTextAtomic(file: string, content: string): void;
 export function writeJsonAtomic(file: string, value: unknown): void;
+export function createRuntime(overrides?: Partial<Runtime>): Runtime;
+export function resolveRuntime(runtime?: Runtime): Runtime;
 
 export function spawnAlter(
   root: string,
@@ -100,6 +108,7 @@ export function spawnAlter(
     createOnly?: boolean;
     harness?: string;
     signal?: AbortSignal;
+    runtime?: Runtime;
   },
 ): Promise<
   | {
@@ -132,6 +141,7 @@ export function registerHarness(
         recordEvents: boolean;
         attempt: number;
         signal?: AbortSignal;
+        environment?: Record<string, string | undefined>;
       },
     ): Promise<AlterResponse>;
   },
@@ -179,6 +189,7 @@ export function runAlterGraph(
     signal?: AbortSignal;
     concurrency?: number;
     mindBinPath?: string;
+    runtime?: Runtime;
   },
 ): Promise<{ home: string; result: Record<string, unknown> }>;
 

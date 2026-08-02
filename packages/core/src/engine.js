@@ -8,24 +8,25 @@ import { runWithRetries } from "./retry.js";
 import { writeResult, readAlterJson, resolveHome } from "./homes.js";
 import { createSpawnOptions } from "./spawn-spec.js";
 import { validateOutputContract } from "./output-contract.js";
+import { resolveRuntime } from "./runtime.js";
 
-export const resolveEffectiveModel = (o, cfg) =>
-  o.model || process.env.ALTER_MODEL || cfg.default_model;
+export const resolveEffectiveModel = (o, cfg, runtime = resolveRuntime()) =>
+  o.model || runtime.env.ALTER_MODEL || cfg.default_model;
 
-const prepareSpawn = (root, cfg, o) => {
+const prepareSpawn = (root, cfg, o, runtime) => {
   if (o.catalog) applyCatalog(o, resolveCatalogEntry(root, cfg, o.catalog));
   validateOutputContract(o.outputContract);
-  const incoming = process.env.ALTER_DEPTH !== undefined ? Number(process.env.ALTER_DEPTH) : -1;
+  const incoming = runtime.env.ALTER_DEPTH !== undefined ? Number(runtime.env.ALTER_DEPTH) : -1;
   const depth = incoming + 1;
   const maxDepth = cfg.max_depth ?? 5;
   if (depth >= maxDepth) {
     fail(`max nesting depth (${maxDepth}) reached; refusing to spawn at depth ${depth}.`);
   }
   o.depth = depth;
-  o.id = resolveId(o.name);
+  o.id = resolveId(o.name, runtime);
   o.name = o.name || o.id;
-  o.model = resolveEffectiveModel(o, cfg);
-  o.spawned_by = o.spawned_by || process.env.ALTER_ID || "root";
+  o.model = resolveEffectiveModel(o, cfg, runtime);
+  o.spawned_by = o.spawned_by || runtime.env.ALTER_ID || "root";
   return o;
 };
 
@@ -35,11 +36,12 @@ const prepareSpawn = (root, cfg, o) => {
 export const spawnAlter = async (
   root,
   o,
-  { createOnly = false, harness = "opencode", signal } = {},
+  { createOnly = false, harness = "opencode", signal, runtime: runtimeOverride } = {},
 ) => {
+  const runtime = resolveRuntime(runtimeOverride);
   const cfg = readConfig(root);
-  prepareSpawn(root, cfg, o);
-  const home = scaffold(root, cfg, o);
+  prepareSpawn(root, cfg, o, runtime);
+  const home = scaffold(root, cfg, o, runtime);
   if (createOnly) {
     return { home, created: true, depth: o.depth, model: o.model };
   }
@@ -56,6 +58,7 @@ export const spawnAlter = async (
     signal,
     pure: cfg.opencode_pure !== false,
     recordEvents: cfg.opencode_event_log === true,
+    runtime,
   });
   const startedAt = attempts[0].started_at;
   const endedAt = attempts[attempts.length - 1].ended_at;
@@ -69,8 +72,9 @@ export const runExistingAlter = async (
   root,
   homeArg,
   prompt,
-  { harness = "opencode", mindBinPath = null, signal } = {},
+  { harness = "opencode", mindBinPath = null, signal, runtime: runtimeOverride } = {},
 ) => {
+  const runtime = resolveRuntime(runtimeOverride);
   const home = resolveHome(root, homeArg);
   if (!prompt) fail("usage: mind run <home-or-id> <prompt...>");
   const aj = readAlterJson(home);
@@ -93,7 +97,7 @@ export const runExistingAlter = async (
     outputContract: aj.output_contract || null,
     catalogName: aj.catalog || null,
     depth,
-    spawned_by: aj.parent_id || process.env.ALTER_ID || "root",
+    spawned_by: aj.parent_id || runtime.env.ALTER_ID || "root",
     mindBinPath,
   });
   validateOutputContract(o.outputContract);
@@ -108,6 +112,7 @@ export const runExistingAlter = async (
     signal,
     pure: cfg.opencode_pure !== false,
     recordEvents: cfg.opencode_event_log === true,
+    runtime,
   });
   const startedAt = attempts[0].started_at;
   const endedAt = attempts[attempts.length - 1].ended_at;

@@ -4,6 +4,7 @@ import { fail, iso, normPath, sanitizeName } from "./util.js";
 import { kitDir } from "./config.js";
 import { validateOutputContract } from "./output-contract.js";
 import { writeJsonAtomic } from "./persistence.js";
+import { resolveRuntime } from "./runtime.js";
 
 export const catalogDirPath = (root, cfg) => path.join(kitDir(root), cfg.catalog_dir || "catalog");
 
@@ -106,7 +107,7 @@ export const listCatalogEntries = (root, cfg) => {
   return out;
 };
 
-const manifestFromOptions = (name, o) => ({
+const manifestFromOptions = (name, o, runtime) => ({
   name,
   description: o.description || "Single-use sandboxed Alter.",
   model: o.model || null,
@@ -126,18 +127,19 @@ const manifestFromOptions = (name, o) => ({
   opencode_provider: o.opencodeProvider || null,
   output_contract: o.outputContract || null,
   source: { type: "local", ref: null },
-  created_at: iso(Date.now()),
+  created_at: iso(runtime.now()),
   created_from: o.createdFrom ?? null,
 });
 
-export const saveCatalogEntry = (root, cfg, name, o, { force = false } = {}) => {
+export const saveCatalogEntry = (root, cfg, name, o, { force = false, runtime: runtimeOverride } = {}) => {
+  const runtime = resolveRuntime(runtimeOverride);
   const sanitized = sanitizeName(name);
   const dir = path.join(catalogDirPath(root, cfg), sanitized);
   if (existsSync(dir) && !force) {
     fail(`catalog entry already exists: ${sanitized} (pass --force to overwrite)`);
   }
   mkdirSync(dir, { recursive: true });
-  const manifest = manifestFromOptions(sanitized, o);
+  const manifest = manifestFromOptions(sanitized, o, runtime);
   writeJsonAtomic(path.join(dir, "manifest.json"), manifest);
   return dir;
 };

@@ -36,7 +36,7 @@ export const classify = classifyOpenCodeResult;
 const run = (
   home,
   prompt,
-  { timeout, depth, alterId, maxTokens, model, pure, recordEvents, attempt, signal }
+  { timeout, depth, alterId, maxTokens, model, pure, recordEvents, attempt, signal, environment = process.env }
 ) =>
   new Promise((resolve) => {
     const args = ["run"];
@@ -52,7 +52,7 @@ const run = (
         stdio: ["ignore", "pipe", "pipe"],
         detached: process.platform !== "win32",
         env: {
-          ...process.env,
+          ...environment,
           ALTER_DEPTH: String(depth),
           ALTER_ID: alterId || "",
         },

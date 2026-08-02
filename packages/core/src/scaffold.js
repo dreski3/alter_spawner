@@ -6,24 +6,26 @@ import { ALTER_HOME_TEMPLATE_DIR } from "./paths.js";
 import { buildAgentsMd, buildBody, buildFrontmatter } from "./frontmatter.js";
 import { catalogDirPath } from "./catalog.js";
 import { ALTER_SCHEMA_VERSION, writeJsonAtomic, writeTextAtomic } from "./persistence.js";
+import { resolveRuntime } from "./runtime.js";
 
 // The `id` is a logical identifier only (used for ALTER_ID/parent_id/spawned_by
 // tracking and for `--name`-based lookups) — it is intentionally allowed to
 // repeat across runs, since each run gets its own timestamped folder under
 // `.alters/runs/`. No filesystem check needed here anymore.
-export const resolveId = (name) => {
-  if (!name) return `alter_${Math.random().toString(36).slice(2, 8)}`;
+export const resolveId = (name, runtimeOverride) => {
+  const runtime = resolveRuntime(runtimeOverride);
+  if (!name) return `alter_${runtime.randomId(6)}`;
   const base = sanitizeName(name);
-  return base || resolveId(null);
+  return base || resolveId(null, runtime);
 };
 
 // Every Alter home lives at `.alters/runs/<timestamp>_<id>/`, so re-spawning
 // the same `--name` repeatedly ("reruns") never collides and naturally sorts
 // chronologically instead of overwriting/cluttering `.alters/` directly.
-const resolveRunFolder = (root, id) => {
+const resolveRunFolder = (root, id, runtime) => {
   for (let i = 0; i < 5; i++) {
-    const suffix = i === 0 ? "" : `-${Math.random().toString(36).slice(2, 6)}`;
-    const folder = `${timestampSlug()}_${id}${suffix}`;
+    const suffix = i === 0 ? "" : `-${runtime.randomId(4)}`;
+    const folder = `${timestampSlug(runtime.now())}_${id}${suffix}`;
     if (!existsSync(path.join(runsDir(root), folder))) return folder;
   }
   fail("could not allocate a unique run folder for: " + id);
@@ -34,8 +36,9 @@ const resolveRunFolder = (root, id) => {
 // catalog, both cheap JSON) — never a copy of the engine itself. The engine
 // is resolved from the installed `mind` package via `o.mindBinPath`, which
 // the CLI layer bakes into the nestable Alter's scoped bash permission.
-export const scaffold = (root, cfg, o) => {
-  o.runFolder = resolveRunFolder(root, o.id);
+export const scaffold = (root, cfg, o, runtimeOverride) => {
+  const runtime = resolveRuntime(runtimeOverride);
+  o.runFolder = resolveRunFolder(root, o.id, runtime);
   const home = path.join(runsDir(root), o.runFolder);
   mkdirSync(home, { recursive: true });
   gitInit(home);
@@ -86,7 +89,7 @@ export const scaffold = (root, cfg, o) => {
         depends_on: o.dependsOn || [],
         opencode_provider: o.opencodeProvider || null,
         output_contract: o.outputContract || null,
-        created_at: iso(Date.now()),
+        created_at: iso(runtime.now()),
         home: path.relative(root, home),
       }
   );
