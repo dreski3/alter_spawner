@@ -16,6 +16,8 @@ const usage = () => {
   console.error("          --nestable? --web? --timeout? --rm? --verbose?");
   console.error("          --catalog <name>? --max-tokens <n>? --fallback-model <m>?");
   console.error("          --prompt-prefix <s>? --prompt-suffix <s>?");
+  console.error("          --bash-allow <pattern>? --bash-only?");
+  console.error("          --output-exact <s>? --output-prefix <s>? --output-regex <s>? --output-json?");
   console.error("          --opencode-provider-file <json>?  <prompt>");
   console.error("  create  (same flags as spawn; scaffolds a home without running)");
   console.error("  run     <home-or-id> <prompt...>");

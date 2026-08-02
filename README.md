@@ -50,6 +50,20 @@ mind init                        # or: mind init --source <profile-dir>
 mind spawn --catalog researcher "what changed in opencode 2.0?"
 ```
 
+The adaptive-decoder limit test demonstrates a nestable principal creating a
+missing catalog definition during inference and immediately spawning it:
+
+```bash
+workdir=$(mktemp -d)
+mkdir -p "$workdir/.alters"
+node examples/adaptive-decoder/setup.mjs "$workdir"
+node examples/adaptive-decoder/run-demo.mjs "$workdir"
+```
+
+Its audit includes the private definition, child trace, wall time, steps, and
+combined parent/child token usage. Run the corresponding live test with
+`npm run test:live:adaptive`.
+
 If you'd rather not touch global npm state, call the script directly:
 `node /path/to/D2/packages/cli/src/index.js <command>` — useful during
 active development on `mind` itself, since edits are live immediately (no

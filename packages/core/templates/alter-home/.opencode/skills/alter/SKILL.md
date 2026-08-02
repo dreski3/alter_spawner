@@ -45,6 +45,11 @@ answer) and also saved to `<home>/result.md` (+ `result.json` with stats).
 | `--max-tokens <n>` | kill the run if its token usage crosses this budget |
 | `--fallback-model <provider/model>` | model to escalate to after same-model retries fail |
 | `--prompt-prefix <text>` / `--prompt-suffix <text>` | text wrapped around the prompt |
+| `--bash-allow <pattern>` | allow one exact command pattern in the Alter's shell |
+| `--bash-only` | deny non-shell tools, useful for deterministic tool wrappers |
+| `--output-exact <text>` / `--output-prefix <text>` | require a matching final result |
+| `--output-regex <pattern>` | require the final result to match a regular expression |
+| `--output-json` | require the final result to parse as JSON |
 
 ## Catalog: predefined harnesses
 `.alters/catalog/<name>/manifest.json` defines a reusable, named harness (model,
@@ -59,6 +64,7 @@ mind catalog show researcher                  # print a harness's manifest.json
 mind spawn --catalog researcher "what changed in opencode 2.0?"
 mind catalog save my-harness --from <alter-id>   # promote a spawned alter
 mind catalog save my-harness --description "..." --model ... --max-tokens 100000
+mind catalog save decoder --bash-only --bash-allow "node /abs/decode.mjs **" --output-prefix "SECRET:"
 ```
 Catalog resolution is local-folder-based today (`source.type: "local"` in each
 manifest); the field is a reserved seam for a future non-local (e.g. MCP) source.
