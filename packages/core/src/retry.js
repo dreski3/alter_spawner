@@ -1,18 +1,21 @@
-import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { iso } from "./util.js";
 import { buildBody, buildFrontmatter } from "./frontmatter.js";
 import { getHarness } from "./harness/adapter.js";
+import { checkOutputContract } from "./output-contract.js";
+import { writeTextAtomic } from "./persistence.js";
+import { resolveRuntime } from "./runtime.js";
 
 // Attempt plan: initial run, then `same_harness_retries` retries on the same model, then
 // `fallback_retries` retries on an escalated/fallback model (if one is available). A catalog
 // entry without a fallback_model gets no fallback tier — we do not guess one for named harnesses.
-export const buildAttemptPlan = (o, cfg) => {
+export const buildAttemptPlan = (o, cfg, runtimeOverride) => {
+  const runtime = resolveRuntime(runtimeOverride);
   const sameRetries = cfg.retry?.same_harness_retries ?? 1;
   const fallbackRetries = cfg.retry?.fallback_retries ?? 1;
   const fallbackModel =
     o.fallbackModel ||
-    (o.catalogName ? null : cfg.default_fallback_model || process.env.ALTER_MODEL || null);
+    (o.catalogName ? null : cfg.default_fallback_model || runtime.env.ALTER_MODEL || null);
   const plan = [{ model: o.model, reason: "initial" }];
   for (let i = 0; i < sameRetries; i++) plan.push({ model: o.model, reason: "retry_same_model" });
   if (fallbackModel && fallbackModel !== o.model) {
@@ -25,9 +28,9 @@ export const buildAttemptPlan = (o, cfg) => {
 // description/readGrants/writeGrants/nestable/mindBinPath (needed to regenerate alter.md on a
 // model swap, since the model is baked into that file's frontmatter rather than passed to the
 // harness invocation directly).
-export const runWithRetries = async (
-  o,
-  cfg,
+export const runWithRetries = async ({
+  options: o,
+  config: cfg,
   home,
   prompt,
   timeout,
@@ -36,22 +39,24 @@ export const runWithRetries = async (
   signal,
   pure = true,
   recordEvents = false,
-) => {
+  runtime: runtimeOverride,
+}) => {
+  const runtime = resolveRuntime(runtimeOverride);
   const harness = getHarness(harnessName);
-  const plan = buildAttemptPlan(o, cfg);
+  const plan = buildAttemptPlan(o, cfg, runtime);
   const attempts = [];
   let res;
   for (let i = 0; i < plan.length; i++) {
     const attemptModel = plan[i].model;
     if (i > 0 && attemptModel !== plan[i - 1].model) {
       o.model = attemptModel;
-      writeFileSync(
+      writeTextAtomic(
         path.join(home, ".opencode", "agents", "alter.md"),
         buildFrontmatter(o) + "\n\n" + buildBody(o) + "\n"
       );
     }
-    const startedAt = iso(Date.now());
-    const startMs = Date.now();
+    const startedAt = iso(runtime.now());
+    const startMs = runtime.now();
     res = await harness.run(home, prompt, {
       timeout,
       depth,
@@ -62,8 +67,15 @@ export const runWithRetries = async (
       recordEvents,
       attempt: i + 1,
       signal,
+      environment: runtime.env,
     });
-    const endedAt = iso(Date.now());
+    if (res.ok && o.outputContract) {
+      const contract = checkOutputContract(res.text, o.outputContract);
+      if (!contract.ok) {
+        res = { ...res, ok: false, contract_failed: true, contract_error: contract.error };
+      }
+    }
+    const endedAt = iso(runtime.now());
     attempts.push({
       attempt: i + 1,
       model: attemptModel,
@@ -73,10 +85,12 @@ export const runWithRetries = async (
       killed: res.killed,
       budget_exceeded: res.budget_exceeded || false,
       empty_output: res.empty_output || false,
+      contract_failed: res.contract_failed || false,
+      contract_error: res.contract_error || null,
       tokens: res.tokens,
       started_at: startedAt,
       ended_at: endedAt,
-      duration_ms: Date.now() - startMs,
+      duration_ms: runtime.now() - startMs,
       event_log: res.eventLog ? path.relative(home, res.eventLog) : null,
     });
     o.model = attemptModel;

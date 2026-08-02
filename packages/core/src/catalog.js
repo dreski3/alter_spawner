@@ -1,7 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fail, iso, normPath, sanitizeName } from "./util.js";
 import { kitDir } from "./config.js";
+import { validateOutputContract } from "./output-contract.js";
+import { writeJsonAtomic } from "./persistence.js";
+import { resolveRuntime } from "./runtime.js";
 
 export const catalogDirPath = (root, cfg) => path.join(kitDir(root), cfg.catalog_dir || "catalog");
 
@@ -39,6 +42,7 @@ export const validateManifest = (m, name) => {
       }
     }
   }
+  validateOutputContract(m.output_contract, `catalog entry "${name}": output_contract`);
 };
 
 // Resolution seam: "local" is the only implemented source today. A future "mcp" source
@@ -81,6 +85,7 @@ export const applyCatalog = (o, entry) => {
   o.catalogAgentsOverride = m.agents_md_override || null;
   o.catalogSkillsDir = m.skills_dir || null;
   if (o.opencodeProvider == null) o.opencodeProvider = m.opencode_provider || null;
+  if (o.outputContract == null) o.outputContract = m.output_contract || null;
   o.catalogName = m.name;
 };
 
@@ -102,7 +107,7 @@ export const listCatalogEntries = (root, cfg) => {
   return out;
 };
 
-const manifestFromOptions = (name, o) => ({
+const manifestFromOptions = (name, o, runtime) => ({
   name,
   description: o.description || "Single-use sandboxed Alter.",
   model: o.model || null,
@@ -120,19 +125,21 @@ const manifestFromOptions = (name, o) => ({
   agents_md_override: null,
   skills_dir: null,
   opencode_provider: o.opencodeProvider || null,
+  output_contract: o.outputContract || null,
   source: { type: "local", ref: null },
-  created_at: iso(Date.now()),
+  created_at: iso(runtime.now()),
   created_from: o.createdFrom ?? null,
 });
 
-export const saveCatalogEntry = (root, cfg, name, o, { force = false } = {}) => {
+export const saveCatalogEntry = (root, cfg, name, o, { force = false, runtime: runtimeOverride } = {}) => {
+  const runtime = resolveRuntime(runtimeOverride);
   const sanitized = sanitizeName(name);
   const dir = path.join(catalogDirPath(root, cfg), sanitized);
   if (existsSync(dir) && !force) {
     fail(`catalog entry already exists: ${sanitized} (pass --force to overwrite)`);
   }
   mkdirSync(dir, { recursive: true });
-  const manifest = manifestFromOptions(sanitized, o);
-  writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+  const manifest = manifestFromOptions(sanitized, o, runtime);
+  writeJsonAtomic(path.join(dir, "manifest.json"), manifest);
   return dir;
 };

@@ -23,16 +23,18 @@ const manifest = (name, description, options = {}) => ({
   agents_md_override: null,
   skills_dir: null,
   opencode_provider: null,
+  output_contract: options.output_contract || null,
   source: { type: "local", ref: null },
   created_at: new Date().toISOString(),
   created_from: "examples/cipher-relay",
 });
 
-const specialist = (name, description, script, acceptedPrefix) =>
+const specialist = (name, description, script, acceptedPrefix, outputPattern) =>
   manifest(name, description, {
     bash_allow: [`node ${script} **`],
     bash_only: true,
     max_tokens: 30000,
+    output_contract: { type: "regex", pattern: outputPattern },
     prompt_prefix:
       `You are an isolated transformation specialist. Accept only ${acceptedPrefix} or its typed HANDLE form. ` +
       `Run exactly this tool, passing the entire value as one quoted argument: node ${script} "<value>". ` +
@@ -67,6 +69,7 @@ export const setupCipherRelay = (root, { model = "opencode/deepseek-v4-flash-fre
       nestable: true,
       max_tokens: 24000,
       timeout_ms: 300000,
+      output_contract: { type: "regex", pattern: "^SECRET:[^\\r\\n]+$" },
       prompt_prefix:
         "You are the relay coordinator. The prompt contains one typed HANDLE current value. Process it as a strict state machine. " +
         "For a handle ending :CIPHER:alpha, use the command tail spawn --catalog alpha-decryptor \"<current handle>\". " +
@@ -85,31 +88,36 @@ export const setupCipherRelay = (root, { model = "opencode/deepseek-v4-flash-fre
       "alpha-decryptor",
       "Decrypts only alpha AES-GCM envelopes using its private tool.",
       path.join(tools, "decrypt-alpha.mjs"),
-      "CIPHER:alpha:"
+      "CIPHER:alpha:",
+      "^(?:HANDLE:[a-zA-Z0-9_-]+:ENCODING:(?:base64|hex|url)|ENCODING:(?:base64|hex|url):.+)$"
     ),
     specialist(
       "beta-decryptor",
       "Decrypts only beta AES-GCM envelopes using its private tool.",
       path.join(tools, "decrypt-beta.mjs"),
-      "CIPHER:beta:"
+      "CIPHER:beta:",
+      "^(?:HANDLE:[a-zA-Z0-9_-]+:ENCODING:(?:base64|hex|url)|ENCODING:(?:base64|hex|url):.+)$"
     ),
     specialist(
       "base64-decoder",
       "Decodes only base64 relay values using its private tool.",
       path.join(tools, "decode-base64.mjs"),
-      "ENCODING:base64:"
+      "ENCODING:base64:",
+      "^SECRET:[^\\r\\n]+$"
     ),
     specialist(
       "hex-decoder",
       "Decodes only hexadecimal relay values using its private tool.",
       path.join(tools, "decode-hex.mjs"),
-      "ENCODING:hex:"
+      "ENCODING:hex:",
+      "^SECRET:[^\\r\\n]+$"
     ),
     specialist(
       "url-decoder",
       "Decodes only URL-encoded relay values using its private tool.",
       path.join(tools, "decode-url.mjs"),
-      "ENCODING:url:"
+      "ENCODING:url:",
+      "^SECRET:[^\\r\\n]+$"
     ),
   ];
   for (const entry of entries) {

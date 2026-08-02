@@ -1,7 +1,8 @@
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fail } from "./util.js";
 import { runsDir } from "./config.js";
+import { RESULT_SCHEMA_VERSION, writeJsonAtomic, writeTextAtomic } from "./persistence.js";
 
 export const readAlterJson = (home) => {
   try {
@@ -79,6 +80,7 @@ export const removeHome = (root, arg) => {
 
 export const writeResult = (root, home, o, res, startedAt, endedAt, durationMs, attempts) => {
   const result = {
+    schema_version: RESULT_SCHEMA_VERSION,
     id: o.id,
     ok: res.ok,
     exit_code: res.exitCode,
@@ -86,6 +88,8 @@ export const writeResult = (root, home, o, res, startedAt, endedAt, durationMs, 
     aborted: res.aborted || false,
     budget_exceeded: res.budget_exceeded || false,
     empty_output: res.empty_output || false,
+    contract_failed: res.contract_failed || false,
+    contract_error: res.contract_error || null,
     max_tokens: o.maxTokens ?? null,
     text: res.text,
     tokens: res.tokens,
@@ -99,12 +103,13 @@ export const writeResult = (root, home, o, res, startedAt, endedAt, durationMs, 
     spawned_by: o.spawned_by,
     graph_id: o.graphId || null,
     depends_on: o.dependsOn || [],
+    output_contract: o.outputContract || null,
     started_at: startedAt,
     ended_at: endedAt,
     duration_ms: durationMs,
     attempts: attempts || null,
   };
-  writeFileSync(path.join(home, "result.json"), JSON.stringify(result, null, 2) + "\n");
-  writeFileSync(path.join(home, "result.md"), (res.text || "(no output)\n") + "\n");
+  writeJsonAtomic(path.join(home, "result.json"), result);
+  writeTextAtomic(path.join(home, "result.md"), (res.text || "(no output)\n") + "\n");
   return result;
 };

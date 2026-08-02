@@ -6,6 +6,12 @@ export type AlterTokens = {
   total: number;
 };
 
+export type Runtime = {
+  now(): number;
+  randomId(length?: number): string;
+  env: Record<string, string | undefined>;
+};
+
 export type SpawnOptions = {
   name: string | null;
   description: string | null;
@@ -26,10 +32,17 @@ export type SpawnOptions = {
   promptSuffix: string | null;
   webAccess: boolean;
   opencodeProvider?: Record<string, unknown> | null;
+  outputContract?: OutputContract | null;
   graphId?: string | null;
   dependsOn?: string[];
   [key: string]: unknown;
 };
+
+export type OutputContract =
+  | { type: "nonempty"; trim?: boolean }
+  | { type: "exact" | "prefix"; value: string; trim?: boolean }
+  | { type: "regex"; pattern: string; flags?: string; trim?: boolean }
+  | { type: "json"; trim?: boolean };
 
 export type AlterResponse = {
   tokens: AlterTokens;
@@ -42,6 +55,8 @@ export type AlterResponse = {
   ok: boolean;
   budget_exceeded: boolean;
   empty_output: boolean;
+  contract_failed: boolean;
+  contract_error: string | null;
   eventLog?: string | null;
 };
 
@@ -53,6 +68,8 @@ export type AlterResult = {
   aborted: boolean;
   budget_exceeded: boolean;
   empty_output: boolean;
+  contract_failed: boolean;
+  contract_error: string | null;
   max_tokens: number | null;
   text: string;
   tokens: AlterTokens;
@@ -66,6 +83,7 @@ export type AlterResult = {
   spawned_by: string;
   graph_id: string | null;
   depends_on: string[];
+  output_contract: OutputContract | null;
   started_at: string;
   ended_at: string;
   duration_ms: number;
@@ -73,6 +91,15 @@ export type AlterResult = {
 };
 
 export function parseSpawnArgs(argv: string[]): SpawnOptions;
+export const DEFAULT_SPAWN_OPTIONS: Readonly<SpawnOptions>;
+export function createSpawnOptions(overrides?: Partial<SpawnOptions>): SpawnOptions;
+export const ALTER_SCHEMA_VERSION: number;
+export const RESULT_SCHEMA_VERSION: number;
+export const GRAPH_RESULT_SCHEMA_VERSION: number;
+export function writeTextAtomic(file: string, content: string): void;
+export function writeJsonAtomic(file: string, value: unknown): void;
+export function createRuntime(overrides?: Partial<Runtime>): Runtime;
+export function resolveRuntime(runtime?: Runtime): Runtime;
 
 export function spawnAlter(
   root: string,
@@ -81,6 +108,7 @@ export function spawnAlter(
     createOnly?: boolean;
     harness?: string;
     signal?: AbortSignal;
+    runtime?: Runtime;
   },
 ): Promise<
   | {
@@ -113,6 +141,7 @@ export function registerHarness(
         recordEvents: boolean;
         attempt: number;
         signal?: AbortSignal;
+        environment?: Record<string, string | undefined>;
       },
     ): Promise<AlterResponse>;
   },
@@ -137,7 +166,14 @@ export type AlterGraphNode = {
   promptPrefix?: string;
   promptSuffix?: string;
   opencodeProvider?: Record<string, unknown>;
+  outputContract?: OutputContract;
 };
+
+export function validateOutputContract(contract: OutputContract | null, label?: string): void;
+export function checkOutputContract(
+  text: string,
+  contract: OutputContract | null,
+): { ok: boolean; error: string | null };
 
 export type AlterGraph = {
   id?: string;
@@ -153,6 +189,7 @@ export function runAlterGraph(
     signal?: AbortSignal;
     concurrency?: number;
     mindBinPath?: string;
+    runtime?: Runtime;
   },
 ): Promise<{ home: string; result: Record<string, unknown> }>;
 
