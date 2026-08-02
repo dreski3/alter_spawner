@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import path from "node:path";
 import { fail, iso, normPath, sanitizeName } from "./util.js";
 import { kitDir } from "./config.js";
+import { validateOutputContract } from "./output-contract.js";
 
 export const catalogDirPath = (root, cfg) => path.join(kitDir(root), cfg.catalog_dir || "catalog");
 
@@ -39,6 +40,7 @@ export const validateManifest = (m, name) => {
       }
     }
   }
+  validateOutputContract(m.output_contract, `catalog entry "${name}": output_contract`);
 };
 
 // Resolution seam: "local" is the only implemented source today. A future "mcp" source
@@ -81,6 +83,7 @@ export const applyCatalog = (o, entry) => {
   o.catalogAgentsOverride = m.agents_md_override || null;
   o.catalogSkillsDir = m.skills_dir || null;
   if (o.opencodeProvider == null) o.opencodeProvider = m.opencode_provider || null;
+  if (o.outputContract == null) o.outputContract = m.output_contract || null;
   o.catalogName = m.name;
 };
 
@@ -120,6 +123,7 @@ const manifestFromOptions = (name, o) => ({
   agents_md_override: null,
   skills_dir: null,
   opencode_provider: o.opencodeProvider || null,
+  output_contract: o.outputContract || null,
   source: { type: "local", ref: null },
   created_at: iso(Date.now()),
   created_from: o.createdFrom ?? null,

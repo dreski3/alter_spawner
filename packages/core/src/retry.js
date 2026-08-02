@@ -3,6 +3,7 @@ import path from "node:path";
 import { iso } from "./util.js";
 import { buildBody, buildFrontmatter } from "./frontmatter.js";
 import { getHarness } from "./harness/adapter.js";
+import { checkOutputContract } from "./output-contract.js";
 
 // Attempt plan: initial run, then `same_harness_retries` retries on the same model, then
 // `fallback_retries` retries on an escalated/fallback model (if one is available). A catalog
@@ -63,6 +64,12 @@ export const runWithRetries = async ({
       attempt: i + 1,
       signal,
     });
+    if (res.ok && o.outputContract) {
+      const contract = checkOutputContract(res.text, o.outputContract);
+      if (!contract.ok) {
+        res = { ...res, ok: false, contract_failed: true, contract_error: contract.error };
+      }
+    }
     const endedAt = iso(Date.now());
     attempts.push({
       attempt: i + 1,
@@ -73,6 +80,8 @@ export const runWithRetries = async ({
       killed: res.killed,
       budget_exceeded: res.budget_exceeded || false,
       empty_output: res.empty_output || false,
+      contract_failed: res.contract_failed || false,
+      contract_error: res.contract_error || null,
       tokens: res.tokens,
       started_at: startedAt,
       ended_at: endedAt,

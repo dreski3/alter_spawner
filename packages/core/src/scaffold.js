@@ -86,6 +86,7 @@ export const scaffold = (root, cfg, o) => {
         graph_id: o.graphId || null,
         depends_on: o.dependsOn || [],
         opencode_provider: o.opencodeProvider || null,
+        output_contract: o.outputContract || null,
         created_at: iso(Date.now()),
         home: path.relative(root, home),
       },

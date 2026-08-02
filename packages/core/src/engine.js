@@ -7,12 +7,14 @@ import { resolveId, scaffold } from "./scaffold.js";
 import { runWithRetries } from "./retry.js";
 import { writeResult, readAlterJson, resolveHome } from "./homes.js";
 import { createSpawnOptions } from "./spawn-spec.js";
+import { validateOutputContract } from "./output-contract.js";
 
 export const resolveEffectiveModel = (o, cfg) =>
   o.model || process.env.ALTER_MODEL || cfg.default_model;
 
 const prepareSpawn = (root, cfg, o) => {
   if (o.catalog) applyCatalog(o, resolveCatalogEntry(root, cfg, o.catalog));
+  validateOutputContract(o.outputContract);
   const incoming = process.env.ALTER_DEPTH !== undefined ? Number(process.env.ALTER_DEPTH) : -1;
   const depth = incoming + 1;
   const maxDepth = cfg.max_depth ?? 5;
@@ -88,11 +90,13 @@ export const runExistingAlter = async (
     webAccess: !!aj.web,
     maxTokens: aj.max_tokens ?? null,
     fallbackModel: aj.fallback_model || null,
+    outputContract: aj.output_contract || null,
     catalogName: aj.catalog || null,
     depth,
     spawned_by: aj.parent_id || process.env.ALTER_ID || "root",
     mindBinPath,
   });
+  validateOutputContract(o.outputContract);
   const { res, attempts } = await runWithRetries({
     options: o,
     config: cfg,

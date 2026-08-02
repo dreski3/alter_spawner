@@ -68,6 +68,20 @@ named Alter type (model, description/instructions, grants, nestable, token
 budget, fallback model). `mind spawn --catalog <name> "..."` spawns one; any
 explicit flag overrides the catalog's value for that field.
 
+A catalog entry can declare an `output_contract` to distinguish a valid result
+from non-empty error or filler text. Supported contract types are `nonempty`,
+`exact`, `prefix`, `regex`, and `json`. Contract failures are recorded in the
+attempt trace and use the same retry and fallback policy as other failed runs.
+
+```json
+{
+  "output_contract": {
+    "type": "regex",
+    "pattern": "^SECRET:[^\\r\\n]+$"
+  }
+}
+```
+
 A catalog entry may include `opencode_provider`, using the same provider map
 accepted by OpenCode's `provider` config key. The map is written to the
 isolated Alter home's `opencode.json`, and the catalog's `model` is passed to
@@ -159,9 +173,8 @@ instead of paying for an inference call, without opening bash generally.
   A custom provider can still require its configured AI SDK runtime package.
 - Only one harness adapter exists (`opencode`); the interface is unexercised
   by a second implementation.
-- Empty-result detection is text-based: an Alter that exits cleanly with no
-  final message is failed and retried (`empty_output`), but one that returns
-  filler text while doing nothing useful still counts as a success.
+- Output validation is opt-in. Catalog entries without `output_contract` still
+  treat any non-empty final message as semantically successful.
 - A nestable Alter occasionally fails to correctly compose its own scoped
   `mind spawn` bash invocation (bad quoting, or assuming it's blocked without
   trying) — not a permissions bug, a model-reliability one. Mitigated (not

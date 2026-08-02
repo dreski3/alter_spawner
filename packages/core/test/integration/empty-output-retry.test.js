@@ -131,3 +131,23 @@ test("a non-empty first attempt still short-circuits the plan", async (t) => {
   assert.equal(result.empty_output, false);
   assert.equal(result.model, MODEL);
 });
+
+test("a semantic contract failure retries until a valid result arrives", async (t) => {
+  const root = makeProject(t);
+  const { adapter, calls } = fakeHarness(["tool call failed", "SECRET:recovered"]);
+  registerHarness("fake-contract-recovers", adapter);
+
+  const options = {
+    ...spawnOpts("recover the secret"),
+    outputContract: { type: "prefix", value: "SECRET:" },
+  };
+  const { result } = await spawnAlter(root, options, { harness: "fake-contract-recovers" });
+
+  assert.equal(calls.length, 2);
+  assert.equal(result.ok, true);
+  assert.equal(result.contract_failed, false);
+  assert.equal(result.text, "SECRET:recovered");
+  assert.equal(result.attempts[0].contract_failed, true);
+  assert.match(result.attempts[0].contract_error, /prefix contract/);
+  assert.equal(result.attempts[1].contract_failed, false);
+});

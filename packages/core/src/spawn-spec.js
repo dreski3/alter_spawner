@@ -18,6 +18,7 @@ export const DEFAULT_SPAWN_OPTIONS = Object.freeze({
   promptSuffix: null,
   webAccess: false,
   opencodeProvider: null,
+  outputContract: null,
 });
 
 export const createSpawnOptions = (overrides = {}) => ({

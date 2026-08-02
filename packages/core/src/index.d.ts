@@ -26,10 +26,17 @@ export type SpawnOptions = {
   promptSuffix: string | null;
   webAccess: boolean;
   opencodeProvider?: Record<string, unknown> | null;
+  outputContract?: OutputContract | null;
   graphId?: string | null;
   dependsOn?: string[];
   [key: string]: unknown;
 };
+
+export type OutputContract =
+  | { type: "nonempty"; trim?: boolean }
+  | { type: "exact" | "prefix"; value: string; trim?: boolean }
+  | { type: "regex"; pattern: string; flags?: string; trim?: boolean }
+  | { type: "json"; trim?: boolean };
 
 export type AlterResponse = {
   tokens: AlterTokens;
@@ -42,6 +49,8 @@ export type AlterResponse = {
   ok: boolean;
   budget_exceeded: boolean;
   empty_output: boolean;
+  contract_failed: boolean;
+  contract_error: string | null;
   eventLog?: string | null;
 };
 
@@ -53,6 +62,8 @@ export type AlterResult = {
   aborted: boolean;
   budget_exceeded: boolean;
   empty_output: boolean;
+  contract_failed: boolean;
+  contract_error: string | null;
   max_tokens: number | null;
   text: string;
   tokens: AlterTokens;
@@ -66,6 +77,7 @@ export type AlterResult = {
   spawned_by: string;
   graph_id: string | null;
   depends_on: string[];
+  output_contract: OutputContract | null;
   started_at: string;
   ended_at: string;
   duration_ms: number;
@@ -142,7 +154,14 @@ export type AlterGraphNode = {
   promptPrefix?: string;
   promptSuffix?: string;
   opencodeProvider?: Record<string, unknown>;
+  outputContract?: OutputContract;
 };
+
+export function validateOutputContract(contract: OutputContract | null, label?: string): void;
+export function checkOutputContract(
+  text: string,
+  contract: OutputContract | null,
+): { ok: boolean; error: string | null };
 
 export type AlterGraph = {
   id?: string;
