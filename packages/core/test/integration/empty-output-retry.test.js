@@ -88,6 +88,7 @@ test("an empty result is retried and the recovered attempt wins", async (t) => {
   assert.equal(result.text, "recovered on the fallback");
 
   const onDisk = JSON.parse(readFileSync(path.join(home, "result.json"), "utf8"));
+  assert.equal(onDisk.schema_version, 1);
   assert.equal(onDisk.empty_output, false);
   assert.equal(readFileSync(path.join(home, "result.md"), "utf8").trim(), "recovered on the fallback");
 });

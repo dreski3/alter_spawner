@@ -5,6 +5,7 @@ import { runsDir } from "./config.js";
 import { ALTER_HOME_TEMPLATE_DIR } from "./paths.js";
 import { buildAgentsMd, buildBody, buildFrontmatter } from "./frontmatter.js";
 import { catalogDirPath } from "./catalog.js";
+import { ALTER_SCHEMA_VERSION } from "./persistence.js";
 
 // The `id` is a logical identifier only (used for ALTER_ID/parent_id/spawned_by
 // tracking and for `--name`-based lookups) — it is intentionally allowed to
@@ -65,6 +66,7 @@ export const scaffold = (root, cfg, o) => {
     path.join(home, "alter.json"),
     JSON.stringify(
       {
+        schema_version: ALTER_SCHEMA_VERSION,
         id: o.id,
         name: o.name || null,
         description: o.description || null,

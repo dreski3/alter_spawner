@@ -1,3 +1,9 @@
-# Alter homes are ephemeral run artifacts; keep the kit tracked.
-.alters/alter_*/
 node_modules/
+.npm-cache/
+coverage/
+*.tgz
+.DS_Store
+.alters/runs/
+.alters/graphs/
+.alters/cipher-relay-store/
+*.events.jsonl

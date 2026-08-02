@@ -2,6 +2,8 @@ import "./harness/opencode.js";
 
 export { MindError, fail, normPath, sanitizeName } from "./util.js";
 export { parseSpawnArgs } from "./parseArgs.js";
+export { DEFAULT_SPAWN_OPTIONS, createSpawnOptions } from "./spawn-spec.js";
+export { ALTER_SCHEMA_VERSION, RESULT_SCHEMA_VERSION, GRAPH_RESULT_SCHEMA_VERSION } from "./persistence.js";
 export { DEFAULT_CONFIG, findProjectRoot, requireProjectRoot, readConfig, kitDir } from "./config.js";
 export {
   catalogDirPath,

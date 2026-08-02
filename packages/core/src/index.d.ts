@@ -73,6 +73,11 @@ export type AlterResult = {
 };
 
 export function parseSpawnArgs(argv: string[]): SpawnOptions;
+export const DEFAULT_SPAWN_OPTIONS: Readonly<SpawnOptions>;
+export function createSpawnOptions(overrides?: Partial<SpawnOptions>): SpawnOptions;
+export const ALTER_SCHEMA_VERSION: number;
+export const RESULT_SCHEMA_VERSION: number;
+export const GRAPH_RESULT_SCHEMA_VERSION: number;
 
 export function spawnAlter(
   root: string,

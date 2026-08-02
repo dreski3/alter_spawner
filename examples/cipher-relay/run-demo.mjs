@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnAlter } from "../../packages/core/src/index.js";
+import { createSpawnOptions, spawnAlter } from "../../packages/core/src/index.js";
 import { makeFixtures } from "./tools/make-fixtures.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -80,7 +80,7 @@ for (const fixture of fixtures) {
   );
   const handle = `HANDLE:${artifactId}:CIPHER:${fixture.cipher}`;
   process.stdout.write(`\n[${fixture.id}] handle: ${handle}\n`);
-  const spawned = await spawnAlter(root, {
+  const spawned = await spawnAlter(root, createSpawnOptions({
     name: `relay-${fixture.id}`,
     description: null,
     model: null,
@@ -100,7 +100,7 @@ for (const fixture of fixtures) {
     webAccess: false,
     opencodeProvider: null,
     mindBinPath: cliEntry,
-  });
+  }));
   const actual = spawned.result.text.trim();
   const children = readChildren(spawned.home);
   const sessionIds = [spawned.result.session_id, ...children.map((child) => child.session_id)].filter(Boolean);

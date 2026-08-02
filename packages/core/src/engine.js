@@ -6,6 +6,7 @@ import { resolveCatalogEntry, applyCatalog } from "./catalog.js";
 import { resolveId, scaffold } from "./scaffold.js";
 import { runWithRetries } from "./retry.js";
 import { writeResult, readAlterJson, resolveHome } from "./homes.js";
+import { createSpawnOptions } from "./spawn-spec.js";
 
 export const resolveEffectiveModel = (o, cfg) =>
   o.model || process.env.ALTER_MODEL || cfg.default_model;
@@ -42,18 +43,18 @@ export const spawnAlter = async (
   }
   const timeout = o.timeout ?? cfg.run_timeout_ms ?? 180000;
   const effectivePrompt = [o.promptPrefix, o.prompt, o.promptSuffix].filter(Boolean).join("\n\n");
-  const { res, attempts } = await runWithRetries(
-    o,
-    cfg,
+  const { res, attempts } = await runWithRetries({
+    options: o,
+    config: cfg,
     home,
-    effectivePrompt,
+    prompt: effectivePrompt,
     timeout,
-    o.depth,
-    harness,
+    depth: o.depth,
+    harnessName: harness,
     signal,
-    cfg.opencode_pure !== false,
-    cfg.opencode_event_log === true,
-  );
+    pure: cfg.opencode_pure !== false,
+    recordEvents: cfg.opencode_event_log === true,
+  });
   const startedAt = attempts[0].started_at;
   const endedAt = attempts[attempts.length - 1].ended_at;
   const totalDuration = attempts.reduce((s, a) => s + a.duration_ms, 0);
@@ -74,7 +75,7 @@ export const runExistingAlter = async (
   const cfg = readConfig(root);
   const depth = aj.depth != null ? aj.depth : 0;
   const timeout = cfg.run_timeout_ms ?? 180000;
-  const o = {
+  const o = createSpawnOptions({
     id: aj.id || path.basename(home),
     name: aj.name || null,
     description: aj.description || null,
@@ -91,19 +92,19 @@ export const runExistingAlter = async (
     depth,
     spawned_by: aj.parent_id || process.env.ALTER_ID || "root",
     mindBinPath,
-  };
-  const { res, attempts } = await runWithRetries(
-    o,
-    cfg,
+  });
+  const { res, attempts } = await runWithRetries({
+    options: o,
+    config: cfg,
     home,
     prompt,
     timeout,
     depth,
-    harness,
+    harnessName: harness,
     signal,
-    cfg.opencode_pure !== false,
-    cfg.opencode_event_log === true,
-  );
+    pure: cfg.opencode_pure !== false,
+    recordEvents: cfg.opencode_event_log === true,
+  });
   const startedAt = attempts[0].started_at;
   const endedAt = attempts[attempts.length - 1].ended_at;
   const totalDuration = attempts.reduce((s, a) => s + a.duration_ms, 0);

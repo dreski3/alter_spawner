@@ -25,9 +25,9 @@ export const buildAttemptPlan = (o, cfg) => {
 // description/readGrants/writeGrants/nestable/mindBinPath (needed to regenerate alter.md on a
 // model swap, since the model is baked into that file's frontmatter rather than passed to the
 // harness invocation directly).
-export const runWithRetries = async (
-  o,
-  cfg,
+export const runWithRetries = async ({
+  options: o,
+  config: cfg,
   home,
   prompt,
   timeout,
@@ -36,7 +36,7 @@ export const runWithRetries = async (
   signal,
   pure = true,
   recordEvents = false,
-) => {
+}) => {
   const harness = getHarness(harnessName);
   const plan = buildAttemptPlan(o, cfg);
   const attempts = [];

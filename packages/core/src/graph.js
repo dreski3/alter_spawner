@@ -2,9 +2,11 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { kitDir } from "./config.js";
 import { spawnAlter } from "./engine.js";
+import { createSpawnOptions } from "./spawn-spec.js";
+import { GRAPH_RESULT_SCHEMA_VERSION } from "./persistence.js";
 import { fail, iso, sanitizeName, timestampSlug } from "./util.js";
 
-const defaultSpawnOptions = (node, graphId, mindBinPath) => ({
+const defaultSpawnOptions = (node, graphId, mindBinPath) => createSpawnOptions({
   name: node.id,
   description: node.description ?? null,
   model: node.model ?? null,
@@ -119,6 +121,7 @@ export const runAlterGraph = async (
     const values = Object.values(records);
     const outputRecord = records[output];
     const document = {
+      schema_version: GRAPH_RESULT_SCHEMA_VERSION,
       id: graphId,
       ok: values.every((record) => record.state === "succeeded"),
       state: endedAt ? "completed" : "running",

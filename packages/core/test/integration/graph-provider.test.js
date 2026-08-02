@@ -144,7 +144,8 @@ test("runs chained and branched catalog alters with provider-specific models and
     const config = JSON.parse(readFileSync(path.join(call.home, "opencode.json"), "utf8"));
     assert.ok(config.provider[call.options.model.split("/")[0]]);
   }
-  const persisted = JSON.parse(readFileSync(path.join(home, "result.json"), "utf8"));
+    const persisted = JSON.parse(readFileSync(path.join(home, "result.json"), "utf8"));
+    assert.equal(persisted.schema_version, 1);
   assert.equal(persisted.output_node, "join");
   assert.equal(persisted.nodes.left.state, "succeeded");
   assert.deepEqual(persisted.nodes.join.depends_on, ["left", "right"]);

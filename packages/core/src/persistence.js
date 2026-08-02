@@ -1,0 +1,3 @@
+export const ALTER_SCHEMA_VERSION = 1;
+export const RESULT_SCHEMA_VERSION = 1;
+export const GRAPH_RESULT_SCHEMA_VERSION = 1;

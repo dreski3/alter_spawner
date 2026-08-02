@@ -1,28 +1,9 @@
 import { readFileSync } from "node:fs";
+import { createSpawnOptions } from "./spawn-spec.js";
 import { normPath } from "./util.js";
 
 export const parseSpawnArgs = (argv) => {
-  const o = {
-    name: null,
-    description: null,
-    model: null,
-    prompt: null,
-    readGrants: [],
-    writeGrants: [],
-    bashAllow: [],
-    bashOnly: false,
-    nestable: false,
-    timeout: null,
-    rm: false,
-    verbose: false,
-    catalog: null,
-    maxTokens: null,
-    fallbackModel: null,
-    promptPrefix: null,
-    promptSuffix: null,
-    webAccess: false,
-    opencodeProvider: null,
-  };
+  const o = createSpawnOptions();
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--name") o.name = argv[++i];

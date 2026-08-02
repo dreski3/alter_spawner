@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "no
 import path from "node:path";
 import { fail } from "./util.js";
 import { runsDir } from "./config.js";
+import { RESULT_SCHEMA_VERSION } from "./persistence.js";
 
 export const readAlterJson = (home) => {
   try {
@@ -79,6 +80,7 @@ export const removeHome = (root, arg) => {
 
 export const writeResult = (root, home, o, res, startedAt, endedAt, durationMs, attempts) => {
   const result = {
+    schema_version: RESULT_SCHEMA_VERSION,
     id: o.id,
     ok: res.ok,
     exit_code: res.exitCode,

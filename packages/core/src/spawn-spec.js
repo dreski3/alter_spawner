@@ -1,0 +1,29 @@
+export const DEFAULT_SPAWN_OPTIONS = Object.freeze({
+  name: null,
+  description: null,
+  model: null,
+  prompt: null,
+  readGrants: [],
+  writeGrants: [],
+  bashAllow: [],
+  bashOnly: false,
+  nestable: false,
+  timeout: null,
+  rm: false,
+  verbose: false,
+  catalog: null,
+  maxTokens: null,
+  fallbackModel: null,
+  promptPrefix: null,
+  promptSuffix: null,
+  webAccess: false,
+  opencodeProvider: null,
+});
+
+export const createSpawnOptions = (overrides = {}) => ({
+  ...DEFAULT_SPAWN_OPTIONS,
+  ...overrides,
+  readGrants: [...(overrides.readGrants || [])],
+  writeGrants: [...(overrides.writeGrants || [])],
+  bashAllow: [...(overrides.bashAllow || [])],
+});
