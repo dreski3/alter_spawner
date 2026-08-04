@@ -33,6 +33,17 @@ export const validateManifest = (m, name) => {
   if (m.executor != null && (typeof m.executor !== "string" || !m.executor.trim())) {
     fail(`catalog entry "${name}": executor must be the name of a harness adapter.`);
   }
+  // Likewise: whether this capability id is bound is a question for the host's
+  // registry at run time. What is checkable here is that the entry is well formed.
+  if (m.capability != null) {
+    const c = m.capability;
+    if (typeof c !== "object" || Array.isArray(c) || typeof c.id !== "string" || !c.id.trim()) {
+      fail(`catalog entry "${name}": capability must be an object with an "id".`);
+    }
+    if (c.input != null && c.input !== "text" && c.input !== "json") {
+      fail(`catalog entry "${name}": capability.input must be "text" or "json".`);
+    }
+  }
   // text_only is a claim about the whole shape of the Alter — text in, text out,
   // no capabilities of any kind — and its savings come precisely from dropping
   // everything a capability would need. Silently ignoring a contradictory grant
@@ -117,6 +128,7 @@ export const applyCatalog = (o, entry) => {
   if (!o.bashOnly) o.bashOnly = !!m.bash_only;
   if (!o.textOnly) o.textOnly = !!m.text_only;
   if (o.executor == null) o.executor = m.executor || null;
+  if (o.capability == null) o.capability = m.capability ? { ...m.capability } : null;
   if (o.allowedCatalogs == null) o.allowedCatalogs = m.allowed_catalogs ? [...m.allowed_catalogs] : null;
   o.promptPrefix = o.promptPrefix ?? m.prompt_prefix ?? null;
   o.promptSuffix = o.promptSuffix ?? m.prompt_suffix ?? null;
@@ -161,6 +173,7 @@ const manifestFromOptions = (name, o, runtime) => ({
   bash_only: !!o.bashOnly,
   text_only: !!o.textOnly,
   executor: o.executor || null,
+  capability: o.capability ? { ...o.capability } : null,
   allowed_catalogs: o.allowedCatalogs ? [...o.allowedCatalogs] : null,
   prompt_prefix: o.promptPrefix ?? null,
   prompt_suffix: o.promptSuffix ?? null,

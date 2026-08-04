@@ -153,6 +153,7 @@ const writeAlterJson = (root, o, runtime, home) => {
         description: o.description || null,
         model: o.model,
         executor: o.executor || null,
+        capability: o.capability ? { ...o.capability } : null,
         nestable: !!o.nestable,
         web: !!o.webAccess,
         depth: o.depth,

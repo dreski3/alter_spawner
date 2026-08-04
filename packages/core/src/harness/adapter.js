@@ -67,11 +67,20 @@ export const registerHarness = (name, adapter) => {
 // Executor names are resolved here rather than validated when a manifest is read:
 // the set of valid names is exactly the set of registered adapters, and a manifest
 // can be written (or copied into a child's kit) long before anything registers one.
+// These ship with core but cannot register themselves: each needs a capability
+// registry, which only a host can build. Naming one and finding it absent is a
+// specific, recoverable situation, so it gets a specific message rather than looking
+// like a typo. See harness/capability.js for why they are not loaded from disk.
+const HOST_BOUND_EXECUTORS = new Set(["function", "capability"]);
+
 export const getHarness = (name) => {
   const adapter = HARNESS_ADAPTERS.get(name);
   if (!adapter) {
     const known = [...HARNESS_ADAPTERS.keys()].sort().join(", ") || "(none registered)";
-    throw new Error(`unknown executor: ${name} — registered executors are: ${known}`);
+    const hint = HOST_BOUND_EXECUTORS.has(name)
+      ? ` — the "${name}" executor exists but must be bound by the host with a capability registry, and is not available to \`mind\` run as a standalone process`
+      : "";
+    throw new Error(`unknown executor: ${name} — registered executors are: ${known}${hint}`);
   }
   return adapter;
 };

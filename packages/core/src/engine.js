@@ -123,6 +123,8 @@ export const spawnAlter = async (
       // An adapter with no agent home has no generated agent definition on disk, so
       // there is nothing for a model swap to rewrite.
       regenerateAgentFile: adapter.needsAgentHome,
+      // A deterministic executor gets exactly one attempt; see buildAttemptPlan.
+      allowRetries: adapter.supportsRetry !== false,
     }));
     const startedAt = attempts[0].started_at;
     const endedAt = attempts[attempts.length - 1].ended_at;
@@ -164,6 +166,7 @@ export const runExistingAlter = async (
     // Re-running a home has to use whatever executed it the first time — the home
     // was built (or deliberately not built) for that adapter.
     executor: aj.executor || null,
+    capability: aj.capability || null,
     nestable: !!aj.nestable,
     webAccess: !!aj.web,
     maxTokens: aj.max_tokens ?? null,
@@ -198,6 +201,8 @@ export const runExistingAlter = async (
       recordEvents: cfg.opencode_event_log === true,
       runtime: treeRuntime,
       regenerateAgentFile: adapter.needsAgentHome,
+      // A deterministic executor gets exactly one attempt; see buildAttemptPlan.
+      allowRetries: adapter.supportsRetry !== false,
     }));
     const startedAt = attempts[0].started_at;
     const endedAt = attempts[attempts.length - 1].ended_at;

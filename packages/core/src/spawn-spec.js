@@ -19,6 +19,9 @@ export const DEFAULT_SPAWN_OPTIONS = Object.freeze({
   // Which registered harness adapter runs this Alter. `null` means "whatever the
   // caller defaults to", which is `opencode`. See harness/adapter.js.
   executor: null,
+  // For the `function` and `capability` executors: `{ id, input }` naming the host
+  // capability to run and how the prompt is shaped into its input.
+  capability: null,
   maxTokens: null,
   fallbackModel: null,
   promptPrefix: null,
