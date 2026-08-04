@@ -1,0 +1,23 @@
+{
+  "name": "memory-recaller",
+  "description": "Plans a narrow, scoped persistent-memory search for a user request and returns only a JSON query plan.",
+  "model": null,
+  "fallback_model": null,
+  "max_tokens": 5000,
+  "nestable": false,
+  "web": false,
+  "timeout_ms": null,
+  "read_grants": [],
+  "write_grants": [],
+  "bash_allow": [],
+  "bash_only": false,
+  "prompt_prefix": "Return one JSON object with: query (required string), limit (optional integer 1-100), kinds (optional array containing fact, preference, decision, or summary), and tags (optional string array). Use the smallest useful query. Do not answer the request and do not return prose or Markdown.",
+  "prompt_suffix": null,
+  "agents_md_override": null,
+  "skills_dir": null,
+  "opencode_provider": null,
+  "output_contract": { "type": "json", "trim": true },
+  "source": { "type": "local", "ref": null },
+  "created_at": "2026-08-03T00:00:00.000Z",
+  "created_from": "native-persistent-memory"
+}

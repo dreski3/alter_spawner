@@ -6,10 +6,10 @@ export const ALTER_SCHEMA_VERSION = 1;
 export const RESULT_SCHEMA_VERSION = 1;
 export const GRAPH_RESULT_SCHEMA_VERSION = 1;
 
-export const writeTextAtomic = (file, content) => {
+export const writeTextAtomic = (file, content, options = {}) => {
   const temporary = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${randomUUID()}.tmp`);
   try {
-    writeFileSync(temporary, content);
+    writeFileSync(temporary, content, options.mode === undefined ? undefined : { mode: options.mode });
     renameSync(temporary, file);
   } catch (error) {
     try {
@@ -19,6 +19,6 @@ export const writeTextAtomic = (file, content) => {
   }
 };
 
-export const writeJsonAtomic = (file, value) => {
-  writeTextAtomic(file, JSON.stringify(value, null, 2) + "\n");
+export const writeJsonAtomic = (file, value, options = {}) => {
+  writeTextAtomic(file, JSON.stringify(value, null, 2) + "\n", options);
 };

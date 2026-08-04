@@ -27,6 +27,26 @@ mind spawn --catalog researcher "..." # spawn one
 mind list                            # see what you've spawned
 ```
 
+## Persistent memory
+
+Your session holds the conversation you are in. **Persistent memory** holds what
+should outlive it — durable facts, the user's preferences, decisions and their
+reasons. You decide when to touch it; nothing reads or writes it on your behalf.
+
+```bash
+mind memory search "<what you are trying to recall>"   # before assuming, or when history would help
+mind memory put "<one durable fact>" --kind preference # after learning something that will matter again
+```
+
+You are asking, not doing: every call goes to your host, which asks the user to
+approve it. A denial prints `denied:` and exits 0 — that is a real answer, so
+continue without the memory and do not retry. If no host is listening the command
+exits non-zero and memory is simply unavailable this run. Load the `alter` skill
+for the full reference.
+
+The `mind` CLI is provided by whoever started you; if it is missing, `node
+"$MIND_BIN"` is the same CLI. Never try to install it — nothing on npm is it.
+
 ## Operating conventions
 
 - Be concise and direct. No preamble, no unnecessary explanations.

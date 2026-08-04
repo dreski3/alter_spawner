@@ -6,5 +6,6 @@ coverage/
 .DS_Store
 .alters/runs/
 .alters/graphs/
+.alters/memory/
 .alters/cipher-relay-store/
 *.events.jsonl

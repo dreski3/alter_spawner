@@ -16,6 +16,28 @@ import { TEMPLATE_AGENT, TEMPLATE_AGENTS_MD } from "./paths.js";
 // out the real, resolved path and warning about word-splitting directly
 // addresses both instead of leaving the model to reconstruct this from the
 // flag reference alone.
+// A bounded search space is worth stating in context, not just enforcing on
+// disk: told exactly which catalog entries exist, a model delegates to one of
+// them instead of guessing names that were never copied into its home and
+// burning turns on `catalog entry not found`.
+const catalogScopeBlock = (allowedCatalogs) => {
+  if (allowedCatalogs == null) return "";
+  if (allowedCatalogs.length === 0) {
+    return `
+
+Your parent granted you **no catalog entries**: \`--catalog <name>\` will not
+resolve for any name. Spawn ad-hoc children with \`--name\`/\`--description\`
+only, or solve the task yourself.`;
+  }
+  return `
+
+Your parent narrowed the catalog you may spawn from to exactly:
+${allowedCatalogs.map((name) => `- \`${name}\``).join("\n")}
+
+No other catalog entry exists in your home — \`--catalog\` with any other name
+will fail to resolve. Delegate within this set or solve the task yourself.`;
+};
+
 const nestingBlock = (mindBinPath) => `
 
 ## Spawning child Alters
@@ -41,7 +63,10 @@ const applyPlaceholders = (tmpl, o) => {
     ? `## Your role\n${o.description.trim()}`
     : `## Your role\nYou are a general-purpose Alter. Perform the task you were given as well as you can.`;
   let out = tmpl.replace(/\{\{ROLE_BLOCK\}\}/g, role);
-  out = out.replace(/\n?\{\{NESTING_BLOCK\}\}/g, o.nestable ? nestingBlock(o.mindBinPath) : "");
+  out = out.replace(
+    /\n?\{\{NESTING_BLOCK\}\}/g,
+    o.nestable ? nestingBlock(o.mindBinPath) + catalogScopeBlock(o.allowedCatalogs) : "",
+  );
   return out;
 };
 

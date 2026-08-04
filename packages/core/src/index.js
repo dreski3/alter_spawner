@@ -26,6 +26,12 @@ export { buildFrontmatter, buildBody, buildAgentsMd } from "./frontmatter.js";
 export { buildAttemptPlan, runWithRetries } from "./retry.js";
 export { readAlterJson, resolveHome, listHomes, removeHome, writeResult } from "./homes.js";
 export { spawnAlter, runExistingAlter, resolveEffectiveModel } from "./engine.js";
+export {
+  PRINCIPAL_DEPTH,
+  isPrincipalProject,
+  requirePrincipalProject,
+  runPrincipalTurn,
+} from "./principal.js";
 export { runAlterGraph } from "./graph.js";
 export { ALTER_HOME_TEMPLATE_DIR, TEMPLATE_AGENT, TEMPLATE_SKILL } from "./paths.js";
 export { registerHarness, getHarness, HARNESS_ADAPTERS } from "./harness/adapter.js";
@@ -39,3 +45,41 @@ export {
   grantCatalogCapability,
   writeCapabilityPolicy,
 } from "./capabilities.js";
+export {
+  canonicalJson,
+  normalizeJsonSchema,
+  normalizeJsonValue,
+  validateStructuredInput,
+} from "./structured-data.js";
+export {
+  MEMORY_SCHEMA_VERSION,
+  MEMORY_KINDS,
+  memoryFilePath,
+  createFileMemoryStore,
+  createProjectMemoryStore,
+} from "./memory.js";
+export {
+  DEFAULT_MEMORY_CATALOG_CAPABILITIES,
+  createMemoryCapabilityDefinitions,
+  createMemoryCapabilityRegistry,
+} from "./memory-capabilities.js";
+export {
+  formatMemoryContext,
+  runMemoryRecall,
+  runMemoryCurator,
+} from "./memory-workflows.js";
+export {
+  CAPABILITY_URL_ENV,
+  CAPABILITY_TOKEN_ENV,
+  CapabilityUnavailableError,
+  CapabilityRequestError,
+  resolveCapabilityEndpoint,
+  requestCapability,
+  withoutCapabilityGrant,
+} from "./capability-client.js";
+export {
+  searchMemory,
+  putMemory,
+  formatSearchOutcome,
+  formatPutOutcome,
+} from "./memory-client.js";

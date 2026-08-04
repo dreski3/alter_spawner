@@ -20,6 +20,8 @@ export const parseSpawnArgs = (argv) => {
     else if (a === "--verbose") o.verbose = true;
     else if (a === "--prompt") o.prompt = argv[++i];
     else if (a === "--catalog") o.catalog = argv[++i];
+    else if (a === "--allow-catalog") (o.allowedCatalogs ??= []).push(argv[++i]);
+    else if (a === "--allow-no-catalogs") o.allowedCatalogs = [];
     else if (a === "--max-tokens") o.maxTokens = Number(argv[++i]);
     else if (a === "--fallback-model") o.fallbackModel = argv[++i];
     else if (a === "--prompt-prefix") o.promptPrefix = argv[++i];

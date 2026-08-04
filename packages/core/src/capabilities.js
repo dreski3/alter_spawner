@@ -1,7 +1,13 @@
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import {
+  canonicalJson,
+  normalizeJsonSchema,
+  normalizeJsonValue,
+  validateStructuredInput,
+} from "./structured-data.js";
 
 const approvalDecisions = new Set(["allow-once", "allow-run", "always-catalog", "deny"]);
 export const VALID_APPROVAL_DECISIONS = Object.freeze({
@@ -32,6 +38,10 @@ const publicApproval = (approval) => approval ? {
   reason: approval.reason,
   risk: approval.risk,
   commandPreview: approval.commandPreview,
+  inputPreview: approval.inputPreview,
+  executionDigest: approval.executionDigest,
+  executorVersion: approval.executorVersion,
+  allowedDecisions: approval.allowedDecisions,
   requestedAt: approval.requestedAt,
 } : null;
 
@@ -46,6 +56,21 @@ const normalizeDefinition = (definition) => {
   if (definition.approval !== undefined && definition.approval !== "always" && definition.approval !== "never") {
     throw new Error(`capability ${definition.id} approval must be always or never`);
   }
+  const allowedDecisions = definition.allowedDecisions || [...approvalDecisions];
+  if (!Array.isArray(allowedDecisions) || allowedDecisions.length === 0 || allowedDecisions.some((decision) => !approvalDecisions.has(decision))) {
+    throw new Error(`capability ${definition.id} allowed decisions are invalid`);
+  }
+  if (!allowedDecisions.includes("deny")) throw new Error(`capability ${definition.id} must allow denial`);
+  const hasHandler = typeof definition.handler === "function";
+  const hasExecutors = definition.executors && Object.keys(definition.executors).length > 0;
+  if (hasHandler === Boolean(hasExecutors)) throw new Error(`capability ${definition.id} requires exactly one trusted execution strategy`);
+  if (hasHandler && !definition.inputSchema) throw new Error(`structured capability ${definition.id} requires an input schema`);
+  if (!hasHandler && definition.inputSchema !== undefined) throw new Error(`command capability ${definition.id} cannot declare structured input`);
+  if (definition.approvalPreview !== undefined && typeof definition.approvalPreview !== "function") {
+    throw new Error(`capability ${definition.id} approval preview must be a function`);
+  }
+  const executorVersion = String(definition.executorVersion || "1");
+  if (!executorVersion || executorVersion.length > 100) throw new Error(`capability ${definition.id} executor version is invalid`);
   const executors = Object.fromEntries(Object.entries(definition.executors || {}).map(([platform, executor]) => {
     if (!executor || typeof executor.file !== "string" || !path.isAbsolute(executor.file)) {
       throw new Error(`capability ${definition.id} executor for ${platform} requires an absolute file path`);
@@ -63,6 +88,11 @@ const normalizeDefinition = (definition) => {
     approval: definition.approval || "always",
     timeoutMs: Number.isFinite(definition.timeoutMs) && definition.timeoutMs > 0 ? definition.timeoutMs : 15000,
     maxOutputBytes: Number.isFinite(definition.maxOutputBytes) && definition.maxOutputBytes > 0 ? definition.maxOutputBytes : 256000,
+    executorVersion,
+    allowedDecisions: Object.freeze([...new Set(allowedDecisions)]),
+    inputSchema: definition.inputSchema ? normalizeJsonSchema(definition.inputSchema, `capability ${definition.id} input schema`) : null,
+    approvalPreview: definition.approvalPreview || null,
+    handler: hasHandler ? definition.handler : null,
     executors: Object.freeze(executors),
   });
 };
@@ -116,10 +146,28 @@ const executeDefinition = (definition, { signal, platform = process.platform } =
     signal: childSignal,
     stdout: stdout.trim(),
     stderr: stderr.trim(),
+    value: null,
+    outputBytes,
   })));
   if (signal?.aborted) abort();
   else signal?.addEventListener("abort", abort, { once: true });
 });
+
+const executeHandler = async (definition, invocation, { signal } = {}) => {
+  if (signal?.aborted) throw new Error("Capability execution cancelled.");
+  const value = normalizeJsonValue(await definition.handler({ input: invocation.input, signal }), "capability result");
+  const outputBytes = Buffer.byteLength(canonicalJson(value));
+  if (outputBytes > definition.maxOutputBytes) throw new Error(`${definition.name} exceeded its output limit.`);
+  return {
+    ok: true,
+    exitCode: 0,
+    signal: null,
+    stdout: "",
+    stderr: "",
+    value,
+    outputBytes,
+  };
+};
 
 export const createCapabilityRegistry = ({ definitions = [], catalogCapabilities = {} } = {}) => {
   const entries = Array.isArray(definitions) ? definitions : Object.values(definitions);
@@ -139,22 +187,70 @@ export const createCapabilityRegistry = ({ definitions = [], catalogCapabilities
     if (!definition) throw new Error(`unknown capability: ${id}`);
     return definition;
   };
+  const preparedInvocations = new WeakSet();
+  const prepare = (id, { input, platform = process.platform } = {}) => {
+    const definition = requireCapability(id);
+    let normalizedInput = null;
+    if (definition.inputSchema) normalizedInput = validateStructuredInput(definition.inputSchema, input);
+    else if (input !== undefined) throw new Error(`capability ${id} does not accept structured input`);
+    const executor = definition.handler ? { type: "handler" } : {
+      type: "command",
+      platform,
+      file: definition.executors[platform]?.file || null,
+      args: definition.executors[platform]?.args || null,
+    };
+    const executionDigest = createHash("sha256").update(canonicalJson({
+      capabilityId: id,
+      executorVersion: definition.executorVersion,
+      executor,
+      input: normalizedInput,
+    })).digest("hex");
+    const inputPreview = definition.inputSchema
+      ? normalizeJsonValue(definition.approvalPreview ? definition.approvalPreview(normalizedInput) : normalizedInput, "approval preview")
+      : null;
+    const commandExecutor = definition.executors[platform];
+    const invocation = Object.freeze({
+      capabilityId: id,
+      platform,
+      input: normalizedInput,
+      inputPreview,
+      executionDigest,
+      executorVersion: definition.executorVersion,
+      commandPreview: definition.handler
+        ? definition.name
+        : commandExecutor
+          ? [commandExecutor.file, ...commandExecutor.args].join(" ")
+          : `Unavailable on ${platform}`,
+    });
+    preparedInvocations.add(invocation);
+    return invocation;
+  };
+  const executePrepared = async (invocation, options = {}) => {
+    if (!invocation || !preparedInvocations.has(invocation)) throw new Error("capability invocation was not prepared by this registry");
+    const definition = requireCapability(invocation.capabilityId);
+    return definition.handler
+      ? executeHandler(definition, invocation, options)
+      : executeDefinition(definition, { signal: options.signal, platform: invocation.platform });
+  };
   return Object.freeze({
     get: (id) => registered.get(id) || null,
     forCatalog: (catalogId) => (bindings[catalogId] || []).map(requireCapability),
     listPublic: () => [...registered.values()].map(publicCapability),
     commandPreview: (id, platform = process.platform) => {
       const definition = requireCapability(id);
+      if (definition.handler) return definition.name;
       const executor = definition.executors[platform];
       return executor ? [executor.file, ...executor.args].join(" ") : `Unavailable on ${platform}`;
     },
-    execute: async (id, options) => executeDefinition(requireCapability(id), options),
+    prepare,
+    executePrepared,
+    execute: async (id, options = {}) => executePrepared(prepare(id, options), options),
   });
 };
 
 export class CapabilityDeniedError extends Error {
   constructor(capability) {
-    super(`${capability.name} was denied. No host command was executed.`);
+    super(`${capability.name} was denied. No trusted capability was executed.`);
     this.name = "CapabilityDeniedError";
     this.capabilityId = capability.id;
   }
@@ -172,7 +268,12 @@ export const createCapabilityApprovalSession = ({
   now = () => new Date().toISOString(),
   clock = () => Date.now(),
 } = {}) => {
-  if (!registry || typeof registry.get !== "function" || typeof registry.execute !== "function") {
+  if (
+    !registry ||
+    typeof registry.get !== "function" ||
+    typeof registry.prepare !== "function" ||
+    typeof registry.executePrepared !== "function"
+  ) {
     throw new Error("capability approval session requires a capability registry");
   }
   if (typeof catalogId !== "string" || !catalogId) throw new Error("capability approval session requires a catalog id");
@@ -184,21 +285,24 @@ export const createCapabilityApprovalSession = ({
       onEvent({ type, ...detail });
     } catch {}
   };
-  const authorize = async (capabilityId, { reason, platform } = {}) => {
+  const authorizePrepared = async (invocation, { reason } = {}) => {
+    const capabilityId = invocation.capabilityId;
     const definition = registry.get(capabilityId);
-    if (!definition) throw new Error(`unknown capability: ${capabilityId}`);
     if (signal?.aborted) throw new Error("Run cancelled while waiting for capability approval.");
     if (pending) throw new Error("another capability approval is already pending");
     if (definition.approval !== "always") {
-      emit("capability.auto_approved", { capabilityId, decision: "not-required" });
+      emit("capability.auto_approved", { capabilityId, executionDigest: invocation.executionDigest, decision: "not-required" });
       return { decision: "not-required" };
     }
-    if (runGrants.has(capabilityId)) {
-      emit("capability.auto_approved", { capabilityId, decision: "allow-run" });
+    if (definition.allowedDecisions.includes("allow-run") && runGrants.has(capabilityId)) {
+      emit("capability.auto_approved", { capabilityId, executionDigest: invocation.executionDigest, decision: "allow-run" });
       return { decision: "allow-run" };
     }
-    if (isPersistentlyApproved({ catalogId, capabilityId })) {
-      emit("capability.auto_approved", { capabilityId, decision: "always-catalog" });
+    if (
+      definition.allowedDecisions.includes("always-catalog") &&
+      isPersistentlyApproved({ catalogId, capabilityId, executionDigest: invocation.executionDigest })
+    ) {
+      emit("capability.auto_approved", { capabilityId, executionDigest: invocation.executionDigest, decision: "always-catalog" });
       return { decision: "always-catalog" };
     }
     return new Promise((resolve, reject) => {
@@ -209,7 +313,12 @@ export const createCapabilityApprovalSession = ({
         description: definition.description,
         reason: reason || `${catalogId} requires this capability.`,
         risk: definition.risk,
-        commandPreview: registry.commandPreview(capabilityId, platform),
+        commandPreview: invocation.commandPreview,
+        inputPreview: invocation.inputPreview,
+        executionDigest: invocation.executionDigest,
+        executorVersion: invocation.executorVersion,
+        allowedDecisions: definition.allowedDecisions,
+        invocation,
         requestedAt: now(),
         resolve,
         reject,
@@ -225,20 +334,43 @@ export const createCapabilityApprovalSession = ({
       emit("capability.approval_required", { approval: publicApproval(approval) });
     });
   };
+  const authorize = async (capabilityId, options = {}) =>
+    authorizePrepared(registry.prepare(capabilityId, options), options);
 
   const decide = async (approvalId, decision) => {
     const approval = pending;
     if (!approval || approval.id !== approvalId) throw new Error("approval request is no longer pending");
     if (!approvalDecisions.has(decision)) throw new Error("invalid approval decision");
+    if (!approval.allowedDecisions.includes(decision)) throw new Error("approval decision is not allowed for this capability");
     if (decision === "always-catalog") {
-      await persistApproval({ catalogId, capabilityId: approval.capabilityId, decision, approval: publicApproval(approval) });
+      await persistApproval({
+        catalogId,
+        capabilityId: approval.capabilityId,
+        executionDigest: approval.executionDigest,
+        decision,
+        approval: publicApproval(approval),
+      });
     }
-    await audit({ catalogId, capabilityId: approval.capabilityId, decision, approval: publicApproval(approval) });
+    await audit({
+      catalogId,
+      capabilityId: approval.capabilityId,
+      executionDigest: approval.executionDigest,
+      decision,
+      approval: publicApproval(approval),
+    });
     approval.cleanup?.();
     pending = null;
     if (decision === "allow-run") runGrants.add(approval.capabilityId);
-    if (decision === "deny") emit("capability.denied", { capabilityId: approval.capabilityId, decision });
-    else emit("capability.approved", { capabilityId: approval.capabilityId, decision });
+    if (decision === "deny") emit("capability.denied", {
+      capabilityId: approval.capabilityId,
+      executionDigest: approval.executionDigest,
+      decision,
+    });
+    else emit("capability.approved", {
+      capabilityId: approval.capabilityId,
+      executionDigest: approval.executionDigest,
+      decision,
+    });
     approval.resolve({ decision });
     return { decision };
   };
@@ -246,20 +378,24 @@ export const createCapabilityApprovalSession = ({
   const execute = async (capabilityId, options = {}) => {
     const definition = registry.get(capabilityId);
     if (!definition) throw new Error(`unknown capability: ${capabilityId}`);
-    const { decision } = await authorize(capabilityId, options);
+    const invocation = registry.prepare(capabilityId, options);
+    const { decision } = await authorizePrepared(invocation, options);
     if (decision === "deny") throw new CapabilityDeniedError(definition);
-    const commandPreview = registry.commandPreview(capabilityId, options.platform);
-    emit("capability.execution_started", { capabilityId, commandPreview });
+    emit("capability.execution_started", {
+      capabilityId,
+      commandPreview: invocation.commandPreview,
+      executionDigest: invocation.executionDigest,
+    });
     const startedAt = clock();
     try {
-      const result = await registry.execute(capabilityId, { signal, platform: options.platform });
+      const result = await registry.executePrepared(invocation, { signal });
       const durationMs = clock() - startedAt;
       if (result.ok) {
         emit("capability.execution_completed", {
           capabilityId,
           exitCode: result.exitCode,
           durationMs,
-          outputBytes: Buffer.byteLength(result.stdout || ""),
+          outputBytes: result.outputBytes ?? Buffer.byteLength(result.stdout || ""),
         });
       } else {
         emit("capability.execution_failed", { capabilityId, exitCode: result.exitCode, durationMs });

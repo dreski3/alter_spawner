@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -32,6 +32,9 @@ test("the CLI packs and installs as one self-contained package", (t) => {
   execFileSync(mind, ["init"], { cwd: consumer, stdio: "pipe" });
   assert.equal(existsSync(mind), true);
   assert.equal(existsSync(path.join(consumer, ".alters", "config.json")), true);
+  assert.match(readFileSync(path.join(consumer, ".gitignore"), "utf8"), /^\.alters\/memory\/$/m);
+  assert.equal(existsSync(path.join(consumer, ".alters", "catalog", "memory-recaller", "manifest.json")), true);
+  assert.equal(existsSync(path.join(consumer, ".alters", "catalog", "memory-curator", "manifest.json")), true);
   assert.equal(existsSync(path.join(consumer, "node_modules", "mind", "dist", "core", "src", "index.js")), true);
   assert.equal(existsSync(path.join(consumer, "node_modules", "mind", "node_modules")), false);
 });

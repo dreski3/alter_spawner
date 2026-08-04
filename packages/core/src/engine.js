@@ -9,6 +9,15 @@ import { writeResult, readAlterJson, resolveHome } from "./homes.js";
 import { createSpawnOptions } from "./spawn-spec.js";
 import { validateOutputContract } from "./output-contract.js";
 import { resolveRuntime } from "./runtime.js";
+import { withoutCapabilityGrant } from "./capability-client.js";
+
+// Every Alter runs from an environment with no capability grant in it. A grant is
+// the privilege of one principal turn; an Alter beneath that turn is a sandbox and
+// must not be able to spend it. See withoutCapabilityGrant for why.
+const sandboxRuntime = (runtimeOverride) => {
+  const runtime = resolveRuntime(runtimeOverride);
+  return { ...runtime, env: withoutCapabilityGrant(runtime.env) };
+};
 
 export const resolveEffectiveModel = (o, cfg, runtime = resolveRuntime()) =>
   o.model || runtime.env.ALTER_MODEL || cfg.default_model;
@@ -38,7 +47,7 @@ export const spawnAlter = async (
   o,
   { createOnly = false, harness = "opencode", signal, onEvent, runtime: runtimeOverride } = {},
 ) => {
-  const runtime = resolveRuntime(runtimeOverride);
+  const runtime = sandboxRuntime(runtimeOverride);
   const cfg = readConfig(root);
   prepareSpawn(root, cfg, o, runtime);
   const home = scaffold(root, cfg, o, runtime);
@@ -75,7 +84,7 @@ export const runExistingAlter = async (
   prompt,
   { harness = "opencode", mindBinPath = null, signal, onEvent, runtime: runtimeOverride } = {},
 ) => {
-  const runtime = resolveRuntime(runtimeOverride);
+  const runtime = sandboxRuntime(runtimeOverride);
   const home = resolveHome(root, homeArg);
   if (!prompt) fail("usage: mind run <home-or-id> <prompt...>");
   const aj = readAlterJson(home);

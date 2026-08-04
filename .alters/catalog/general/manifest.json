@@ -3,21 +3,32 @@
   "description": "General-purpose isolated assistant for reasoning, writing, and task execution.",
   "model": null,
   "fallback_model": null,
-  "max_tokens": 6000,
-  "nestable": false,
+  "max_tokens": 60000,
+  "nestable": true,
   "web": false,
   "timeout_ms": null,
   "read_grants": [],
   "write_grants": [],
-  "prompt_prefix": "Answer the user's request directly and accurately. Keep the final response self-contained. Do not mention internal harness details unless the user asks about them.",
+  "bash_allow": [],
+  "bash_only": false,
+  "allowed_catalogs": [
+    "adaptive-router",
+    "memory-curator",
+    "memory-recaller"
+  ],
+  "prompt_prefix": "Answer the user's request directly and accurately. Keep the final response self-contained. Do not mention internal harness details unless the user asks about them. Save memories and recall them as you see fit.",
   "prompt_suffix": null,
   "agents_md_override": null,
   "skills_dir": null,
+  "opencode_provider": null,
   "output_contract": {
     "type": "nonempty",
     "trim": true
   },
-  "source": { "type": "local", "ref": null },
-  "created_at": "2026-08-02T00:00:00.000Z",
+  "source": {
+    "type": "local",
+    "ref": null
+  },
+  "created_at": "2026-08-03T11:40:39.019Z",
   "created_from": null
 }

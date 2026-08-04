@@ -182,14 +182,17 @@ specific external command (e.g. `"python3 /abs/path/cipher.py **"`),
 independent of `nestable`. Lets an Alter shell out to a deterministic script
 instead of paying for an inference call, without opening bash generally.
 
-**Host capability approvals** — library callers register fixed executable and
-argument vectors with `createCapabilityRegistry`, bind trusted capability IDs
-to catalogs, and create one `createCapabilityApprovalSession` per run. The
-session emits transport-neutral lifecycle events and pauses `execute` until a
-caller returns one of the explicit decisions through `decide`. Approval input
-contains only an opaque request ID and decision; it cannot replace the
-registered executable or provide a shell command. Run grants live in the
-session, while persistent catalog grants are supplied through policy hooks.
+**Host capability approvals** — library callers register fixed executable
+vectors or schema-validated trusted handlers with `createCapabilityRegistry`,
+bind capability IDs to catalogs, and create one
+`createCapabilityApprovalSession` per run. The session emits transport-neutral
+lifecycle events and pauses `execute` until a caller returns one of the
+explicit decisions through `decide`. Structured inputs are cloned, frozen, and
+bound to the request with a SHA-256 digest over the capability ID, executor
+version, and canonical input. Approval input contains only an opaque request
+ID and decision; it cannot replace the registered executor or mutation. Run
+grants live in the session, while persistent catalog grants are supplied
+through policy hooks.
 An adapter renders `event.approval`, then passes only its ID and an explicit
 decision back to core:
 
@@ -202,6 +205,37 @@ await approvals.decide(approvalId, "allow-once");
 const result = await execution;
 ```
 
+**Persistent memory** — `createProjectMemoryStore` provides a scoped,
+versioned store under `.alters/memory/store.json`. Writes are atomic, use a
+cross-process lock, enforce optimistic versions, deduplicate active records,
+and keep project, catalog, and conversation visibility separate. `mind init`
+and `mind update` add `.alters/memory/` to `.gitignore` because memory may
+contain private project context.
+
+`createMemoryCapabilityRegistry` exposes search/read and exact write/update/
+delete operations through the same approval contract. Mutations only allow
+`allow-once` or `deny`. The default profile includes `memory-recaller` and
+`memory-curator`: one Alter creates a narrow search plan before retrieval, and
+the other proposes durable records after a run. Neither Alter receives direct
+database access.
+
+```js
+const store = createProjectMemoryStore(root, { projectId: "naut" });
+const registry = createMemoryCapabilityRegistry({ store });
+const approvals = createCapabilityApprovalSession({
+  registry,
+  catalogId: "memory-curator",
+  onEvent
+});
+
+const curated = await runMemoryCurator(root, {
+  content: completedRun.text,
+  scope: { project: "naut" },
+  source: { runId: completedRun.id },
+  approvals
+});
+```
+
 ## Known limitations
 
 - Not published. No `mind --help`/`--version` yet.
@@ -209,6 +243,8 @@ const result = await execution;
   A custom provider can still require its configured AI SDK runtime package.
 - Only one harness adapter exists (`opencode`); the interface is unexercised
   by a second implementation.
+- Persistent-memory search is lexical in the dependency-free file backend;
+  the store contract is designed for a future SQLite/FTS or vector adapter.
 - Output validation is opt-in. Catalog entries without `output_contract` still
   treat any non-empty final message as semantically successful.
 - A nestable Alter occasionally fails to correctly compose its own scoped

@@ -28,6 +28,16 @@ export const validateManifest = (m, name) => {
   for (const key of ["read_grants", "write_grants", "bash_allow"]) {
     if (m[key] != null && !Array.isArray(m[key])) fail(`catalog entry "${name}": ${key} must be an array.`);
   }
+  if (m.allowed_catalogs != null) {
+    if (!Array.isArray(m.allowed_catalogs)) {
+      fail(`catalog entry "${name}": allowed_catalogs must be an array of catalog names or null.`);
+    }
+    for (const allowed of m.allowed_catalogs) {
+      if (typeof allowed !== "string" || !allowed.trim()) {
+        fail(`catalog entry "${name}": allowed_catalogs entries must be non-empty catalog names.`);
+      }
+    }
+  }
   if (m.opencode_provider != null) {
     if (
       typeof m.opencode_provider !== "object" ||
@@ -79,6 +89,7 @@ export const applyCatalog = (o, entry) => {
   if (o.writeGrants.length === 0) o.writeGrants = (m.write_grants || []).map(normPath);
   if (!o.bashAllow || o.bashAllow.length === 0) o.bashAllow = m.bash_allow || [];
   if (!o.bashOnly) o.bashOnly = !!m.bash_only;
+  if (o.allowedCatalogs == null) o.allowedCatalogs = m.allowed_catalogs ? [...m.allowed_catalogs] : null;
   o.promptPrefix = o.promptPrefix ?? m.prompt_prefix ?? null;
   o.promptSuffix = o.promptSuffix ?? m.prompt_suffix ?? null;
   o.catalogEntryDir = entry.dir;
@@ -120,6 +131,7 @@ const manifestFromOptions = (name, o, runtime) => ({
   write_grants: o.writeGrants || [],
   bash_allow: o.bashAllow || [],
   bash_only: !!o.bashOnly,
+  allowed_catalogs: o.allowedCatalogs ? [...o.allowedCatalogs] : null,
   prompt_prefix: o.promptPrefix ?? null,
   prompt_suffix: o.promptSuffix ?? null,
   agents_md_override: null,

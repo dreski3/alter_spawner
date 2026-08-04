@@ -40,3 +40,13 @@ export const readProfileMeta = (root) => {
 export const writeProfileMeta = (root, meta) => {
   writeFileSync(PROFILE_META_PATH(root), JSON.stringify(meta, null, 2) + "\n");
 };
+
+export const ensureMemoryIgnored = (root) => {
+  const file = path.join(root, ".gitignore");
+  const current = existsSync(file) ? readFileSync(file, "utf8") : "";
+  const entry = ".alters/memory/";
+  if (current.split(/\r?\n/).includes(entry)) return false;
+  const separator = current && !current.endsWith("\n") ? "\n" : "";
+  writeFileSync(file, `${current}${separator}${entry}\n`);
+  return true;
+};

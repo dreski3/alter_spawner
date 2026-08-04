@@ -36,12 +36,31 @@ export const classify = classifyOpenCodeResult;
 const run = (
   home,
   prompt,
-  { timeout, depth, alterId, maxTokens, model, pure, recordEvents, attempt, signal, onEvent, environment = process.env }
+  {
+    timeout,
+    depth,
+    alterId,
+    maxTokens,
+    model,
+    pure,
+    recordEvents,
+    attempt,
+    signal,
+    onEvent,
+    environment = process.env,
+    // A single-use Alter always runs as the generated `alter` agent in a throwaway
+    // home. A principal turn instead runs a project's own agent and continues one
+    // long-lived session, so both are parameters rather than constants.
+    agent = "alter",
+    sessionId = null,
+  }
 ) =>
   new Promise((resolve) => {
     const args = ["run"];
     if (pure) args.push("--pure");
-    args.push("--agent", "alter", "--dir", home, "--format", "json");
+    if (agent) args.push("--agent", agent);
+    args.push("--dir", home, "--format", "json");
+    if (sessionId) args.push("--session", sessionId);
     if (model) args.push("--model", model);
     args.push(prompt);
     const child = spawn(
