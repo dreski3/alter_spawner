@@ -50,7 +50,7 @@ answer) and also saved to `<home>/result.md` (+ `result.json` with stats).
 | `--bash-allow <pattern>` | allow one exact command pattern in the Alter's shell |
 | `--bash-only` | deny non-shell tools, useful for deterministic tool wrappers |
 | `--text-only` | no tools at all: a text-in/text-out leaf, and the cheapest Alter to run |
-| `--executor <name>` | which harness adapter runs it. From the CLI only `opencode` is available — model-free executors have to be bound by a host process, so do not reach for them here |
+| `--executor <name>` | which harness adapter runs it: `opencode` (default) or `llm` — see below. The model-free executors have to be bound by a host process, so do not reach for them here |
 | `--output-exact <text>` / `--output-prefix <text>` | require a matching final result |
 | `--output-regex <pattern>` | require the final result to match a regular expression |
 | `--output-json` | require the final result to parse as JSON |
@@ -82,6 +82,22 @@ depends on the harness's own buffering, which this tool does not control. In
 the worst case it is equivalent to "reject after the fact" — the run has
 already spent its tokens, and the effect is limited to `result.json` recording
 `ok:false, budget_exceeded:true` with no further retries proceeding.
+
+## Choosing an executor
+`--executor opencode` (the default) gives the child a real coding-agent session: a
+home directory, file tools, optionally a shell. Use it whenever the child has to
+*do* something — read, write, search, run a command, spawn its own children.
+
+`--executor llm` makes a single model call instead: your `--description` becomes
+its system prompt, your prompt becomes the user message, and its reply is the
+result. No home, no tools, no session. Measured against the same endpoint it
+returns in ~2ms of local overhead versus ~2.4s for a session, and sends about a
+fifth of the input tokens.
+
+Reach for `llm` for text-in/text-out work — rewriting, compressing, extracting,
+classifying, translating, normalizing. Reach for `opencode` for anything else.
+A child that needs `--allow`, `--web`, `--bash-allow` or `--nestable` is not an
+`llm` node; those flags have nothing to act on there.
 
 ## Tree budgets
 `--max-tokens` bounds one Alter. A whole *tree* — you, your children, and

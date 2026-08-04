@@ -90,9 +90,12 @@ export const runWithRetries = async ({
       environment: runtime.env,
       agent,
       sessionId,
-      // Only the capability executors read these; every other adapter ignores them.
+      // Read only by the executors that have no agent home to read them from: the
+      // capability pair needs the binding, the llm executor needs the role for its
+      // system prompt. Every other adapter ignores them.
       capability: o.capability || null,
       catalogName: o.catalogName || null,
+      description: o.description || null,
     });
     if (res.ok && o.outputContract) {
       const contract = checkOutputContract(res.text, o.outputContract);

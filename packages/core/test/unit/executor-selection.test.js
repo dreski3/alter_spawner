@@ -83,7 +83,15 @@ test("an adapter without a run function is refused at registration", () => {
 });
 
 test("an unknown executor names the ones that do exist", () => {
-  assert.throws(() => getHarness("llm"), /unknown executor: llm — registered executors are: .*opencode/);
+  assert.throws(() => getHarness("nonesuch"), /unknown executor: nonesuch — registered executors are: .*opencode/);
+});
+
+test("the self-registering executors are available without a host", () => {
+  // opencode and llm need nothing built for them; the capability pair does, so it is
+  // absent here by design.
+  assert.equal(getHarness("opencode").needsAgentHome, true);
+  assert.equal(getHarness("llm").needsAgentHome, false);
+  assert.equal(getHarness("llm").supportsRetry, true, "a model call can succeed on a second attempt");
 });
 
 // --- the Alter's declaration wins ----------------------------------------------

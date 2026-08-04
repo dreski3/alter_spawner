@@ -40,7 +40,26 @@ const enterTree = async (root, cfg, o, runtime) => {
 // sets `o.executor` before calling.
 const resolveExecutor = (o, harness) => {
   const name = o.executor || harness || "opencode";
-  return { name, adapter: getHarness(name) };
+  const adapter = getHarness(name);
+  // An adapter with no agent home has no generated agent definition, and the sandbox
+  // is *expressed* in that definition's permission block — so there is nothing for a
+  // grant to configure. Silently ignoring one would be the worst outcome: a manifest
+  // saying `executor: "llm", web: true` reads like a web-capable node and would
+  // quietly be a plain completion instead.
+  if (!adapter.needsAgentHome) {
+    const claimed = [
+      o.nestable && "nestable",
+      o.webAccess && "web",
+      o.bashOnly && "bash_only",
+      o.bashAllow?.length && "bash_allow",
+      o.readGrants?.length && "read_grants",
+      o.writeGrants?.length && "write_grants",
+    ].filter(Boolean);
+    if (claimed.length) {
+      fail(`executor "${name}" runs without a sandbox, so it cannot be combined with ${claimed.join(", ")}.`);
+    }
+  }
+  return { name, adapter };
 };
 
 // Every Alter runs from an environment with no capability grant in it. A grant is

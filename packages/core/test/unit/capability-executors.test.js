@@ -189,5 +189,5 @@ test("naming a host-bound executor that is absent explains itself", async () => 
   const { getHarness } = await import("../../src/harness/adapter.js");
   assert.throws(() => getHarness("function"), /must be bound by the host with a capability registry/);
   // A genuine typo still reads as one.
-  assert.throws(() => getHarness("opencide"), /registered executors are: opencode$/);
+  assert.throws(() => getHarness("opencide"), /registered executors are: llm, opencode$/);
 });

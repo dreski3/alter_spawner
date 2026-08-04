@@ -1,4 +1,7 @@
 import "./harness/opencode.js";
+// Self-registering like opencode: it needs nothing a host must build, only the catalog
+// and credentials opencode already keeps on disk. See harness/llm.js.
+import "./harness/llm.js";
 
 export { MindError, fail, normPath, sanitizeName } from "./util.js";
 export { parseSpawnArgs } from "./parseArgs.js";
@@ -54,6 +57,15 @@ export { registerHarness, getHarness, HARNESS_ADAPTERS } from "./harness/adapter
 // Not registered by default: a capability registry is host-built, and there is
 // deliberately no path that loads one from a project directory. See harness/capability.js.
 export { createFunctionExecutor, createCapabilityExecutor } from "./harness/capability.js";
+export {
+  authFilePath,
+  loadAuth,
+  loadModelsCatalog,
+  modelsCatalogPath,
+  resolveLlmEndpoint,
+  resolveLlmEndpointFromDisk,
+  splitModelRef,
+} from "./providers.js";
 export {
   VALID_APPROVAL_DECISIONS,
   CapabilityDeniedError,
