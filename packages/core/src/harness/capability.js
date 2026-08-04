@@ -146,7 +146,14 @@ export const createCapabilityExecutor = ({ registry, createSession }) => {
     needsAgentHome: false,
     supportsRetry: false,
     run: (home, prompt, { capability, catalogName, alterId, signal, onEvent } = {}) => {
-      const session = createSession({ catalogId: catalogName || alterId || "alter", signal, onEvent });
+      let session;
+      try {
+        session = createSession({ catalogId: catalogName || alterId || "alter", signal, onEvent });
+      } catch (error) {
+        // A host that cannot produce a session for this run — no approval context,
+        // for instance — is a node that cannot run, not a tree that should unwind.
+        return Promise.resolve(failed(error?.message || String(error)));
+      }
       return runCapability({
         registry,
         capability,

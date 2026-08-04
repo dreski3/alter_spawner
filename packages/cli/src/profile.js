@@ -41,12 +41,17 @@ export const writeProfileMeta = (root, meta) => {
   writeFileSync(PROFILE_META_PATH(root), JSON.stringify(meta, null, 2) + "\n");
 };
 
+// Run-local state that accumulates and belongs to nobody's history: the memory store,
+// and one ledger per tree of Alters.
+const IGNORED_KIT_PATHS = [".alters/memory/", ".alters/trees/"];
+
 export const ensureMemoryIgnored = (root) => {
   const file = path.join(root, ".gitignore");
   const current = existsSync(file) ? readFileSync(file, "utf8") : "";
-  const entry = ".alters/memory/";
-  if (current.split(/\r?\n/).includes(entry)) return false;
+  const lines = current.split(/\r?\n/);
+  const missing = IGNORED_KIT_PATHS.filter((entry) => !lines.includes(entry));
+  if (missing.length === 0) return false;
   const separator = current && !current.endsWith("\n") ? "\n" : "";
-  writeFileSync(file, `${current}${separator}${entry}\n`);
+  writeFileSync(file, `${current}${separator}${missing.join("\n")}\n`);
   return true;
 };

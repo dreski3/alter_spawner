@@ -1,0 +1,33 @@
+{
+  "name": "json-normalizer",
+  "description": "Normalize JSON deterministically: strip a surrounding code fence, sort object keys recursively, re-indent. Runs as a function node — no model, no tokens.",
+  "executor": "function",
+  "capability": {
+    "id": "transform.json.normalize",
+    "input": "text"
+  },
+  "model": null,
+  "fallback_model": null,
+  "max_tokens": null,
+  "nestable": false,
+  "web": false,
+  "timeout_ms": null,
+  "read_grants": [],
+  "write_grants": [],
+  "bash_allow": [],
+  "bash_only": false,
+  "text_only": false,
+  "allowed_catalogs": null,
+  "prompt_prefix": null,
+  "prompt_suffix": null,
+  "agents_md_override": null,
+  "skills_dir": null,
+  "opencode_provider": null,
+  "output_contract": null,
+  "source": {
+    "type": "local",
+    "ref": null
+  },
+  "created_at": "2026-08-04T18:00:00.000Z",
+  "created_from": null
+}

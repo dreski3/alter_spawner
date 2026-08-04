@@ -7,5 +7,6 @@ coverage/
 .alters/runs/
 .alters/graphs/
 .alters/memory/
+.alters/trees/
 .alters/cipher-relay-store/
 *.events.jsonl
