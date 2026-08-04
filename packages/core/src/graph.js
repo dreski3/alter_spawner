@@ -66,11 +66,21 @@ export const runAlterGraph = async (
           record.state = "running";
           persist();
           try {
+            const truncatedEdges = [];
             const options = buildGraphSpawnOptions(
-              { ...node, prompt: renderGraphPrompt(node, records) },
+              {
+                ...node,
+                prompt: renderGraphPrompt(node, records, {
+                  maxEdgeChars: graph.max_edge_chars === undefined ? undefined : graph.max_edge_chars,
+                  onTruncate: (edge) => truncatedEdges.push(edge),
+                }),
+              },
               graphId,
               mindBinPath
             );
+            // Recorded on the node that received the shortened input, so the trace
+            // shows which prompt was cut rather than leaving it to be inferred.
+            if (truncatedEdges.length) record.truncated_edges = truncatedEdges;
             const spawned = await spawnAlter(root, options, { harness, signal, runtime });
             record.home = spawned.home;
             record.result = spawned.result;

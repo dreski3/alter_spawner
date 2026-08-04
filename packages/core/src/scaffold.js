@@ -123,7 +123,13 @@ const scaffoldAgentFiles = (root, cfg, o, runtime, home) => {
       path.join(childKit, "config.json"),
         {
           default_model: o.model,
-          max_depth: cfg.max_depth ?? 5,
+          max_depth: cfg.max_depth ?? 12,
+          // The tree limits have to reach every level: a child reads its own kit
+          // config, so a limit left behind here would be silently lifted one level
+          // down. The ledger they share travels separately, in the environment.
+          max_tree_nodes: cfg.max_tree_nodes ?? null,
+          max_tree_tokens: cfg.max_tree_tokens ?? null,
+          max_concurrent_alters: cfg.max_concurrent_alters ?? null,
           run_timeout_ms: cfg.run_timeout_ms ?? 180000,
           catalog_dir: catalogDirName,
           default_fallback_model: o.fallbackModel || cfg.default_fallback_model || null,

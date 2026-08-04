@@ -7,6 +7,7 @@ const publicRecord = (record) => ({
   home: record.home || null,
   result: record.result || null,
   error: record.error || null,
+  truncated_edges: record.truncated_edges || null,
 });
 
 const aggregateTokens = (records) => {

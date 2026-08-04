@@ -83,6 +83,28 @@ the worst case it is equivalent to "reject after the fact" — the run has
 already spent its tokens, and the effect is limited to `result.json` recording
 `ok:false, budget_exceeded:true` with no further retries proceeding.
 
+## Tree budgets
+`--max-tokens` bounds one Alter. A whole *tree* — you, your children, and
+everything below them — is bounded separately by `.alters/config.json`:
+
+- `max_tree_nodes` — total Alters the tree may spawn (default 64).
+- `max_tree_tokens` — total tokens the tree may spend (off by default).
+- `max_concurrent_alters` — how many run at once (default 4).
+
+These are shared across every branch and every process, so spending is counted
+once per tree rather than once per branch. Two consequences for you:
+
+- A spawn can be **refused** with `tree node budget exhausted` (exit 1). That is
+  a ceiling, not a transient error — **do not retry it**. Finish the task with
+  what you already have, or answer directly, and say in your result that the
+  tree budget ran out.
+- A spawn can **block** while the tree is at `max_concurrent_alters`. That is
+  normal backpressure; it will proceed on its own. Waiting on a child does not
+  count against the cap, so a deep chain never starves itself.
+
+Prefer a few well-scoped children over many speculative ones: the budget is the
+whole tree's, and spending it on the shallow levels leaves nothing underneath.
+
 ## Failure fallback
 On failure (non-zero exit, timeout, budget overrun, or an empty result), a spawn
 retries according to `.alters/config.json`'s `retry` block (default: 1 retry on

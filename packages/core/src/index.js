@@ -33,6 +33,22 @@ export {
   runPrincipalTurn,
 } from "./principal.js";
 export { runAlterGraph } from "./graph.js";
+export { DEFAULT_MAX_EDGE_CHARS, renderGraphPrompt, validateGraph } from "./graph-spec.js";
+export { withFileLock } from "./file-lock.js";
+export {
+  TREE_ID_ENV,
+  TREE_LEDGER_ENV,
+  TREE_NODE_ENV,
+  TREE_LEDGER_SCHEMA_VERSION,
+  treeLedgerPath,
+  treeLimits,
+  treeGuardsEnabled,
+  admitTreeNode,
+  releaseTreeNode,
+  readTreeLedger,
+  resolveTreeContext,
+  withTreeEnv,
+} from "./tree-budget.js";
 export { ALTER_HOME_TEMPLATE_DIR, TEMPLATE_AGENT, TEMPLATE_SKILL } from "./paths.js";
 export { registerHarness, getHarness, HARNESS_ADAPTERS } from "./harness/adapter.js";
 export {

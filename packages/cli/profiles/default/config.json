@@ -1,6 +1,9 @@
 {
   "default_model": "opencode/deepseek-v4-flash-free",
-  "max_depth": 5,
+  "max_depth": 12,
+  "max_tree_nodes": 64,
+  "max_tree_tokens": null,
+  "max_concurrent_alters": 4,
   "run_timeout_ms": 180000,
   "catalog_dir": "catalog",
   "default_fallback_model": null,

@@ -11,6 +11,26 @@ import { validateOutputContract } from "./output-contract.js";
 import { resolveRuntime } from "./runtime.js";
 import { withoutCapabilityGrant } from "./capability-client.js";
 import { getHarness } from "./harness/adapter.js";
+import {
+  admitTreeNode,
+  releaseTreeNode,
+  resolveTreeContext,
+  treeGuardsEnabled,
+  treeLimits,
+  withTreeEnv,
+} from "./tree-budget.js";
+
+// Reserves this Alter's place in its tree — one node of the budget and one
+// concurrency slot — and returns the environment its own children must inherit to
+// land in the same ledger. Null when every tree limit is switched off, in which case
+// no ledger is created and nothing is serialized.
+const enterTree = async (root, cfg, o, runtime) => {
+  const limits = treeLimits(cfg);
+  if (!treeGuardsEnabled(limits)) return { handle: null, runtime };
+  const { treeId, file, parentNodeId } = resolveTreeContext(root, o, runtime);
+  const handle = await admitTreeNode({ file, treeId, parentNodeId, depth: o.depth, limits, runtime });
+  return { handle, runtime: withTreeEnv(runtime, { treeId, file, nodeId: handle.nodeId }) };
+};
 
 // Which adapter runs this Alter. The Alter's own `executor` wins: it comes from the
 // catalog manifest and is a statement about what this Alter *is* — a function node
@@ -69,35 +89,53 @@ export const spawnAlter = async (
   // actually ran rather than "unspecified", and so `mind run` on this home later
   // reaches for the same adapter.
   o.executor = harnessName;
-  const home = scaffold(root, cfg, o, runtime, { agentFiles: adapter.needsAgentHome });
+  // `mind create` scaffolds a home without running anything, so it costs the tree no
+  // node and holds no slot.
   if (createOnly) {
+    const home = scaffold(root, cfg, o, runtime, { agentFiles: adapter.needsAgentHome });
     return { home, created: true, depth: o.depth, model: o.model, executor: harnessName };
   }
-  const timeout = o.timeout ?? cfg.run_timeout_ms ?? 180000;
-  const effectivePrompt = [o.promptPrefix, o.prompt, o.promptSuffix].filter(Boolean).join("\n\n");
-  const { res, attempts } = await runWithRetries({
-    options: o,
-    config: cfg,
-    home,
-    prompt: effectivePrompt,
-    timeout,
-    depth: o.depth,
-    harnessName,
-    signal,
-    onEvent,
-    pure: cfg.opencode_pure !== false,
-    recordEvents: cfg.opencode_event_log === true,
-    runtime,
-    // An adapter with no agent home has no generated agent definition on disk, so
-    // there is nothing for a model swap to rewrite.
-    regenerateAgentFile: adapter.needsAgentHome,
-  });
-  const startedAt = attempts[0].started_at;
-  const endedAt = attempts[attempts.length - 1].ended_at;
-  const totalDuration = attempts.reduce((s, a) => s + a.duration_ms, 0);
-  const result = writeResult(root, home, o, res, startedAt, endedAt, totalDuration, attempts);
-  if (o.rm) rmSync(home, { recursive: true, force: true });
-  return { home, created: false, result, res };
+  // Admission comes before scaffolding: a tree that has spent its budget should say so
+  // instead of leaving an orphan home behind, and a tree at its concurrency ceiling
+  // should wait here rather than after doing work.
+  const { handle: treeNode, runtime: treeRuntime } = await enterTree(root, cfg, o, runtime);
+  let res;
+  try {
+    const home = scaffold(root, cfg, o, treeRuntime, { agentFiles: adapter.needsAgentHome });
+    const timeout = o.timeout ?? cfg.run_timeout_ms ?? 180000;
+    const effectivePrompt = [o.promptPrefix, o.prompt, o.promptSuffix].filter(Boolean).join("\n\n");
+    let attempts;
+    ({ res, attempts } = await runWithRetries({
+      options: o,
+      config: cfg,
+      home,
+      prompt: effectivePrompt,
+      timeout,
+      depth: o.depth,
+      harnessName,
+      signal,
+      onEvent,
+      pure: cfg.opencode_pure !== false,
+      recordEvents: cfg.opencode_event_log === true,
+      // Carries the tree id, ledger path and this node's id, so anything this Alter
+      // spawns joins the same ledger instead of starting a tree of its own.
+      runtime: treeRuntime,
+      // An adapter with no agent home has no generated agent definition on disk, so
+      // there is nothing for a model swap to rewrite.
+      regenerateAgentFile: adapter.needsAgentHome,
+    }));
+    const startedAt = attempts[0].started_at;
+    const endedAt = attempts[attempts.length - 1].ended_at;
+    const totalDuration = attempts.reduce((s, a) => s + a.duration_ms, 0);
+    const result = writeResult(root, home, o, res, startedAt, endedAt, totalDuration, attempts);
+    if (o.rm) rmSync(home, { recursive: true, force: true });
+    return { home, created: false, result, res };
+  } finally {
+    // Released even when the run throws: a slot leaked here is a slot the tree never
+    // gets back, and the pid-liveness prune would not reclaim it while this process
+    // is still alive.
+    await releaseTreeNode(treeNode, res?.tokens?.total ?? 0);
+  }
 };
 
 export const runExistingAlter = async (
@@ -138,24 +176,35 @@ export const runExistingAlter = async (
   });
   validateOutputContract(o.outputContract);
   const { name: harnessName, adapter } = resolveExecutor(o, harness);
-  const { res, attempts } = await runWithRetries({
-    options: o,
-    config: cfg,
-    home,
-    prompt,
-    timeout,
-    depth,
-    harnessName,
-    signal,
-    onEvent,
-    pure: cfg.opencode_pure !== false,
-    recordEvents: cfg.opencode_event_log === true,
-    runtime,
-    regenerateAgentFile: adapter.needsAgentHome,
-  });
-  const startedAt = attempts[0].started_at;
-  const endedAt = attempts[attempts.length - 1].ended_at;
-  const totalDuration = attempts.reduce((s, a) => s + a.duration_ms, 0);
-  const result = writeResult(root, home, o, res, startedAt, endedAt, totalDuration, attempts);
-  return { home, result, res };
+  // A re-run is a real process and a real model call, so it draws on the tree budget
+  // like any spawn. It matters that this is not skipped: `mind run` is inside a
+  // nestable Alter's allowed command form, so it would otherwise be an unmetered way
+  // to keep working after the node budget was exhausted.
+  const { handle: treeNode, runtime: treeRuntime } = await enterTree(root, cfg, { ...o, depth }, runtime);
+  let res;
+  try {
+    let attempts;
+    ({ res, attempts } = await runWithRetries({
+      options: o,
+      config: cfg,
+      home,
+      prompt,
+      timeout,
+      depth,
+      harnessName,
+      signal,
+      onEvent,
+      pure: cfg.opencode_pure !== false,
+      recordEvents: cfg.opencode_event_log === true,
+      runtime: treeRuntime,
+      regenerateAgentFile: adapter.needsAgentHome,
+    }));
+    const startedAt = attempts[0].started_at;
+    const endedAt = attempts[attempts.length - 1].ended_at;
+    const totalDuration = attempts.reduce((s, a) => s + a.duration_ms, 0);
+    const result = writeResult(root, home, o, res, startedAt, endedAt, totalDuration, attempts);
+    return { home, result, res };
+  } finally {
+    await releaseTreeNode(treeNode, res?.tokens?.total ?? 0);
+  }
 };
