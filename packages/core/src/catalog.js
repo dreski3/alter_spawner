@@ -25,6 +25,27 @@ export const validateManifest = (m, name) => {
   if (m.bash_only != null && typeof m.bash_only !== "boolean") {
     fail(`catalog entry "${name}": bash_only must be a boolean.`);
   }
+  if (m.text_only != null && typeof m.text_only !== "boolean") {
+    fail(`catalog entry "${name}": text_only must be a boolean.`);
+  }
+  // text_only is a claim about the whole shape of the Alter — text in, text out,
+  // no capabilities of any kind — and its savings come precisely from dropping
+  // everything a capability would need. Silently ignoring a contradictory grant
+  // would hand back an Alter that cannot do what its manifest says it can, so
+  // the combination is rejected at validation time rather than at runtime.
+  if (m.text_only) {
+    const conflicts = [
+      m.bash_only && "bash_only",
+      m.nestable && "nestable",
+      m.web && "web",
+      m.bash_allow?.length && "bash_allow",
+      m.read_grants?.length && "read_grants",
+      m.write_grants?.length && "write_grants",
+    ].filter(Boolean);
+    if (conflicts.length) {
+      fail(`catalog entry "${name}": text_only cannot be combined with ${conflicts.join(", ")}.`);
+    }
+  }
   for (const key of ["read_grants", "write_grants", "bash_allow"]) {
     if (m[key] != null && !Array.isArray(m[key])) fail(`catalog entry "${name}": ${key} must be an array.`);
   }
@@ -89,6 +110,7 @@ export const applyCatalog = (o, entry) => {
   if (o.writeGrants.length === 0) o.writeGrants = (m.write_grants || []).map(normPath);
   if (!o.bashAllow || o.bashAllow.length === 0) o.bashAllow = m.bash_allow || [];
   if (!o.bashOnly) o.bashOnly = !!m.bash_only;
+  if (!o.textOnly) o.textOnly = !!m.text_only;
   if (o.allowedCatalogs == null) o.allowedCatalogs = m.allowed_catalogs ? [...m.allowed_catalogs] : null;
   o.promptPrefix = o.promptPrefix ?? m.prompt_prefix ?? null;
   o.promptSuffix = o.promptSuffix ?? m.prompt_suffix ?? null;
@@ -131,6 +153,7 @@ const manifestFromOptions = (name, o, runtime) => ({
   write_grants: o.writeGrants || [],
   bash_allow: o.bashAllow || [],
   bash_only: !!o.bashOnly,
+  text_only: !!o.textOnly,
   allowed_catalogs: o.allowedCatalogs ? [...o.allowedCatalogs] : null,
   prompt_prefix: o.promptPrefix ?? null,
   prompt_suffix: o.promptSuffix ?? null,

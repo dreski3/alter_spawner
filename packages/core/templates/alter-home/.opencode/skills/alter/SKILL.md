@@ -49,6 +49,7 @@ answer) and also saved to `<home>/result.md` (+ `result.json` with stats).
 | `--prompt-prefix <text>` / `--prompt-suffix <text>` | text wrapped around the prompt |
 | `--bash-allow <pattern>` | allow one exact command pattern in the Alter's shell |
 | `--bash-only` | deny non-shell tools, useful for deterministic tool wrappers |
+| `--text-only` | no tools at all: a text-in/text-out leaf, and the cheapest Alter to run |
 | `--output-exact <text>` / `--output-prefix <text>` | require a matching final result |
 | `--output-regex <pattern>` | require the final result to match a regular expression |
 | `--output-json` | require the final result to parse as JSON |

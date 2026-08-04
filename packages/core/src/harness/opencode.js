@@ -27,6 +27,25 @@ import {
 // classified as empty.
 export const classify = classifyOpenCodeResult;
 
+// Exported for the same reason as `classify`: the argument vector decides how much
+// this run costs, so it should be assertable without spawning a real `opencode`.
+export const buildRunArgs = ({ home, prompt, pure, agent, sessionId, title, alterId, model }) => {
+  const args = ["run"];
+  if (pure) args.push("--pure");
+  if (agent) args.push("--agent", agent);
+  args.push("--dir", home, "--format", "json");
+  // Naming the session ourselves suppresses opencode's own title generation, which
+  // is a second, separately billed model call (its own ~2k-char system prompt)
+  // whose only product is a label nothing here ever reads. Measured at 2,481 bytes
+  // / ~620 input tokens per spawn — for a trivial leaf, 18% of the entire run.
+  // Only a new session needs one; continuing with `--session` already has a title.
+  if (sessionId) args.push("--session", sessionId);
+  else if (title || alterId) args.push("--title", title || alterId);
+  if (model) args.push("--model", model);
+  args.push(prompt);
+  return args;
+};
+
 // Token-budget enforcement kills the child as soon as usage becomes visible on stdout.
 // Whether that is genuinely mid-run or only once opencode has already finished and flushed
 // everything at once depends on opencode's own buffering for --format json, which this tool
@@ -53,16 +72,11 @@ const run = (
     // long-lived session, so both are parameters rather than constants.
     agent = "alter",
     sessionId = null,
+    title = null,
   }
 ) =>
   new Promise((resolve) => {
-    const args = ["run"];
-    if (pure) args.push("--pure");
-    if (agent) args.push("--agent", agent);
-    args.push("--dir", home, "--format", "json");
-    if (sessionId) args.push("--session", sessionId);
-    if (model) args.push("--model", model);
-    args.push(prompt);
+    const args = buildRunArgs({ home, prompt, pure, agent, sessionId, title, alterId, model });
     const child = spawn(
       "opencode",
       args,

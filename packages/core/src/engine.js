@@ -100,6 +100,7 @@ export const runExistingAlter = async (
     writeGrants: aj.write_grants || [],
     bashAllow: aj.bash_allow || [],
     bashOnly: !!aj.bash_only,
+    textOnly: !!aj.text_only,
     nestable: !!aj.nestable,
     webAccess: !!aj.web,
     maxTokens: aj.max_tokens ?? null,

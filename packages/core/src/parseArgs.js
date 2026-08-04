@@ -13,6 +13,7 @@ export const parseSpawnArgs = (argv) => {
     else if (a === "--allow-write") o.writeGrants.push(normPath(argv[++i]));
     else if (a === "--bash-allow") o.bashAllow.push(argv[++i]);
     else if (a === "--bash-only") o.bashOnly = true;
+    else if (a === "--text-only") o.textOnly = true;
     else if (a === "--nestable") o.nestable = true;
     else if (a === "--web") o.webAccess = true;
     else if (a === "--timeout") o.timeout = Number(argv[++i]);

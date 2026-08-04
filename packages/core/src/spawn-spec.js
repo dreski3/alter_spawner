@@ -7,6 +7,9 @@ export const DEFAULT_SPAWN_OPTIONS = Object.freeze({
   writeGrants: [],
   bashAllow: [],
   bashOnly: false,
+  // A pure text-in/text-out leaf: no tools at all, and none of the boilerplate
+  // that only makes sense to an agent that has some. See frontmatter.js.
+  textOnly: false,
   nestable: false,
   timeout: null,
   rm: false,

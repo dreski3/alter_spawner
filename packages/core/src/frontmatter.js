@@ -82,6 +82,7 @@ const applyPlaceholders = (tmpl, o) => {
 //     can be nestable, have bash_allow, both, or neither.
 const bashAllowRules = (o) => {
   const rules = [];
+  if (o.textOnly) return rules;
   if (o.nestable) {
     rules.push(`${yq(`node ${o.mindBinPath} **`)}: allow`);
     rules.push(`${yq(`node ${o.mindBinPath}`)}: allow`);
@@ -92,33 +93,53 @@ const bashAllowRules = (o) => {
   return rules;
 };
 
+// Denying a permission does not merely refuse the call at runtime — opencode drops
+// the tool's definition from the request body entirely. That makes the permission
+// block the lever for context size, not just for safety: the six file tools
+// (edit/glob/grep/read/skill/write) are ~7.7k characters of schema that a leaf
+// returning transformed text will never call and should never be sent.
+const deniesTools = (o) => !!(o.bashOnly || o.textOnly);
+
 export const buildFrontmatter = (o) => {
   const L = [];
+  const noTools = deniesTools(o);
   L.push("---");
   L.push(`description: ${yq(o.description || "Single-use sandboxed Alter.")}`);
   L.push("mode: all");
   if (o.model) L.push(`model: ${o.model}`);
   L.push("permission:");
-  L.push(o.bashOnly ? "  read: deny" : "  read: allow");
-  L.push(o.bashOnly ? "  glob: deny" : "  glob: allow");
-  L.push(o.bashOnly ? "  grep: deny" : "  grep: allow");
-  L.push(o.bashOnly ? "  skill: deny" : "  skill: allow");
-  L.push("  edit:");
-  L.push(`    "**": ${o.bashOnly ? "deny" : "allow"}`);
+  L.push(noTools ? "  read: deny" : "  read: allow");
+  L.push(noTools ? "  glob: deny" : "  glob: allow");
+  L.push(noTools ? "  grep: deny" : "  grep: allow");
+  L.push(noTools ? "  skill: deny" : "  skill: allow");
   const readDirs = o.readGrants;
   const writeDirs = o.writeGrants;
-  for (const d of readDirs) {
-    L.push(`    ${yq(d + "/**")}: deny`);
-    L.push(`    ${yq(d + "/*")}: deny`);
-    L.push(`    ${yq(d)}: deny`);
+  // A per-path map and a bare `deny` are not equivalent to opencode. A map means
+  // "consult these patterns", so the tool's definition stays on the wire even when
+  // every pattern denies; only the scalar form prunes it. With no grants there are
+  // no patterns to consult, so the scalar says the same thing for ~3k fewer
+  // characters. Grants force the map back — they are exactly the case where some
+  // path really is allowed.
+  const scalarPaths = noTools && readDirs.length === 0 && writeDirs.length === 0;
+  if (scalarPaths) {
+    L.push("  edit: deny");
+    L.push("  write: deny");
+  } else {
+    L.push("  edit:");
+    L.push(`    "**": ${noTools ? "deny" : "allow"}`);
+    for (const d of readDirs) {
+      L.push(`    ${yq(d + "/**")}: deny`);
+      L.push(`    ${yq(d + "/*")}: deny`);
+      L.push(`    ${yq(d)}: deny`);
+    }
+    for (const d of writeDirs) {
+      L.push(`    ${yq(d + "/**")}: allow`);
+      L.push(`    ${yq(d + "/*")}: allow`);
+      L.push(`    ${yq(d)}: allow`);
+    }
+    L.push("  write:");
+    L.push(`    "**": ${noTools ? "deny" : "allow"}`);
   }
-  for (const d of writeDirs) {
-    L.push(`    ${yq(d + "/**")}: allow`);
-    L.push(`    ${yq(d + "/*")}: allow`);
-    L.push(`    ${yq(d)}: allow`);
-  }
-  L.push("  write:");
-  L.push(`    "**": ${o.bashOnly ? "deny" : "allow"}`);
   const bashRules = bashAllowRules(o);
   if (bashRules.length) {
     L.push("  bash:");
@@ -151,7 +172,24 @@ export const buildFrontmatter = (o) => {
   return L.join("\n");
 };
 
+// The stock body tells an Alter it is a coding agent in a home directory, to stay
+// inside it, not to commit, and to verify its work. Every line of that presumes
+// tools. A text_only leaf has none — so the advice is not merely wasted context,
+// it describes a situation the model is not in. It gets the role and the output
+// contract, and nothing else.
+const textOnlyBody = (o) => {
+  const role = o.description && o.description.trim()
+    ? o.description.trim()
+    : "Transform the text you are given.";
+  return `## Your role
+${role}
+
+Your entire reply is captured verbatim as the result. Return only the transformed
+text — no preamble, no explanation, no commentary on what you changed.`;
+};
+
 export const buildBody = (o) => {
+  if (o.textOnly) return textOnlyBody(o);
   let tmpl = "";
   const overridePath =
     o.catalogEntryDir && o.catalogAgentsOverride

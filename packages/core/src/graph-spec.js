@@ -10,6 +10,7 @@ export const buildGraphSpawnOptions = (node, graphId, mindBinPath) => createSpaw
   writeGrants: node.writeGrants || [],
   bashAllow: node.bashAllow || [],
   bashOnly: !!node.bashOnly,
+  textOnly: !!node.textOnly,
   nestable: !!node.nestable,
   timeout: node.timeout ?? null,
   catalog: node.catalog ?? null,

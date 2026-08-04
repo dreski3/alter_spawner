@@ -50,7 +50,7 @@ export const scaffold = (root, cfg, o, runtimeOverride) => {
   if (!o.nestable) {
     rmSync(path.join(home, ".opencode", "skills", "alter"), { recursive: true, force: true });
   }
-  if (o.catalogEntryDir && o.catalogSkillsDir) {
+  if (o.catalogEntryDir && o.catalogSkillsDir && !o.textOnly) {
     const src = path.join(o.catalogEntryDir, o.catalogSkillsDir);
     if (existsSync(src)) {
       const dest = path.join(home, ".opencode", "skills");
@@ -58,7 +58,15 @@ export const scaffold = (root, cfg, o, runtimeOverride) => {
       cpSync(src, dest, { recursive: true });
     }
   }
-  writeTextAtomic(path.join(home, "AGENTS.md"), buildAgentsMd(o));
+  // opencode injects a home's AGENTS.md into the agent prompt *in addition to* the
+  // agent's own body, and the two say nearly the same thing — so an ordinary Alter
+  // pays for its instructions twice. Setting `instructions: []` does not suppress
+  // the injection; only the file's absence does. A text_only leaf therefore ships
+  // no AGENTS.md and carries its whole contract in the agent body. The `git init`
+  // above matters here: it makes the home a repository root, so opencode stops
+  // walking up and never reaches the project's own (parent-harness) AGENTS.md.
+  if (o.textOnly) rmSync(path.join(home, "AGENTS.md"), { force: true });
+  else writeTextAtomic(path.join(home, "AGENTS.md"), buildAgentsMd(o));
   const agentDir = path.join(home, ".opencode", "agents");
   mkdirSync(agentDir, { recursive: true });
   writeTextAtomic(
@@ -82,6 +90,7 @@ export const scaffold = (root, cfg, o, runtimeOverride) => {
         write_grants: o.writeGrants,
         bash_allow: o.bashAllow || [],
         bash_only: !!o.bashOnly,
+        text_only: !!o.textOnly,
         allowed_catalogs: o.allowedCatalogs ? [...o.allowedCatalogs] : null,
         catalog: o.catalogName || null,
         max_tokens: o.maxTokens ?? null,
