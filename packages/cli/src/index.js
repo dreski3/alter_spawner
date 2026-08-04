@@ -14,7 +14,7 @@ const usage = () => {
   console.error("  update  [--source <path>]              (re-apply profile-owned files + new catalog entries)");
   console.error("  spawn   --name? --description? --model? --allow <p> --allow-write <p>");
   console.error("          --nestable? --web? --timeout? --rm? --verbose?");
-  console.error("          --catalog <name>? --max-tokens <n>? --fallback-model <m>?");
+  console.error("          --catalog <name>? --executor <name>? --max-tokens <n>? --fallback-model <m>?");
   console.error("          --allow-catalog <name>* | --allow-no-catalogs?");
   console.error("          --prompt-prefix <s>? --prompt-suffix <s>?");
   console.error("          --bash-allow <pattern>? --bash-only? --text-only?");

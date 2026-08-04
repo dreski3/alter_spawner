@@ -10,6 +10,18 @@ import { createSpawnOptions } from "./spawn-spec.js";
 import { validateOutputContract } from "./output-contract.js";
 import { resolveRuntime } from "./runtime.js";
 import { withoutCapabilityGrant } from "./capability-client.js";
+import { getHarness } from "./harness/adapter.js";
+
+// Which adapter runs this Alter. The Alter's own `executor` wins: it comes from the
+// catalog manifest and is a statement about what this Alter *is* — a function node
+// cannot run on a coding harness just because a caller passed one. The call-site
+// `harness` is the default for Alters that do not declare one, which is every Alter
+// that exists today. A caller that genuinely needs to override a declared executor
+// sets `o.executor` before calling.
+const resolveExecutor = (o, harness) => {
+  const name = o.executor || harness || "opencode";
+  return { name, adapter: getHarness(name) };
+};
 
 // Every Alter runs from an environment with no capability grant in it. A grant is
 // the privilege of one principal turn; an Alter beneath that turn is a sandbox and
@@ -45,14 +57,21 @@ const prepareSpawn = (root, cfg, o, runtime) => {
 export const spawnAlter = async (
   root,
   o,
-  { createOnly = false, harness = "opencode", signal, onEvent, runtime: runtimeOverride } = {},
+  { createOnly = false, harness = null, signal, onEvent, runtime: runtimeOverride } = {},
 ) => {
   const runtime = sandboxRuntime(runtimeOverride);
   const cfg = readConfig(root);
   prepareSpawn(root, cfg, o, runtime);
-  const home = scaffold(root, cfg, o, runtime);
+  // Resolved before scaffolding, because the adapter decides how much to scaffold —
+  // and because an unknown executor should fail before anything is written to disk.
+  const { name: harnessName, adapter } = resolveExecutor(o, harness);
+  // Pin the resolved name onto the Alter so alter.json and result.json record what
+  // actually ran rather than "unspecified", and so `mind run` on this home later
+  // reaches for the same adapter.
+  o.executor = harnessName;
+  const home = scaffold(root, cfg, o, runtime, { agentFiles: adapter.needsAgentHome });
   if (createOnly) {
-    return { home, created: true, depth: o.depth, model: o.model };
+    return { home, created: true, depth: o.depth, model: o.model, executor: harnessName };
   }
   const timeout = o.timeout ?? cfg.run_timeout_ms ?? 180000;
   const effectivePrompt = [o.promptPrefix, o.prompt, o.promptSuffix].filter(Boolean).join("\n\n");
@@ -63,12 +82,15 @@ export const spawnAlter = async (
     prompt: effectivePrompt,
     timeout,
     depth: o.depth,
-    harnessName: harness,
+    harnessName,
     signal,
     onEvent,
     pure: cfg.opencode_pure !== false,
     recordEvents: cfg.opencode_event_log === true,
     runtime,
+    // An adapter with no agent home has no generated agent definition on disk, so
+    // there is nothing for a model swap to rewrite.
+    regenerateAgentFile: adapter.needsAgentHome,
   });
   const startedAt = attempts[0].started_at;
   const endedAt = attempts[attempts.length - 1].ended_at;
@@ -82,7 +104,7 @@ export const runExistingAlter = async (
   root,
   homeArg,
   prompt,
-  { harness = "opencode", mindBinPath = null, signal, onEvent, runtime: runtimeOverride } = {},
+  { harness = null, mindBinPath = null, signal, onEvent, runtime: runtimeOverride } = {},
 ) => {
   const runtime = sandboxRuntime(runtimeOverride);
   const home = resolveHome(root, homeArg);
@@ -101,6 +123,9 @@ export const runExistingAlter = async (
     bashAllow: aj.bash_allow || [],
     bashOnly: !!aj.bash_only,
     textOnly: !!aj.text_only,
+    // Re-running a home has to use whatever executed it the first time — the home
+    // was built (or deliberately not built) for that adapter.
+    executor: aj.executor || null,
     nestable: !!aj.nestable,
     webAccess: !!aj.web,
     maxTokens: aj.max_tokens ?? null,
@@ -112,6 +137,7 @@ export const runExistingAlter = async (
     mindBinPath,
   });
   validateOutputContract(o.outputContract);
+  const { name: harnessName, adapter } = resolveExecutor(o, harness);
   const { res, attempts } = await runWithRetries({
     options: o,
     config: cfg,
@@ -119,12 +145,13 @@ export const runExistingAlter = async (
     prompt,
     timeout,
     depth,
-    harnessName: harness,
+    harnessName,
     signal,
     onEvent,
     pure: cfg.opencode_pure !== false,
     recordEvents: cfg.opencode_event_log === true,
     runtime,
+    regenerateAgentFile: adapter.needsAgentHome,
   });
   const startedAt = attempts[0].started_at;
   const endedAt = attempts[attempts.length - 1].ended_at;

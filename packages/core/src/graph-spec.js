@@ -11,6 +11,9 @@ export const buildGraphSpawnOptions = (node, graphId, mindBinPath) => createSpaw
   bashAllow: node.bashAllow || [],
   bashOnly: !!node.bashOnly,
   textOnly: !!node.textOnly,
+  // A graph is the natural place for mixed executors: a reasoning node and the leaf
+  // transformers hanging off it need not run on the same machinery.
+  executor: node.executor ?? null,
   nestable: !!node.nestable,
   timeout: node.timeout ?? null,
   catalog: node.catalog ?? null,

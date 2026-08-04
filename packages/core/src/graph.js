@@ -11,7 +11,7 @@ import { fail, iso, sanitizeName, timestampSlug } from "./util.js";
 export const runAlterGraph = async (
   root,
   graph,
-  { harness = "opencode", signal, concurrency = Infinity, mindBinPath = null, runtime: runtimeOverride } = {},
+  { harness = null, signal, concurrency = Infinity, mindBinPath = null, runtime: runtimeOverride } = {},
 ) => {
   const runtime = resolveRuntime(runtimeOverride);
   const { nodes, output } = validateGraph(graph);

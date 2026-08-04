@@ -28,6 +28,11 @@ export const validateManifest = (m, name) => {
   if (m.text_only != null && typeof m.text_only !== "boolean") {
     fail(`catalog entry "${name}": text_only must be a boolean.`);
   }
+  // Only the shape is checked here. Whether the name resolves to a registered
+  // adapter is settled at spawn time by getHarness, which knows what exists.
+  if (m.executor != null && (typeof m.executor !== "string" || !m.executor.trim())) {
+    fail(`catalog entry "${name}": executor must be the name of a harness adapter.`);
+  }
   // text_only is a claim about the whole shape of the Alter — text in, text out,
   // no capabilities of any kind — and its savings come precisely from dropping
   // everything a capability would need. Silently ignoring a contradictory grant
@@ -111,6 +116,7 @@ export const applyCatalog = (o, entry) => {
   if (!o.bashAllow || o.bashAllow.length === 0) o.bashAllow = m.bash_allow || [];
   if (!o.bashOnly) o.bashOnly = !!m.bash_only;
   if (!o.textOnly) o.textOnly = !!m.text_only;
+  if (o.executor == null) o.executor = m.executor || null;
   if (o.allowedCatalogs == null) o.allowedCatalogs = m.allowed_catalogs ? [...m.allowed_catalogs] : null;
   o.promptPrefix = o.promptPrefix ?? m.prompt_prefix ?? null;
   o.promptSuffix = o.promptSuffix ?? m.prompt_suffix ?? null;
@@ -154,6 +160,7 @@ const manifestFromOptions = (name, o, runtime) => ({
   bash_allow: o.bashAllow || [],
   bash_only: !!o.bashOnly,
   text_only: !!o.textOnly,
+  executor: o.executor || null,
   allowed_catalogs: o.allowedCatalogs ? [...o.allowedCatalogs] : null,
   prompt_prefix: o.promptPrefix ?? null,
   prompt_suffix: o.promptSuffix ?? null,
