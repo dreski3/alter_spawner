@@ -82,6 +82,7 @@ export const scaffold = (root, cfg, o, runtimeOverride) => {
         write_grants: o.writeGrants,
         bash_allow: o.bashAllow || [],
         bash_only: !!o.bashOnly,
+        allowed_catalogs: o.allowedCatalogs ? [...o.allowedCatalogs] : null,
         catalog: o.catalogName || null,
         max_tokens: o.maxTokens ?? null,
         fallback_model: o.fallbackModel || null,
@@ -107,8 +108,24 @@ export const scaffold = (root, cfg, o, runtimeOverride) => {
     mkdirSync(childKit, { recursive: true });
     const catalogDirName = cfg.catalog_dir || "catalog";
     const catalogSrc = catalogDirPath(root, cfg);
+    const catalogDest = path.join(childKit, catalogDirName);
     if (existsSync(catalogSrc)) {
-      cpSync(catalogSrc, path.join(childKit, catalogDirName), { recursive: true });
+      // The child can only ever spawn what it can resolve, so the allowlist is
+      // enforced by what lands on disk: an entry the parent did not allow is
+      // never copied and `--catalog <name>` fails to resolve. Narrowing is
+      // naturally transitive — each level copies from its own already-filtered
+      // catalog, so a grandchild's reachable set can only shrink.
+      if (o.allowedCatalogs) {
+        mkdirSync(catalogDest, { recursive: true });
+        for (const allowed of new Set(o.allowedCatalogs.map(sanitizeName))) {
+          const entrySrc = path.join(catalogSrc, allowed);
+          if (existsSync(path.join(entrySrc, "manifest.json"))) {
+            cpSync(entrySrc, path.join(catalogDest, allowed), { recursive: true });
+          }
+        }
+      } else {
+        cpSync(catalogSrc, catalogDest, { recursive: true });
+      }
     }
     writeJsonAtomic(
       path.join(childKit, "config.json"),

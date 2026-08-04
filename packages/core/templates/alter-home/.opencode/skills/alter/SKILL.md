@@ -1,5 +1,5 @@
 ---
-description: Use to spawn single-use sandboxed subagents called Alters. Spawn an Alter when you need a throwaway agent confined to its own folder for an isolated sub-task, when you want to prefilter/refine a prompt via a grandchild before running the real task, or to delegate work that must not touch the main workspace. Invoke with `mind spawn ...`.
+description: Use to spawn single-use sandboxed subagents called Alters, and to read or write persistent memory. Spawn an Alter when you need a throwaway agent confined to its own folder for an isolated sub-task, when you want to prefilter/refine a prompt via a grandchild before running the real task, or to delegate work that must not touch the main workspace. Also use when something should be remembered across conversations, or when an earlier conversation may already hold what you need. Invoke with `mind spawn ...` / `mind memory ...`.
 ---
 
 # Skill: alter — spawn single-use sandboxed Alters
@@ -42,6 +42,8 @@ answer) and also saved to `<home>/result.md` (+ `result.json` with stats).
 | `--rm` | delete the home after the run (default: keep) |
 | `--verbose` | also print run stats to stdout |
 | `--catalog <name>` | spawn a predefined harness from `.alters/catalog/<name>/manifest.json` |
+| `--allow-catalog <name>` (repeat) | with `--nestable`, the only catalog entries the child may spawn |
+| `--allow-no-catalogs` | with `--nestable`, the child gets a scoped shell but no catalog entries |
 | `--max-tokens <n>` | kill the run if its token usage crosses this budget |
 | `--fallback-model <provider/model>` | model to escalate to after same-model retries fail |
 | `--prompt-prefix <text>` / `--prompt-suffix <text>` | text wrapped around the prompt |
@@ -108,6 +110,20 @@ An Alter cannot spawn children unless you pass `--nestable`. A nestable Alter
 gets a scoped shell and its own `.alters/config.json` + `catalog/`, so it can
 spawn grandchildren.
 
+By default that `catalog/` is a full copy of yours, so a nestable child can
+spawn anything you can. Narrow it with `--allow-catalog <name>` (repeatable) or
+a catalog manifest's `allowed_catalogs`, and only those entries are copied into
+the child's home — every other name simply fails to resolve. `--allow-no-catalogs`
+(or `"allowed_catalogs": []`) leaves the child with a scoped shell and no
+catalog at all. Narrowing is transitive: each level copies from its own already
+filtered catalog, so a grandchild's reachable set can only shrink. Keep the set
+small — it is both the permission boundary and the search space the child reads
+before choosing whom to delegate to.
+
+```bash
+mind spawn --catalog adaptive-router --allow-catalog researcher "..."
+```
+
 **If you are yourself a nestable Alter reading this to spawn a child:** the
 bare `mind` command is **not** on your PATH — your sandboxed shell only allows
 one literal command form, `node <mindBinPath> ...`. Your own `AGENTS.md` (the
@@ -126,6 +142,54 @@ first spawn a grandchild `--name prefilter`, hand it the raw input, then continu
 with the grandchild's cleaned output.
 
 Max nesting depth is configured in `.alters/config.json` (`max_depth`, default 5).
+
+## Persistent memory (`mind memory`)
+Your session carries this conversation. **Persistent memory is the layer above
+it** — the small set of facts, preferences and decisions that should still be
+true in a conversation that has not happened yet. It is a tool you reach for
+deliberately, not something applied to every turn.
+
+```bash
+mind memory search "how the bridge is started" --limit 5
+mind memory search "deployment preferences" --kind preference --kind decision
+mind memory put "The relay dev server runs on port 3003." --kind fact --tag relay
+mind memory put "Prefers no code comments unless asked." --kind preference
+```
+| flag | meaning |
+|---|---|
+| `--limit <n>` | most records to return (1–100, default 10) |
+| `--kind <k>` (repeat) | restrict/label: `fact`, `preference`, `decision`, `summary` |
+| `--tag <t>` (repeat, `put` only) | tags stored with the record |
+| `--confidence <0-1>` | how sure you are (default 1) |
+| `--expires-at <iso>` | drop the record after this instant |
+| `--json` | the raw result instead of the readable summary |
+
+**You are asking, not doing.** You do not hold the memory store and cannot reach
+it. Each command posts your request to your host, which shows the user an
+approval card and — only if they approve — performs the operation itself. Three
+outcomes, all of which you must handle:
+
+- **Approved** — the records, or the stored result, print on stdout.
+- **Denied** — a line beginning `denied:` prints on stdout and the command
+  *succeeds* (exit 0). The user was asked and said no. That is a real answer:
+  carry on without the memory and **do not run the command again**, because a
+  retry only puts the same card in front of the same person.
+- **Unavailable** — a non-zero exit saying persistent memory is unavailable
+  here. No host is listening, so nothing was read or written and there is no
+  other way in. Continue without it.
+
+Scope is not yours to pick. Which project and conversation you can see, and the
+provenance recorded on anything you store, are decided by the host and stamped
+onto the request it runs; there are no flags for them.
+
+Write sparingly. Good records are short, self-contained, and durable — a
+preference, a decision and its reason, a stable fact about the project. Anything
+only true of the current turn belongs in your session, not here. Search before
+writing: the store deduplicates identical content, but not a paraphrase of
+something it already knows.
+
+If `mind` is not on your PATH, `node "$MIND_BIN"` runs the same CLI. Do not try
+to install it from a package registry — nothing published there is this CLI.
 
 ## Other commands
 ```bash

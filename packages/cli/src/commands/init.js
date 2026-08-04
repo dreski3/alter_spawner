@@ -3,6 +3,7 @@ import path from "node:path";
 import { DEFAULT_CONFIG, TEMPLATE_SKILL, fail } from "@mind/core";
 import {
   PROFILE_OWNED_FILES,
+  ensureMemoryIgnored,
   loadProfileManifest,
   resolveProfileDir,
   sha256,
@@ -65,6 +66,7 @@ export const run = (argv, ctx) => {
   // .alters/catalog/*
   const catalogSrc = path.join(profileDir, "catalog");
   if (existsSync(catalogSrc)) copyFile(catalogSrc, path.join(cwd, ".alters", mergedConfig.catalog_dir || "catalog"));
+  ensureMemoryIgnored(cwd);
 
   // package.json: ensure `mind` is a dependency, merge in any profile package.json fragment
   const pkgPath = path.join(cwd, "package.json");

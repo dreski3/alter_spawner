@@ -12,6 +12,7 @@ export const DEFAULT_SPAWN_OPTIONS = Object.freeze({
   rm: false,
   verbose: false,
   catalog: null,
+  allowedCatalogs: null,
   maxTokens: null,
   fallbackModel: null,
   promptPrefix: null,
@@ -27,4 +28,5 @@ export const createSpawnOptions = (overrides = {}) => ({
   readGrants: [...(overrides.readGrants || [])],
   writeGrants: [...(overrides.writeGrants || [])],
   bashAllow: [...(overrides.bashAllow || [])],
+  allowedCatalogs: overrides.allowedCatalogs == null ? null : [...overrides.allowedCatalogs],
 });

@@ -15,6 +15,7 @@ const usage = () => {
   console.error("  spawn   --name? --description? --model? --allow <p> --allow-write <p>");
   console.error("          --nestable? --web? --timeout? --rm? --verbose?");
   console.error("          --catalog <name>? --max-tokens <n>? --fallback-model <m>?");
+  console.error("          --allow-catalog <name>* | --allow-no-catalogs?");
   console.error("          --prompt-prefix <s>? --prompt-suffix <s>?");
   console.error("          --bash-allow <pattern>? --bash-only?");
   console.error("          --output-exact <s>? --output-prefix <s>? --output-regex <s>? --output-json?");
@@ -25,6 +26,8 @@ const usage = () => {
   console.error("  tree    (nesting tree)");
   console.error("  show    <id>          (print result.json)");
   console.error("  rm      <id>          (delete a home)");
+  console.error("  memory  search <query> [--limit <n>] [--kind <k>]*    (ask the host to search persistent memory)");
+  console.error("  memory  put <content> [--kind <k>] [--tag <t>]*       (ask the host to store a durable record)");
   console.error("  catalog list                            (list predefined harnesses)");
   console.error("  catalog show <name>                     (print a harness manifest.json)");
   console.error("  catalog save <name> --from <id> | ...spawn flags   (add/update a harness)");
@@ -42,6 +45,7 @@ const COMMANDS = {
   show: () => import("./commands/show.js"),
   rm: () => import("./commands/rm.js"),
   catalog: () => import("./commands/catalog.js"),
+  memory: () => import("./commands/memory.js"),
 };
 
 const main = async () => {

@@ -14,7 +14,13 @@
 //   budget_exceeded: boolean,
 //   empty_output: boolean,
 // }>
-// opts: { timeout, depth, alterId, maxTokens, model, pure, recordEvents, attempt, signal }
+// opts: { timeout, depth, alterId, maxTokens, model, pure, recordEvents, attempt, signal,
+//         agent, sessionId }
+//
+// `agent` names the harness agent to run as (an Alter home's generated `alter`
+// agent by default); `sessionId` continues an existing harness session instead of
+// opening a new one, which is what makes a multi-turn principal possible. An
+// adapter with no session concept may ignore `sessionId` and report `sessionID: null`.
 //
 // `ok` is the adapter's own verdict, not just "exited 0": an adapter folds the
 // semantic failures it can detect (budget overrun, a clean exit with no final

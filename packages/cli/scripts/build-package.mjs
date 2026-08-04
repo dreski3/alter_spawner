@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,6 +31,16 @@ cpSync(path.join(cli, "profiles"), path.join(dist, "profiles"), { recursive: tru
 cpSync(path.join(core, "src"), path.join(dist, "core", "src"), { recursive: true });
 cpSync(path.join(core, "templates"), path.join(dist, "core", "templates"), { recursive: true });
 visit(cliTarget);
+
+// A `mind` on PATH, without an install step. A host running a child process — a
+// principal turn, say — prepends this directory to the child's PATH, so every
+// `mind ...` command in AGENTS.md and the alter skill works verbatim instead of
+// sending the agent looking for a package to install.
+const binDir = path.join(dist, "bin");
+const shim = path.join(binDir, "mind");
+mkdirSync(binDir, { recursive: true });
+writeFileSync(shim, '#!/bin/sh\nexec node "$(dirname "$0")/../cli/index.js" "$@"\n');
+chmodSync(shim, 0o755);
 
 const manifest = JSON.parse(readFileSync(path.join(cli, "package.json"), "utf8"));
 writeFileSync(

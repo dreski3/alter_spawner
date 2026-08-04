@@ -41,6 +41,12 @@ export const runWithRetries = async ({
   pure = true,
   recordEvents = false,
   runtime: runtimeOverride,
+  agent = "alter",
+  sessionId = null,
+  // An Alter's model lives in its generated `alter.md` frontmatter, so swapping
+  // models mid-plan means rewriting that file. A principal runs a project's own
+  // agent definition, which is user-authored and must never be rewritten here.
+  regenerateAgentFile = true,
 }) => {
   const runtime = resolveRuntime(runtimeOverride);
   const harness = getHarness(harnessName);
@@ -54,7 +60,7 @@ export const runWithRetries = async ({
   let res;
   for (let i = 0; i < plan.length; i++) {
     const attemptModel = plan[i].model;
-    if (i > 0 && attemptModel !== plan[i - 1].model) {
+    if (regenerateAgentFile && i > 0 && attemptModel !== plan[i - 1].model) {
       o.model = attemptModel;
       writeTextAtomic(
         path.join(home, ".opencode", "agents", "alter.md"),
@@ -76,6 +82,8 @@ export const runWithRetries = async ({
       signal,
       onEvent: (event) => emit({ ...event, attempt: i + 1, model: attemptModel }),
       environment: runtime.env,
+      agent,
+      sessionId,
     });
     if (res.ok && o.outputContract) {
       const contract = checkOutputContract(res.text, o.outputContract);

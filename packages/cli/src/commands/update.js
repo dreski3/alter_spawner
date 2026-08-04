@@ -3,6 +3,7 @@ import path from "node:path";
 import { requireProjectRoot, readConfig, catalogDirPath, TEMPLATE_SKILL, fail } from "@mind/core";
 import {
   PROFILE_OWNED_FILES,
+  ensureMemoryIgnored,
   loadProfileManifest,
   readProfileMeta,
   resolveProfileDir,
@@ -74,6 +75,7 @@ export const run = (argv) => {
       }
     }
   }
+  ensureMemoryIgnored(root);
 
   writeProfileMeta(root, {
     profile: manifest.name,
