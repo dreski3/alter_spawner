@@ -17,7 +17,7 @@ demo through `opencode_event_log` in its generated config.
 ## Run one message
 
 ```bash
-cd /Users/andressarria/Development/NautDesktop/alter_spawner
+cd /path/to/alter_spawner
 npm install
 
 MIND_DEMO_MODEL="openai/gpt-5.4-mini-fast" \
@@ -46,7 +46,7 @@ Inspect the run hierarchy and isolation audit:
 
 ```bash
 (cd /tmp/mind-cipher-relay && \
-  node /Users/andressarria/Development/NautDesktop/alter_spawner/packages/cli/src/index.js tree)
+  node "$OLDPWD/packages/cli/src/index.js" tree)
 cat /tmp/mind-cipher-relay/.alters/cipher-relay-audit.json
 ```
 
