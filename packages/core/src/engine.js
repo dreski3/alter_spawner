@@ -1,7 +1,7 @@
-import { rmSync } from "node:fs";
+import { realpathSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fail } from "./util.js";
-import { readConfig } from "./config.js";
+import { readConfig, runsDir } from "./config.js";
 import { resolveCatalogEntry, applyCatalog } from "./catalog.js";
 import { resolveId, scaffold } from "./scaffold.js";
 import { runWithRetries } from "./retry.js";
@@ -159,6 +159,51 @@ export const spawnAlter = async (
   }
 };
 
+// Compared after resolving symlinks: `runsDir(root)` is built from the caller's root
+// while an absolute `homeArg` comes from the caller verbatim, and on macOS one of those
+// routinely arrives via /tmp and the other via /private/tmp. A textual prefix test would
+// read that as an escape.
+const realOrResolved = (target) => {
+  try {
+    return realpathSync(target);
+  } catch {
+    return path.resolve(target);
+  }
+};
+
+const containedIn = (parent, child) => {
+  const from = realOrResolved(parent);
+  const to = realOrResolved(child);
+  return to !== from && to.startsWith(from + path.sep);
+};
+
+// `mind run` is inside a nestable Alter's allowed command form, and resolveHome accepts
+// an absolute path — so a child, whose own home is `<parent>/.alters/runs/<id>`, can name
+// its parent as `../../..`. Nothing in the depth ceiling stops that: the depth here comes
+// from the target's alter.json, not from ALTER_DEPTH, so re-entry never appears deeper.
+//
+// The damage is not the recursion, which the tree node budget bounds. It is that a re-run
+// writes result.json into the target home and regenerates its alter.md — so an Alter
+// reaching upward overwrites the record of a run that is still in flight, and rewrites
+// the agent definition its ancestor's live session is reading.
+//
+// So an Alter may re-run what lives under its own `.alters/runs`, and nothing else. This
+// is containment rather than a depth comparison because depth is a weak proxy for
+// ancestry: a cousin's child is deeper than you and still not yours.
+//
+// A host has no ALTER_DEPTH, and both the CLI and the bridge address homes by absolute
+// path deliberately, so the restriction applies only to callers that are themselves
+// Alters.
+const requireOwnDescendant = (root, home, runtime) => {
+  if (runtime.env.ALTER_DEPTH === undefined) return;
+  if (containedIn(runsDir(root), home)) return;
+  fail(
+    `refusing to run "${home}": it is outside this Alter's own runs directory. ` +
+    "An Alter may re-run only homes it spawned; re-entering an ancestor or a sibling " +
+    "would overwrite the result and agent definition of a run that may still be live.",
+  );
+};
+
 export const runExistingAlter = async (
   root,
   homeArg,
@@ -167,6 +212,7 @@ export const runExistingAlter = async (
 ) => {
   const runtime = sandboxRuntime(runtimeOverride);
   const home = resolveHome(root, homeArg);
+  requireOwnDescendant(root, home, runtime);
   if (!prompt) fail("usage: mind run <home-or-id> <prompt...>");
   const aj = readAlterJson(home);
   const cfg = readConfig(root);

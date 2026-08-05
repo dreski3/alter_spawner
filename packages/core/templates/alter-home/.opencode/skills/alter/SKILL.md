@@ -234,13 +234,21 @@ to install it from a package registry — nothing published there is this CLI.
 ## Other commands
 ```bash
 mind create ...                  # scaffold a home without running it
-mind run <home-or-id> "<prompt>" # run an existing home
+mind run <home-or-id> "<prompt>" # re-run a home you spawned (see below)
 mind list                        # list homes + status
 mind tree                        # nesting tree
 mind show <id>                   # print a home's result.json
 mind rm <id>                     # delete a home
 mind catalog list|show|save      # manage predefined harnesses
 ```
+
+`mind run` re-runs **only homes you spawned** — the ones under your own
+`.alters/runs`. Naming a home above or beside you (your parent as `../../..`,
+a sibling, another project) is refused, because a re-run overwrites that home's
+`result.json` and agent definition, and its own run may still be in flight.
+Re-running a child is the supported case: give it a new prompt to retry or
+extend work it already did, without paying to scaffold a new home. To redo your
+*own* work, finish and let your parent decide — you cannot re-enter yourself.
 
 ## Model inheritance
 Without `--model`, an Alter inherits its parent's model (root defaults to
