@@ -1,4 +1,5 @@
 import path from "node:path";
+import { CapabilityDeniedError } from "./capabilities.js";
 import { runAlterGraph } from "./graph.js";
 import { writeJsonAtomic } from "./persistence.js";
 import { validateStructuredInput } from "./structured-data.js";
@@ -90,6 +91,7 @@ export const runMemoryMaintenanceGraph = async (root, {
   scope,
   approvals,
   allowDeletes = false,
+  compact = true,
   graph = {},
   harness = null,
   signal,
@@ -122,20 +124,43 @@ export const runMemoryMaintenanceGraph = async (root, {
     throw new Error("memory maintenance plan contains delete operations but deletion is disabled");
   }
   if (plan.length === 0) {
-    const result = { schema_version: 1, committed: false, operations: [], records: [] };
+    const result = { schema_version: 1, committed: false, operations: [], records: [], storage: null };
     writeJsonAtomic(path.join(analysis.home, "maintenance.json"), result);
-    return { ...analysis, plan, committed: false, records: [] };
+    return { ...analysis, plan, committed: false, records: [], storage: null };
   }
-  const execution = await requireApprovals(approvals).execute("memory.records.maintain", {
+  const session = requireApprovals(approvals);
+  const execution = await session.execute("memory.records.maintain", {
     reason: "memory-manager proposes an atomic maintenance plan for persistent memory.",
     input: { scope: normalizedScope, operations: plan },
   });
   const records = execution.value.records;
+  // Only deletes and updates can leave slack behind; a plan of pure puts has nothing
+  // to reclaim, so it never raises a second approval card. The planner does not get to
+  // request compaction itself: it reaches the whole store, past the scope the planner
+  // was shown, so the decision to run it stays with the cycle and the user.
+  const freedSpace = plan.some((operation) => operation.operation === "delete" || operation.operation === "update");
+  let storage = null;
+  if (compact && freedSpace) {
+    try {
+      const reclaim = await session.execute("memory.records.compact", {
+        reason: "memory-manager committed a maintenance plan that freed storage; reclaiming it store-wide.",
+        input: { scope: normalizedScope },
+      });
+      storage = reclaim.value.storage;
+    } catch (error) {
+      // The plan is already committed and correct at this point. Reclaiming the slack
+      // it left is housekeeping, so a declined card leaves storage unreclaimed and the
+      // cycle still succeeds — throwing here would discard the audit record of a
+      // maintenance pass that did happen.
+      if (!(error instanceof CapabilityDeniedError)) throw error;
+    }
+  }
   writeJsonAtomic(path.join(analysis.home, "maintenance.json"), {
     schema_version: 1,
     committed: true,
     operations: plan,
     records,
+    storage,
   });
-  return { ...analysis, plan, committed: true, records };
+  return { ...analysis, plan, committed: true, records, storage };
 };

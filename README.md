@@ -213,6 +213,22 @@ optimistic versions, active-record deduplication, atomic mutation batches,
 storage accounting, and store/namespace quotas. SQLite performs indexed scope
 reads and keeps its FTS rows in the same transactions as record changes.
 `mind memory stats` requests the visible storage report through the host.
+
+`physicalBytes` counts live stored data in both backends, so removing records
+lowers it and quota decisions stay meaningful. SQLite additionally reports
+`fileBytes`, the raw on-disk total, and `reclaimableBytes`, their difference:
+neither a vacuum-free database nor a write-ahead log returns space on its own.
+`store.compact()` reclaims it by merging the FTS index, which is where deleted
+search rows leave tombstones, then vacuuming and truncating the log; it returns
+the post-compaction report plus `reclaimedBytes`. It is part of the store
+contract on both backends, a no-op on JSON, where each write already rewrites the
+whole document. The log is separately capped by
+`journalSizeLimitBytes` (4 MiB by default) so it cannot grow without bound
+between compactions, and a JSON migration compacts before handing the store
+over. A maintenance Alter reading `reclaimableBytes` can therefore tell slack
+apart from real consumption instead of chasing a number its own cleanup cannot
+move.
+
 `mind init`
 and `mind update` add `.alters/memory/` to `.gitignore` because memory may
 contain private project context.
@@ -324,6 +340,18 @@ registry used for approvals. Maintenance writes and updates are exact and
 version-aware. Deletes are rejected before approval by default; callers must
 set `allowDeletes: true` to permit a planner to propose them. Each completed
 cycle writes `maintenance.json` beside the graph's `result.json` for audit.
+
+A committed plan containing deletes or updates leaves reclaimable slack behind,
+so the cycle then requests `memory.records.compact` as a second, separate
+approval; pass `compact: false` to skip it. Pure writes cannot free space and
+never raise the card. The capability is bound to the `memory-manager` catalog,
+but the planning Alter never invokes it: its manifest grants no shell access, so
+the cycle asks on the catalog's behalf only after the plan has committed. That
+matters because compaction reaches the entire store rather than the scope the
+planner was shown, which is why the request names `affects: "entire-store"` in
+its preview. It changes no record, so it may be granted for a run but never for
+all future runs, and declining it leaves the committed plan and its audit record
+untouched with `storage: null`.
 
 ## Known limitations
 

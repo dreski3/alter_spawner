@@ -69,7 +69,7 @@ const maintenanceOperationSchema = {
 };
 
 const ensureStore = (store) => {
-  for (const method of ["get", "search", "list", "stats", "apply"]) {
+  for (const method of ["get", "search", "list", "stats", "apply", "compact"]) {
     if (!store || typeof store[method] !== "function") throw new Error(`memory capabilities require a store with ${method}()`);
   }
   return store;
@@ -88,6 +88,7 @@ export const DEFAULT_MEMORY_CATALOG_CAPABILITIES = Object.freeze({
     "memory.records.read",
     "memory.records.stats",
     "memory.records.maintain",
+    "memory.records.compact",
   ]),
 });
 
@@ -369,6 +370,39 @@ export const createMemoryCapabilityDefinitions = ({ store } = {}) => {
         const records = await memoryStore.apply(mutations);
         abortIfNeeded(signal);
         return { records };
+      },
+    },
+    {
+      id: "memory.records.compact",
+      name: "Reclaim persistent memory storage",
+      // Store-wide is stated here and in the preview because it is the one memory
+      // capability whose effect reaches past the requested scope. It reclaims slack
+      // only: no record is added, changed, or removed by compaction.
+      description:
+        "Reclaims unused storage across the whole memory store without changing any record. " +
+        "The scope identifies the requester and selects the statistics reported back.",
+      risk: "medium",
+      approval: "always",
+      // Repeatable within a run, never persisted across future runs: compaction is
+      // idempotent but rewrites the entire store and holds a write lock while it does.
+      allowedDecisions: ["allow-once", "allow-run", "deny"],
+      executorVersion: "memory-compact-v1",
+      inputSchema: {
+        type: "object",
+        required: ["scope"],
+        additionalProperties: false,
+        properties: { scope: memoryScopeSchema },
+      },
+      approvalPreview: ({ scope }) => ({ operation: "compact", scope, affects: "entire-store" }),
+      handler: async ({ input, signal }) => {
+        abortIfNeeded(signal);
+        // Read the scoped stats first so a rejected scope fails before the store is
+        // rewritten, and so "before" is not measured after compaction has run.
+        const before = await memoryStore.stats(input.scope);
+        abortIfNeeded(signal);
+        const storage = await memoryStore.compact();
+        abortIfNeeded(signal);
+        return { storage, stats: await memoryStore.stats(input.scope), reclaimableBefore: before.reclaimableBytes };
       },
     },
   ];

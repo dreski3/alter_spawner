@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  CapabilityDeniedError,
   createCapabilityApprovalSession,
   createCapabilityExecutor,
   createMemoryCapabilityRegistry,
@@ -97,11 +98,10 @@ test("a maintenance graph commits one exact approved atomic plan", async (t) => 
     expectedVersion: 1,
     patch: { content: "Prefer an indexed memory backend." },
   }];
-  let commitCalls = 0;
+  const requested = [];
   const approvals = {
     execute: async (capabilityId, options) => {
-      commitCalls += 1;
-      assert.equal(capabilityId, "memory.records.maintain");
+      requested.push(capabilityId);
       return registry.execute(capabilityId, options);
     },
   };
@@ -112,11 +112,14 @@ test("a maintenance graph commits one exact approved atomic plan", async (t) => 
     runtime,
   });
   assert.equal(outcome.committed, true);
-  assert.equal(commitCalls, 1);
+  // The plan commits first and reclaiming its slack is asked for separately, so the
+  // user can approve the record change without also approving a store-wide rewrite.
+  assert.deepEqual(requested, ["memory.records.maintain", "memory.records.compact"]);
   assert.equal((await store.get(original.id, scope)).content, "Prefer an indexed memory backend.");
   const trace = JSON.parse(readFileSync(path.join(outcome.home, "maintenance.json"), "utf8"));
   assert.equal(trace.operations[0].expectedVersion, 1);
   assert.equal(trace.records[0].version, 2);
+  assert.equal(trace.storage.reclaimedBytes, 0);
 });
 
 test("delete plans are rejected before approval unless explicitly enabled", async (t) => {
@@ -136,4 +139,72 @@ test("delete plans are rejected before approval unless explicitly enabled", asyn
   );
   assert.equal(commitCalls, 0);
   assert.ok(await store.get(original.id, scope));
+});
+
+test("a plan of pure writes never asks to compact", async (t) => {
+  const { root, runtime, registry } = fixture(t);
+  const scope = { project: "naut" };
+  proposedPlan = [{ operation: "put", record: { kind: "summary", content: "A consolidated summary." } }];
+  const requested = [];
+  const outcome = await runMemoryMaintenanceGraph(root, {
+    scope,
+    approvals: {
+      execute: async (capabilityId, options) => {
+        requested.push(capabilityId);
+        return registry.execute(capabilityId, options);
+      },
+    },
+    harness: "memory-maintenance-planner",
+    runtime,
+  });
+  assert.equal(outcome.committed, true);
+  assert.deepEqual(requested, ["memory.records.maintain"]);
+  assert.equal(outcome.storage, null);
+});
+
+test("declining compaction leaves the committed plan and its audit record intact", async (t) => {
+  const { root, runtime, store, registry } = fixture(t);
+  const scope = { project: "naut" };
+  const original = await store.put({ content: "Verbose note to compress." }, scope);
+  proposedPlan = [{ operation: "update", id: original.id, expectedVersion: 1, patch: { content: "Short note." } }];
+  const outcome = await runMemoryMaintenanceGraph(root, {
+    scope,
+    approvals: {
+      execute: async (capabilityId, options) => {
+        if (capabilityId === "memory.records.compact") throw new CapabilityDeniedError({ id: capabilityId, name: "compact" });
+        return registry.execute(capabilityId, options);
+      },
+    },
+    harness: "memory-maintenance-planner",
+    runtime,
+  });
+  assert.equal(outcome.committed, true);
+  assert.equal(outcome.storage, null);
+  assert.equal((await store.get(original.id, scope)).content, "Short note.");
+  const trace = JSON.parse(readFileSync(path.join(outcome.home, "maintenance.json"), "utf8"));
+  assert.equal(trace.committed, true);
+  assert.equal(trace.storage, null);
+});
+
+test("compaction can be turned off for the whole cycle", async (t) => {
+  const { root, runtime, store, registry } = fixture(t);
+  const scope = { project: "naut" };
+  const original = await store.put({ content: "Another verbose note." }, scope);
+  proposedPlan = [{ operation: "update", id: original.id, expectedVersion: 1, patch: { content: "Terse." } }];
+  const requested = [];
+  const outcome = await runMemoryMaintenanceGraph(root, {
+    scope,
+    compact: false,
+    approvals: {
+      execute: async (capabilityId, options) => {
+        requested.push(capabilityId);
+        return registry.execute(capabilityId, options);
+      },
+    },
+    harness: "memory-maintenance-planner",
+    runtime,
+  });
+  assert.equal(outcome.committed, true);
+  assert.deepEqual(requested, ["memory.records.maintain"]);
+  assert.equal(outcome.storage, null);
 });

@@ -477,6 +477,8 @@ export type MemoryStore = {
   update(id: string, patch: Partial<MemoryInput>, scope: MemoryScope, options?: { expectedVersion?: number }): Promise<MemoryRecord>;
   delete(id: string, scope: MemoryScope, options?: { expectedVersion?: number }): Promise<MemoryRecord>;
   apply(mutations: MemoryMutation[]): Promise<MemoryRecord[]>;
+  /** Reclaims unused storage store-wide. Never adds, changes, or removes a record. */
+  compact(): Promise<MemoryCompactionResult>;
 };
 
 export type MemoryNamespaceStats = {
@@ -486,7 +488,12 @@ export type MemoryNamespaceStats = {
 };
 
 export type MemoryStorageStats = {
+  /** Bytes of live stored data. Falls when records are removed. */
   physicalBytes: number;
+  /** Raw bytes on disk, including space the backend has not returned yet. */
+  fileBytes: number;
+  /** fileBytes - physicalBytes: what compact() would reclaim. Always 0 for JSON. */
+  reclaimableBytes: number;
   logicalBytes: number;
   recordCount: number;
   activeRecordCount: number;
@@ -516,6 +523,7 @@ export function createProjectMemoryStore(root: string, options: {
   quotaBytes?: number | null;
   namespaceQuotaBytes?: Record<string, number>;
   busyTimeoutMs?: number;
+  journalSizeLimitBytes?: number;
 }): SqliteMemoryStore;
 export function createProjectMemoryStore(root: string, options?: {
   backend?: "json" | "sqlite";
@@ -527,7 +535,15 @@ export function createProjectMemoryStore(root: string, options?: {
   quotaBytes?: number | null;
   namespaceQuotaBytes?: Record<string, number>;
   busyTimeoutMs?: number;
+  journalSizeLimitBytes?: number;
 }): MemoryStore;
+
+export type MemoryCompactionResult = {
+  physicalBytes: number;
+  fileBytes: number;
+  reclaimableBytes: number;
+  reclaimedBytes: number;
+};
 
 export type SqliteMemoryStore = MemoryStore & {
   backend: "sqlite";
@@ -544,6 +560,7 @@ export function createSqliteMemoryStore(options: {
   quotaBytes?: number | null;
   namespaceQuotaBytes?: Record<string, number>;
   busyTimeoutMs?: number;
+  journalSizeLimitBytes?: number;
 }): SqliteMemoryStore;
 export function migrateFileMemoryStoreToSqlite(options: {
   sourceFile: string;
@@ -553,6 +570,7 @@ export function migrateFileMemoryStoreToSqlite(options: {
   quotaBytes?: number | null;
   namespaceQuotaBytes?: Record<string, number>;
   busyTimeoutMs?: number;
+  journalSizeLimitBytes?: number;
 }): Promise<{
   imported: number;
   skipped: number;
@@ -560,6 +578,7 @@ export function migrateFileMemoryStoreToSqlite(options: {
   sourceFile: string;
   destinationFile: string;
   projectId: string;
+  storage: MemoryCompactionResult;
 }>;
 
 export const DEFAULT_MEMORY_CATALOG_CAPABILITIES: Readonly<Record<string, readonly string[]>>;
@@ -570,10 +589,15 @@ export function createMemoryCapabilityRegistry(options: {
 }): CapabilityRegistry;
 
 export function formatMemoryContext(results: MemorySearchResult[]): string;
+export type MemoryRecallPlan = { query: string; limit?: number; kinds?: MemoryKind[]; tags?: string[] };
+
 export function runMemoryRecall(root: string, options: {
-  prompt: string;
+  /** Required unless `plan` is supplied: the request the planner Alter turns into a query. */
+  prompt?: string;
   scope: MemoryScope;
   approvals: Pick<CapabilityApprovalSession, "execute">;
+  /** A ready plan. Skips the planner Alter; validated against the same schema. */
+  plan?: MemoryRecallPlan | null;
   catalog?: string;
   name?: string | null;
   model?: string | null;
@@ -585,11 +609,12 @@ export function runMemoryRecall(root: string, options: {
   harness?: string;
   spawn?: typeof spawnAlter;
 }): Promise<{
-  plan: { query: string; limit?: number; kinds?: MemoryKind[]; tags?: string[] };
+  plan: MemoryRecallPlan;
   results: MemorySearchResult[];
   context: string;
-  plannerHome: string;
-  plannerResult: AlterResult;
+  /** Null when a caller supplied the plan, because no planner Alter ran. */
+  plannerHome: string | null;
+  plannerResult: AlterResult | null;
 }>;
 export function runMemoryCurator(root: string, options: {
   content: string;
@@ -633,6 +658,8 @@ export function runMemoryMaintenanceGraph(root: string, options: {
   scope: MemoryScope;
   approvals?: Pick<CapabilityApprovalSession, "execute">;
   allowDeletes?: boolean;
+  /** Request store-wide compaction after a committed plan that could free space. Default true. */
+  compact?: boolean;
   graph?: {
     id?: string;
     limit?: number;
@@ -653,6 +680,8 @@ export function runMemoryMaintenanceGraph(root: string, options: {
   plan: MemoryMaintenanceOperation[] | null;
   committed: boolean;
   records: MemoryRecord[];
+  /** Null when compaction was not attempted, not needed, or declined. */
+  storage: MemoryCompactionResult | null;
 }>;
 
 export const CAPABILITY_URL_ENV: "MIND_CAPABILITY_URL";

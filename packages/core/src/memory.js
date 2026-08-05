@@ -356,6 +356,11 @@ export const createFileMemoryStore = ({
     const logicalBytes = visible.reduce((total, record) => total + record.logicalBytes, 0);
     return clone({
       physicalBytes,
+      // Every write rewrites the whole document, so the file holds exactly the live
+      // records and there is never slack to reclaim. Both fields are reported anyway
+      // so a caller can read storage the same way whichever backend is underneath.
+      fileBytes: physicalBytes,
+      reclaimableBytes: 0,
       logicalBytes,
       recordCount: visible.length,
       activeRecordCount: active.length,
@@ -457,6 +462,19 @@ export const createFileMemoryStore = ({
     }));
   };
 
+  // Part of the store contract so callers never have to branch on the backend.
+  // Rewriting the document is what every write already does, so there is nothing
+  // left to reclaim and this deliberately touches no records.
+  const compact = async () => {
+    let physicalBytes = 0;
+    try {
+      physicalBytes = statSync(file).size;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    return clone({ physicalBytes, fileBytes: physicalBytes, reclaimableBytes: 0, reclaimedBytes: 0 });
+  };
+
   const put = async (input, scope) => (await apply([{ operation: "put", record: input, scope }]))[0];
   const update = async (id, patch, scope, options = {}) =>
     (await apply([{ operation: "update", id, patch, scope, expectedVersion: options.expectedVersion }]))[0];
@@ -475,6 +493,7 @@ export const createFileMemoryStore = ({
     update,
     delete: remove,
     apply,
+    compact,
   });
 };
 

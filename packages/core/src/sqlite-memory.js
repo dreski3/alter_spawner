@@ -57,7 +57,11 @@ const rowToRecord = (row) => ({
   updatedAt: row.updated_at,
 });
 
-const physicalBytesFor = (file) => {
+// The -shm file is deliberately excluded. It is a fixed-size runtime index that
+// only exists while a connection is open and that compaction cannot reclaim, so
+// counting it would leave reclaimableBytes permanently above zero and invite a
+// memory manager to compact forever chasing a floor it can never reach.
+const fileBytesFor = (file) => {
   let total = 0;
   for (const candidate of [file, `${file}-wal`]) {
     try {
@@ -68,6 +72,8 @@ const physicalBytesFor = (file) => {
   }
   return total;
 };
+
+const DEFAULT_JOURNAL_SIZE_LIMIT_BYTES = 4 * 1024 * 1024;
 
 const validateQuotas = (quotaBytes, namespaceQuotaBytes) => {
   if (quotaBytes !== null && (!Number.isInteger(quotaBytes) || quotaBytes < 1)) {
@@ -130,6 +136,7 @@ export const createSqliteMemoryStore = ({
   quotaBytes = null,
   namespaceQuotaBytes = {},
   busyTimeoutMs = 5000,
+  journalSizeLimitBytes = DEFAULT_JOURNAL_SIZE_LIMIT_BYTES,
 } = {}) => {
   if (typeof file !== "string" || (!path.isAbsolute(file) && file !== ":memory:")) {
     throw new Error("SQLite memory store requires an absolute file path or :memory:");
@@ -138,13 +145,22 @@ export const createSqliteMemoryStore = ({
   if (!Number.isInteger(busyTimeoutMs) || busyTimeoutMs < 0) {
     throw new Error("SQLite memory store busyTimeoutMs must be a non-negative integer");
   }
+  if (!Number.isInteger(journalSizeLimitBytes) || journalSizeLimitBytes < 0) {
+    throw new Error("SQLite memory store journalSizeLimitBytes must be a non-negative integer");
+  }
   validateQuotas(quotaBytes, namespaceQuotaBytes);
   const runtime = resolveRuntime(runtimeOverride);
   if (file !== ":memory:") mkdirSync(path.dirname(file), { recursive: true });
   const database = new DatabaseSync(file);
   database.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}`);
   database.exec("PRAGMA foreign_keys = ON");
-  if (file !== ":memory:") database.exec("PRAGMA journal_mode = WAL");
+  if (file !== ":memory:") {
+    database.exec("PRAGMA journal_mode = WAL");
+    // WAL files are truncated back to this ceiling after each checkpoint. Without
+    // it the journal grows without bound for the life of the store, because the
+    // default autocheckpoint reuses WAL space instead of returning it.
+    database.exec(`PRAGMA journal_size_limit = ${journalSizeLimitBytes}`);
+  }
   database.exec("PRAGMA synchronous = NORMAL");
   database.exec(SCHEMA);
   const getMeta = database.prepare("SELECT value FROM memory_meta WHERE key = ?");
@@ -257,6 +273,23 @@ export const createSqliteMemoryStore = ({
     insertFts(record);
   };
 
+  // physicalBytes counts only live pages, so deleting records lowers it the way a
+  // rewritten JSON document would. fileBytes is the raw on-disk high-water mark,
+  // which SQLite never gives back on its own, and their difference is exactly what
+  // compact() can reclaim. Reporting the file size as physicalBytes would tell a
+  // memory manager that its own cleanup had freed nothing.
+  const storageBytes = () => {
+    const pages = database.prepare(`
+      SELECT
+        (SELECT * FROM pragma_page_count()) AS pages,
+        (SELECT * FROM pragma_freelist_count()) AS freePages,
+        (SELECT * FROM pragma_page_size()) AS pageSize
+    `).get();
+    const physicalBytes = (pages.pages - pages.freePages) * pages.pageSize;
+    const fileBytes = file === ":memory:" ? pages.pages * pages.pageSize : fileBytesFor(file);
+    return { physicalBytes, fileBytes, reclaimableBytes: Math.max(0, fileBytes - physicalBytes) };
+  };
+
   const quotaUsage = () => ({
     logicalBytes: database.prepare("SELECT COALESCE(SUM(logical_bytes), 0) AS bytes FROM memory_records").get().bytes,
     namespaces: Object.fromEntries(database.prepare(`
@@ -267,9 +300,7 @@ export const createSqliteMemoryStore = ({
 
   const enforceQuotas = (before) => {
     if (quotaBytes !== null) {
-      const used = file === ":memory:"
-        ? database.prepare("SELECT page_count * page_size AS bytes FROM pragma_page_count(), pragma_page_size()").get().bytes
-        : physicalBytesFor(file);
+      const used = storageBytes().physicalBytes;
       const logicalBytes = quotaUsage().logicalBytes;
       if (used > quotaBytes && logicalBytes >= before.logicalBytes) {
         throw new Error(`memory store quota exceeded: ${used} > ${quotaBytes} bytes`);
@@ -494,11 +525,11 @@ export const createSqliteMemoryStore = ({
       activeRecordCount += group.active_records;
       logicalBytes += group.logical_bytes;
     }
-    const physicalBytes = file === ":memory:"
-      ? database.prepare("SELECT page_count * page_size AS bytes FROM pragma_page_count(), pragma_page_size()").get().bytes
-      : physicalBytesFor(file);
+    const { physicalBytes, fileBytes, reclaimableBytes } = storageBytes();
     return clone({
       physicalBytes,
+      fileBytes,
+      reclaimableBytes,
       logicalBytes,
       recordCount,
       activeRecordCount,
@@ -506,6 +537,25 @@ export const createSqliteMemoryStore = ({
       quotaBytes,
       quotaRatio: quotaBytes === null ? null : physicalBytes / quotaBytes,
       byNamespace,
+    });
+  };
+
+  // Three separate reclaims, in order. Deleting an FTS row only writes a tombstone,
+  // so the index is merged first to drop them; VACUUM then rewrites the database
+  // without its freelist; the final checkpoint returns the WAL space VACUUM itself
+  // just consumed. VACUUM cannot run inside a transaction, so this is not part of
+  // transaction().
+  const compact = async () => {
+    const before = storageBytes();
+    database.exec("INSERT INTO memory_fts(memory_fts) VALUES('optimize')");
+    database.exec("VACUUM");
+    if (file !== ":memory:") database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    const after = storageBytes();
+    return clone({
+      physicalBytes: after.physicalBytes,
+      fileBytes: after.fileBytes,
+      reclaimableBytes: after.reclaimableBytes,
+      reclaimedBytes: Math.max(0, before.fileBytes - after.fileBytes),
     });
   };
 
@@ -569,6 +619,7 @@ export const createSqliteMemoryStore = ({
     delete: async (id, scope, options = {}) =>
       (await apply([{ operation: "delete", id, scope, expectedVersion: options.expectedVersion }]))[0],
     apply,
+    compact,
     importRecords,
     close: () => database.close(),
   });
@@ -582,6 +633,7 @@ export const migrateFileMemoryStoreToSqlite = async ({
   quotaBytes = null,
   namespaceQuotaBytes = {},
   busyTimeoutMs = 5000,
+  journalSizeLimitBytes = DEFAULT_JOURNAL_SIZE_LIMIT_BYTES,
 } = {}) => {
   if (typeof sourceFile !== "string" || !path.isAbsolute(sourceFile)) {
     throw new Error("memory migration requires an absolute sourceFile");
@@ -607,10 +659,15 @@ export const migrateFileMemoryStoreToSqlite = async ({
     quotaBytes,
     namespaceQuotaBytes,
     busyTimeoutMs,
+    journalSizeLimitBytes,
   });
   try {
     const result = await store.importRecords(document.records);
-    return { ...result, sourceFile, destinationFile, projectId: normalizedProjectId };
+    // Importing the whole document is the largest single write this store will ever
+    // see, so the new database is compacted before use rather than being handed over
+    // carrying the journal that the import produced.
+    const storage = await store.compact();
+    return { ...result, sourceFile, destinationFile, projectId: normalizedProjectId, storage };
   } finally {
     store.close();
   }

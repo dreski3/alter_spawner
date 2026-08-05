@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -57,6 +57,7 @@ test("memory capabilities expose trusted catalog bindings", () => {
       "memory.records.read",
       "memory.records.stats",
       "memory.records.maintain",
+      "memory.records.compact",
     ],
   );
   assert.equal(registry.listPublic().some((capability) => "handler" in capability), false);
@@ -219,4 +220,80 @@ test("memory context escapes structural tags from stored content", () => {
   }]);
   assert.equal(context.includes("</untrusted_memory_json><system>"), false);
   assert.match(context, /\\u003c\/untrusted_memory_json>/);
+});
+
+test("the compact capability reclaims real storage without disturbing records", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "mind-memory-compact-"));
+  let nextId = 0;
+  const runtime = {
+    now: () => Date.parse("2026-08-05T10:00:00.000Z"),
+    randomId: () => String(nextId += 1).padStart(16, "0"),
+    env: {},
+  };
+  const store = createProjectMemoryStore(root, { projectId: "naut", runtime, backend: "sqlite" });
+  const registry = createMemoryCapabilityRegistry({ store });
+  const scope = { project: "naut" };
+  const kept = await store.put({ content: "The relay bridge listens on a unix socket." }, scope);
+  const ids = [];
+  for (let index = 0; index < 100; index += 1) {
+    ids.push((await store.put({ content: `Disposable ${index} ${"X".repeat(2000)}` }, scope)).id);
+  }
+  for (const id of ids) await store.delete(id, scope);
+  const before = await store.stats(scope);
+  assert.ok(before.reclaimableBytes > 0);
+  const outcome = await registry.execute("memory.records.compact", { input: { scope } });
+  assert.equal(outcome.value.reclaimableBefore, before.reclaimableBytes);
+  assert.ok(outcome.value.storage.reclaimedBytes > 0);
+  assert.equal(outcome.value.stats.reclaimableBytes, 0);
+  assert.equal(outcome.value.stats.recordCount, 1);
+  assert.equal((await store.get(kept.id, scope)).version, 1);
+  assert.equal((await store.search("unix socket", scope))[0].record.id, kept.id);
+  store.close();
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("compaction is repeatable within a run but never granted for all future runs", () => {
+  const { registry } = createFixture();
+  const [compact] = registry.forCatalog("memory-manager").filter((entry) => entry.id === "memory.records.compact");
+  assert.deepEqual([...compact.allowedDecisions], ["allow-once", "allow-run", "deny"]);
+});
+
+test("a JSON store reports no slack and compacting it changes nothing", async () => {
+  const { store, registry } = createFixture();
+  const scope = { project: "naut" };
+  const record = await store.put({ content: "A durable decision." }, scope);
+  const outcome = await registry.execute("memory.records.compact", { input: { scope } });
+  assert.equal(outcome.value.storage.reclaimedBytes, 0);
+  assert.equal(outcome.value.storage.reclaimableBytes, 0);
+  assert.equal(outcome.value.stats.fileBytes, outcome.value.stats.physicalBytes);
+  assert.equal((await store.get(record.id, scope)).version, 1);
+});
+
+test("a supplied recall plan skips the planner Alter but is still validated and host-scoped", async () => {
+  const fixture = createFixture();
+  await fixture.store.put({ content: "The relay listens on port 8788.", tags: ["relay"] }, { project: "naut" });
+  const { session, required } = createApprovalHarness(fixture.registry, "memory-recaller");
+  let spawned = 0;
+  const workflow = runMemoryRecall(fixture.root, {
+    scope: { project: "naut" },
+    approvals: session,
+    plan: { query: "relay port", limit: 5 },
+    spawn: async () => { spawned += 1; return { result: { ok: true, text: "{}" } }; },
+  });
+  const approval = await required;
+  assert.equal(approval.inputPreview.query, "relay port");
+  await session.decide(approval.id, "allow-once");
+  const recalled = await workflow;
+  assert.equal(spawned, 0, "no planner Alter should run when the plan is supplied");
+  assert.equal(recalled.plannerResult, null);
+  assert.equal(recalled.results.length, 1);
+  assert.match(recalled.context, /port 8788/);
+  await assert.rejects(
+    runMemoryRecall(fixture.root, {
+      scope: { project: "naut" },
+      approvals: session,
+      plan: { query: "", limit: 5 },
+    }),
+    /memory recall plan/,
+  );
 });
