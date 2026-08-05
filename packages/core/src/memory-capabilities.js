@@ -79,6 +79,45 @@ const abortIfNeeded = (signal) => {
   if (signal?.aborted) throw new Error("Capability execution cancelled.");
 };
 
+// Every memory mutation ships pinned to one decision — allow once, or deny. That is
+// right for a person who just asked for something to be remembered and is sitting
+// there to answer, and wrong for an unattended curate or maintain cycle: the same
+// card interrupts the same person with the same decision on every pass, and no answer
+// they can give makes the next one stop, because a one-shot grant is the only grant a
+// mutation can hold. A host that runs those cycles opts capabilities into durable
+// grants — allow-run, always-catalog — one id at a time, so widening `write` never
+// quietly widens `delete`.
+export const MEMORY_MUTATION_CAPABILITIES = Object.freeze([
+  "memory.records.write",
+  "memory.records.update",
+  "memory.records.delete",
+  "memory.records.maintain",
+  "memory.records.compact",
+]);
+
+const ONCE_ONLY_DECISIONS = Object.freeze(["allow-once", "deny"]);
+// Compaction is repeatable within a run by default because it is idempotent, and not
+// persistable by default because it rewrites the entire store under a write lock.
+const COMPACT_DECISIONS = Object.freeze(["allow-once", "allow-run", "deny"]);
+const GRANTABLE_DECISIONS = Object.freeze(["allow-once", "allow-run", "always-catalog", "deny"]);
+
+// `true` is the whole-cycle switch: a host that wants curate and maintain to run
+// unattended needs every mutation those cycles reach, and listing five ids to say so
+// invites listing four by accident.
+const resolveGrantable = (grantable) => {
+  if (grantable === true) return new Set(MEMORY_MUTATION_CAPABILITIES);
+  if (!grantable) return new Set();
+  if (!Array.isArray(grantable)) {
+    throw new Error("memory capability grantable must be true or an array of mutation capability ids");
+  }
+  for (const id of grantable) {
+    if (!MEMORY_MUTATION_CAPABILITIES.includes(id)) {
+      throw new Error(`memory capability ${id} is not a mutation whose approval can be made grantable`);
+    }
+  }
+  return new Set(grantable);
+};
+
 export const DEFAULT_MEMORY_CATALOG_CAPABILITIES = Object.freeze({
   "memory-recaller": Object.freeze(["memory.records.search", "memory.records.read", "memory.records.stats"]),
   "memory-curator": Object.freeze(["memory.records.write", "memory.records.update", "memory.records.delete", "memory.records.stats"]),
@@ -92,8 +131,10 @@ export const DEFAULT_MEMORY_CATALOG_CAPABILITIES = Object.freeze({
   ]),
 });
 
-export const createMemoryCapabilityDefinitions = ({ store } = {}) => {
+export const createMemoryCapabilityDefinitions = ({ store, grantable = false } = {}) => {
   const memoryStore = ensureStore(store);
+  const grantableIds = resolveGrantable(grantable);
+  const decisionsFor = (id, fallback) => [...(grantableIds.has(id) ? GRANTABLE_DECISIONS : fallback)];
   return [
     {
       id: "memory.records.search",
@@ -213,7 +254,7 @@ export const createMemoryCapabilityDefinitions = ({ store } = {}) => {
       description: "Atomically stores exact validated records in one persistent memory scope.",
       risk: "medium",
       approval: "always",
-      allowedDecisions: ["allow-once", "deny"],
+      allowedDecisions: decisionsFor("memory.records.write", ONCE_ONLY_DECISIONS),
       executorVersion: "memory-write-v1",
       inputSchema: {
         type: "object",
@@ -242,7 +283,7 @@ export const createMemoryCapabilityDefinitions = ({ store } = {}) => {
       description: "Atomically applies exact version-aware updates to persistent memory records.",
       risk: "medium",
       approval: "always",
-      allowedDecisions: ["allow-once", "deny"],
+      allowedDecisions: decisionsFor("memory.records.update", ONCE_ONLY_DECISIONS),
       executorVersion: "memory-update-v1",
       inputSchema: {
         type: "object",
@@ -287,7 +328,7 @@ export const createMemoryCapabilityDefinitions = ({ store } = {}) => {
       description: "Atomically deletes exact version-aware persistent memory records.",
       risk: "high",
       approval: "always",
-      allowedDecisions: ["allow-once", "deny"],
+      allowedDecisions: decisionsFor("memory.records.delete", ONCE_ONLY_DECISIONS),
       executorVersion: "memory-delete-v1",
       inputSchema: {
         type: "object",
@@ -330,7 +371,7 @@ export const createMemoryCapabilityDefinitions = ({ store } = {}) => {
       description: "Atomically applies an exact mixed write, update, and delete plan within one memory scope.",
       risk: "high",
       approval: "always",
-      allowedDecisions: ["allow-once", "deny"],
+      allowedDecisions: decisionsFor("memory.records.maintain", ONCE_ONLY_DECISIONS),
       executorVersion: "memory-maintain-v1",
       inputSchema: {
         type: "object",
@@ -383,9 +424,10 @@ export const createMemoryCapabilityDefinitions = ({ store } = {}) => {
         "The scope identifies the requester and selects the statistics reported back.",
       risk: "medium",
       approval: "always",
-      // Repeatable within a run, never persisted across future runs: compaction is
-      // idempotent but rewrites the entire store and holds a write lock while it does.
-      allowedDecisions: ["allow-once", "allow-run", "deny"],
+      // Repeatable within a run, and persisted across future runs only for a host that
+      // asked: compaction is idempotent but rewrites the entire store and holds a write
+      // lock while it does.
+      allowedDecisions: decisionsFor("memory.records.compact", COMPACT_DECISIONS),
       executorVersion: "memory-compact-v1",
       inputSchema: {
         type: "object",
@@ -411,7 +453,8 @@ export const createMemoryCapabilityDefinitions = ({ store } = {}) => {
 export const createMemoryCapabilityRegistry = ({
   store,
   catalogCapabilities = DEFAULT_MEMORY_CATALOG_CAPABILITIES,
+  grantable = false,
 } = {}) => createCapabilityRegistry({
-  definitions: createMemoryCapabilityDefinitions({ store }),
+  definitions: createMemoryCapabilityDefinitions({ store, grantable }),
   catalogCapabilities,
 });

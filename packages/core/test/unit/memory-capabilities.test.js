@@ -252,10 +252,75 @@ test("the compact capability reclaims real storage without disturbing records", 
   rmSync(root, { recursive: true, force: true });
 });
 
-test("compaction is repeatable within a run but never granted for all future runs", () => {
+test("compaction is repeatable within a run but not granted for future runs by default", () => {
   const { registry } = createFixture();
   const [compact] = registry.forCatalog("memory-manager").filter((entry) => entry.id === "memory.records.compact");
   assert.deepEqual([...compact.allowedDecisions], ["allow-once", "allow-run", "deny"]);
+});
+
+// The point of the option is not that a card looks different: it is that answering it
+// once ends the interruption. So this asserts the second write raises no card at all.
+test("a grantable host can approve memory writes once for the whole catalog", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "mind-memory-grantable-"));
+  let nextId = 0;
+  const runtime = {
+    now: () => Date.parse("2026-08-06T10:00:00.000Z"),
+    randomId: () => String(nextId += 1).padStart(16, "0"),
+    env: {},
+  };
+  const store = createProjectMemoryStore(root, { projectId: "naut", runtime });
+  const registry = createMemoryCapabilityRegistry({ store, grantable: true });
+  const granted = new Set();
+  const cards = [];
+  let autoApprovals = 0;
+  const scope = { project: "naut" };
+  const openSession = () => createCapabilityApprovalSession({
+    registry,
+    catalogId: "memory-curator",
+    createId: () => `approval_${cards.length}`,
+    isPersistentlyApproved: ({ catalogId, capabilityId }) => granted.has(`${catalogId}:${capabilityId}`),
+    persistApproval: ({ catalogId, capabilityId }) => granted.add(`${catalogId}:${capabilityId}`),
+    onEvent: (event) => {
+      if (event.type === "capability.approval_required") {
+        cards.push(event.approval);
+        queueMicrotask(() => session.decide(event.approval.id, "always-catalog"));
+      }
+      if (event.type === "capability.auto_approved") autoApprovals += 1;
+    },
+  });
+  let session = openSession();
+
+  const first = await session.execute("memory.records.write", {
+    input: { scope, records: [{ kind: "fact", content: "The relay listens on port 8788." }] },
+  });
+  assert.equal(first.value.records.length, 1);
+  assert.equal(cards.length, 1);
+  assert.deepEqual(cards[0].allowedDecisions, ["allow-once", "allow-run", "always-catalog", "deny"]);
+
+  // A later run is a fresh session, which is exactly where a one-shot grant used to
+  // ask again.
+  session = openSession();
+  const second = await session.execute("memory.records.write", {
+    input: { scope, records: [{ kind: "fact", content: "Maintenance runs on a cycle." }] },
+  });
+  assert.equal(second.value.records.length, 1);
+  assert.equal(cards.length, 1, "a persisted grant must not raise a second card");
+  assert.equal(autoApprovals, 1);
+  assert.equal((await store.search("cycle", scope)).length, 1);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("only memory mutations can be made grantable", () => {
+  const { store } = createFixture();
+  assert.throws(
+    () => createMemoryCapabilityRegistry({ store, grantable: ["memory.records.search"] }),
+    /not a mutation/,
+  );
+  assert.throws(() => createMemoryCapabilityRegistry({ store, grantable: "write" }), /grantable must be true/);
+  const [write] = createMemoryCapabilityRegistry({ store, grantable: ["memory.records.delete"] })
+    .forCatalog("memory-curator")
+    .filter((entry) => entry.id === "memory.records.write");
+  assert.deepEqual([...write.allowedDecisions], ["allow-once", "deny"], "widening delete must not widen write");
 });
 
 test("a JSON store reports no slack and compacting it changes nothing", async () => {

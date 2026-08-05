@@ -235,7 +235,12 @@ contain private project context.
 
 `createMemoryCapabilityRegistry` exposes search/read and exact write/update/
 delete operations through the same approval contract. Mutations only allow
-`allow-once` or `deny`. The default profile includes `memory-recaller` and
+`allow-once` or `deny`, so a one-off write is approved by the person who asked
+for it and nothing else. That is wrong for a host that curates and maintains
+memory on a cycle, where the same card returns every pass and no answer ends it,
+so `grantable` widens named mutations — or all of them, with `true` — to accept
+`allow-run` and `always-catalog` as well. Consent is still asked for; it can now
+be given durably. The default profile includes `memory-recaller` and
 `memory-curator`: one Alter creates a narrow search plan before retrieval, and
 the other proposes durable records after a run. Neither Alter receives direct
 database access.

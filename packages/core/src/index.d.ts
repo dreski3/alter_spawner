@@ -585,10 +585,27 @@ export function migrateFileMemoryStoreToSqlite(options: {
 }>;
 
 export const DEFAULT_MEMORY_CATALOG_CAPABILITIES: Readonly<Record<string, readonly string[]>>;
-export function createMemoryCapabilityDefinitions(options: { store: MemoryStore }): CapabilityDefinition[];
+
+/** The memory capabilities that mutate the store, and the only ones `grantable` accepts. */
+export const MEMORY_MUTATION_CAPABILITIES: readonly string[];
+
+/**
+ * Memory mutations default to one-shot approval: `allow-once` or `deny`, so every
+ * commit raises its own card. `grantable` widens the named mutations to accept
+ * `allow-run` and `always-catalog` as well, which is what lets an unattended curate or
+ * maintain cycle be approved once instead of once per pass. `true` means every
+ * mutation. Reads are unaffected — they already accept every decision.
+ */
+export type MemoryCapabilityGrantable = boolean | string[];
+
+export function createMemoryCapabilityDefinitions(options: {
+  store: MemoryStore;
+  grantable?: MemoryCapabilityGrantable;
+}): CapabilityDefinition[];
 export function createMemoryCapabilityRegistry(options: {
   store: MemoryStore;
   catalogCapabilities?: Record<string, string[]>;
+  grantable?: MemoryCapabilityGrantable;
 }): CapabilityRegistry;
 
 export function formatMemoryContext(results: MemorySearchResult[]): string;

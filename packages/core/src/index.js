@@ -97,6 +97,7 @@ export {
 } from "./sqlite-memory.js";
 export {
   DEFAULT_MEMORY_CATALOG_CAPABILITIES,
+  MEMORY_MUTATION_CAPABILITIES,
   createMemoryCapabilityDefinitions,
   createMemoryCapabilityRegistry,
 } from "./memory-capabilities.js";
