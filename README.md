@@ -240,6 +240,40 @@ const curated = await runMemoryCurator(root, {
 });
 ```
 
+Graph nodes can declare automatic recall and curation hooks. Every recall is
+resolved before the graph starts, producing a stable memory view for that
+cycle. Successful node outputs are queued for curation; all curators run in
+parallel only after the computational graph finishes, so their writes become
+visible on the next graph cycle rather than at timing-dependent points in the
+current one. Recall and curation failures are recorded in the graph trace and
+do not discard otherwise successful graph work.
+
+```js
+await runAlterGraph(root, {
+  id: "research-cycle",
+  nodes: [
+    {
+      id: "researcher",
+      prompt: "Investigate the current design.",
+      memory: {
+        recall: { namespace: "architecture", query: "prior architecture decisions" },
+        curate: { namespace: "architecture" },
+      },
+    },
+  ],
+}, {
+  memory: {
+    scope: { project: "naut" },
+    recallApprovals,
+    curateApprovals,
+  },
+});
+```
+
+The graph result includes a unique `memory_cycle` ID, its `next-cycle`
+consistency mode, aggregate recalled/curated record counts, and per-node hook
+states, record IDs, namespaces, and errors.
+
 ## Known limitations
 
 - Not published. No `mind --help`/`--version` yet.

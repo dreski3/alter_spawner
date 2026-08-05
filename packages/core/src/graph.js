@@ -4,6 +4,7 @@ import { kitDir } from "./config.js";
 import { spawnAlter } from "./engine.js";
 import { buildGraphSpawnOptions, renderGraphPrompt, validateGraph } from "./graph-spec.js";
 import { createGraphResult } from "./graph-result.js";
+import { runMemoryCurator, runMemoryRecall } from "./memory-workflows.js";
 import { writeJsonAtomic } from "./persistence.js";
 import { resolveRuntime } from "./runtime.js";
 import { fail, iso, sanitizeName, timestampSlug } from "./util.js";
@@ -27,6 +28,7 @@ export const runAlterGraph = async (
     // their own, so the id is added here — without it a host with four nodes in flight
     // cannot tell which one is streaming.
     onEvent,
+    memory = null,
   } = {},
 ) => {
   const runtime = resolveRuntime(runtimeOverride);
@@ -40,14 +42,34 @@ export const runAlterGraph = async (
   mkdirSync(graphHome, { recursive: true });
   const startMs = runtime.now();
   const startedAt = iso(startMs);
+  const memoryCycle = [...nodes.values()].some((node) => node.memory)
+    ? {
+      id: `memory_cycle_${runtime.randomId(12)}`,
+      consistency: "next-cycle",
+      state: "preparing",
+      recalled_records: 0,
+      curated_records: 0,
+    }
+    : null;
   const records = Object.fromEntries(
     [...nodes.values()].map((node) => [
       node.id,
-      { id: node.id, state: "pending", depends_on: node.depends_on, home: null, result: null, error: null },
+      {
+        id: node.id,
+        state: "pending",
+        depends_on: node.depends_on,
+        home: null,
+        result: null,
+        error: null,
+        memory: node.memory ? {
+          recall: node.memory.recall ? { state: "pending", namespace: node.memory.recall.namespace || null, record_ids: [], error: null } : null,
+          curate: node.memory.curate ? { state: "pending", namespace: node.memory.curate.namespace || null, record_ids: [], error: null } : null,
+        } : null,
+      },
     ])
   );
   const persist = (endedAt = null) => {
-    const document = createGraphResult({ graphId, output, records, startedAt, startMs, endedAt, now: runtime.now() });
+    const document = createGraphResult({ graphId, output, records, memoryCycle, startedAt, startMs, endedAt, now: runtime.now() });
     writeJsonAtomic(path.join(graphHome, "result.json"), document);
     // After the write, so a host that reacts by reading the file sees what it was
     // told about. Isolated: a throwing observer is a bug in the host, not a reason
@@ -60,8 +82,42 @@ export const runAlterGraph = async (
     return document;
   };
   persist();
+  const recalledContexts = new Map();
+  const recallWorkflow = memory?.recall || runMemoryRecall;
+  const curateWorkflow = memory?.curate || runMemoryCurator;
+  const memoryScope = memory?.scope || null;
+  if (memoryCycle) {
+    await Promise.all([...nodes.values()].filter((node) => node.memory?.recall).map(async (node) => {
+      const trace = records[node.id].memory.recall;
+      trace.state = "running";
+      persist();
+      try {
+        if (!memoryScope) throw new Error("graph memory hooks require options.memory.scope");
+        const recalled = await recallWorkflow(root, {
+          prompt: node.memory.recall.query || node.prompt,
+          scope: { ...memoryScope, ...(node.memory.recall.namespace ? { namespace: node.memory.recall.namespace } : {}) },
+          approvals: memory?.recallApprovals,
+          signal,
+          onEvent: onEvent ? (event) => onEvent({ ...event, node: node.id, memory: "recall" }) : undefined,
+          runtime,
+          harness,
+        });
+        recalledContexts.set(node.id, recalled.context || "");
+        trace.record_ids = recalled.results?.map((result) => result.record.id) || [];
+        trace.state = "succeeded";
+        memoryCycle.recalled_records += trace.record_ids.length;
+      } catch (error) {
+        trace.state = "failed";
+        trace.error = error instanceof Error ? error.message : String(error);
+      }
+      persist();
+    }));
+    memoryCycle.state = "running";
+    persist();
+  }
   const limit = Number.isFinite(concurrency) ? Math.max(1, Math.floor(concurrency)) : nodes.size;
   const pending = new Set(nodes.keys());
+  const curationJobs = [];
   while (pending.size) {
     const ready = [...pending].filter((id) =>
       nodes.get(id).depends_on.every((dependency) => records[dependency].state !== "pending" && records[dependency].state !== "running")
@@ -102,6 +158,7 @@ export const runAlterGraph = async (
               graphId,
               mindBinPath
             );
+            if (recalledContexts.get(id)) options.prompt += recalledContexts.get(id);
             // Recorded on the node that received the shortened input, so the trace
             // shows which prompt was cut rather than leaving it to be inferred.
             if (truncatedEdges.length) record.truncated_edges = truncatedEdges;
@@ -115,6 +172,34 @@ export const runAlterGraph = async (
             record.result = spawned.result;
             record.state = spawned.result.ok ? "succeeded" : "failed";
             if (!spawned.result.ok) record.error = "alter run failed";
+            if (spawned.result.ok && node.memory?.curate) {
+              const trace = record.memory.curate;
+              trace.state = "queued";
+              curationJobs.push(async () => {
+                trace.state = "running";
+                persist();
+                try {
+                  if (!memoryScope) throw new Error("graph memory hooks require options.memory.scope");
+                  const curated = await curateWorkflow(root, {
+                    content: spawned.result.text,
+                    scope: { ...memoryScope, ...(node.memory.curate.namespace ? { namespace: node.memory.curate.namespace } : {}) },
+                    source: { runId: spawned.result.id || null, catalogId: node.catalog || null },
+                    approvals: memory?.curateApprovals,
+                    signal,
+                    onEvent: onEvent ? (event) => onEvent({ ...event, node: id, memory: "curate" }) : undefined,
+                    runtime,
+                    harness,
+                  });
+                  trace.record_ids = curated.records?.map((memoryRecord) => memoryRecord.id) || [];
+                  trace.state = "succeeded";
+                  memoryCycle.curated_records += trace.record_ids.length;
+                } catch (error) {
+                  trace.state = "failed";
+                  trace.error = error instanceof Error ? error.message : String(error);
+                }
+                persist();
+              });
+            }
           } catch (error) {
             record.state = "failed";
             record.error = error instanceof Error ? error.message : String(error);
@@ -124,6 +209,8 @@ export const runAlterGraph = async (
       );
     }
   }
+  await Promise.all(curationJobs.map((run) => run()));
+  if (memoryCycle) memoryCycle.state = "completed";
   const result = persist(iso(runtime.now()));
   return { home: graphHome, result };
 };

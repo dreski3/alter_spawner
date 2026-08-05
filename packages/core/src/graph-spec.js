@@ -31,6 +31,35 @@ export const buildGraphSpawnOptions = (node, graphId, mindBinPath) => createSpaw
   dependsOn: node.depends_on || [],
 });
 
+const normalizeMemoryHook = (value, label, fields) => {
+  if (value === undefined || value === false) return null;
+  if (value === true) return Object.freeze({});
+  if (!value || typeof value !== "object" || Array.isArray(value)) fail(`${label} must be true, false, or an object.`);
+  const unexpected = Object.keys(value).filter((key) => !fields.includes(key));
+  if (unexpected.length) fail(`${label}.${unexpected[0]} is not allowed.`);
+  if (value.namespace !== undefined && (typeof value.namespace !== "string" || !value.namespace.trim())) {
+    fail(`${label}.namespace must be a non-empty string.`);
+  }
+  if (value.query !== undefined && (typeof value.query !== "string" || !value.query.trim())) {
+    fail(`${label}.query must be a non-empty string.`);
+  }
+  return Object.freeze({
+    ...(value.namespace === undefined ? {} : { namespace: value.namespace.trim() }),
+    ...(value.query === undefined ? {} : { query: value.query.trim() }),
+  });
+};
+
+export const normalizeGraphNodeMemory = (memory, nodeId = "node") => {
+  if (memory === undefined || memory === null || memory === false) return null;
+  if (!memory || typeof memory !== "object" || Array.isArray(memory)) fail(`graph node "${nodeId}" memory must be an object.`);
+  const unexpected = Object.keys(memory).filter((key) => !["recall", "curate"].includes(key));
+  if (unexpected.length) fail(`graph node "${nodeId}" memory.${unexpected[0]} is not allowed.`);
+  const recall = normalizeMemoryHook(memory.recall, `graph node "${nodeId}" memory.recall`, ["namespace", "query"]);
+  const curate = normalizeMemoryHook(memory.curate, `graph node "${nodeId}" memory.curate`, ["namespace"]);
+  if (!recall && !curate) return null;
+  return Object.freeze({ recall, curate });
+};
+
 export const validateGraph = (graph) => {
   if (!graph || !Array.isArray(graph.nodes) || graph.nodes.length === 0) {
     fail("alter graph requires a non-empty nodes array.");
@@ -41,7 +70,7 @@ export const validateGraph = (graph) => {
     if (!id || id !== node.id) fail(`invalid graph node id: ${node?.id ?? "(missing)"}`);
     if (nodes.has(id)) fail(`duplicate graph node id: ${id}`);
     if (typeof node.prompt !== "string" || !node.prompt.trim()) fail(`graph node "${id}" requires a prompt.`);
-    nodes.set(id, { ...node, depends_on: node.depends_on || [] });
+    nodes.set(id, { ...node, depends_on: node.depends_on || [], memory: normalizeGraphNodeMemory(node.memory, id) });
   }
   for (const node of nodes.values()) {
     for (const dependency of node.depends_on) {

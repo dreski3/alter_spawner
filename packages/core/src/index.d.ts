@@ -215,6 +215,10 @@ export type AlterGraphNode = {
   promptSuffix?: string;
   opencodeProvider?: Record<string, unknown>;
   outputContract?: OutputContract;
+  memory?: {
+    recall?: boolean | { namespace?: string; query?: string };
+    curate?: boolean | { namespace?: string };
+  };
 };
 
 export function validateOutputContract(contract: OutputContract | null, label?: string): void;
@@ -226,7 +230,16 @@ export function checkOutputContract(
 export type AlterGraph = {
   id?: string;
   output?: string;
+  max_edge_chars?: number | null;
   nodes: AlterGraphNode[];
+};
+
+export type GraphMemoryRuntime = {
+  scope: MemoryScope;
+  recallApprovals?: Pick<CapabilityApprovalSession, "execute">;
+  curateApprovals?: Pick<CapabilityApprovalSession, "execute">;
+  recall?: typeof runMemoryRecall;
+  curate?: typeof runMemoryCurator;
 };
 
 export function runAlterGraph(
@@ -238,6 +251,9 @@ export function runAlterGraph(
     concurrency?: number;
     mindBinPath?: string;
     runtime?: Runtime;
+    onProgress?: (result: Record<string, unknown>) => void;
+    onEvent?: (event: AlterRuntimeEvent & { node: string; memory?: "recall" | "curate" }) => void;
+    memory?: GraphMemoryRuntime | null;
   },
 ): Promise<{ home: string; result: Record<string, unknown> }>;
 
