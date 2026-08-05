@@ -1,12 +1,12 @@
 {
   "name": "memory-manager",
   "description": "Plans conservative, quota-aware maintenance operations over a bounded persistent-memory snapshot.",
-  "model": null,
-  "fallback_model": null,
+  "model": "cerebras/gpt-oss-120b",
+  "fallback_model": "opencode/big-pickle",
   "max_tokens": 8000,
   "nestable": false,
   "web": false,
-  "timeout_ms": null,
+  "timeout_ms": 60000,
   "read_grants": [],
   "write_grants": [],
   "bash_allow": [],
@@ -16,8 +16,17 @@
   "agents_md_override": null,
   "skills_dir": null,
   "opencode_provider": null,
-  "output_contract": { "type": "json", "trim": true },
-  "source": { "type": "local", "ref": null },
+  "output_contract": {
+    "type": "json",
+    "trim": true
+  },
+  "source": {
+    "type": "local",
+    "ref": null
+  },
   "created_at": "2026-08-05T00:00:00.000Z",
-  "created_from": "native-memory-maintenance"
+  "created_from": "native-memory-maintenance",
+  "text_only": true,
+  "executor": "llm",
+  "capability": null
 }

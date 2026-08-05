@@ -242,6 +242,9 @@ export type GraphMemoryRuntime = {
   curate?: typeof runMemoryCurator;
 };
 
+/** Why an Alter run failed, in one actionable sentence. Reports a token-budget overrun ahead of any contract failure it caused. */
+export function describeAlterFailure(result: AlterResult | AlterResponse): string;
+
 export function runAlterGraph(
   root: string,
   graph: AlterGraph,

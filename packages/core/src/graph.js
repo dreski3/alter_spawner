@@ -9,6 +9,26 @@ import { writeJsonAtomic } from "./persistence.js";
 import { resolveRuntime } from "./runtime.js";
 import { fail, iso, sanitizeName, timestampSlug } from "./util.js";
 
+// "alter run failed" was the same sentence whether the model refused, returned
+// nothing, broke its contract, or answered perfectly and got charged for reasoning
+// tokens it was never given room for. That last case is the one worth naming: a node
+// whose text is exactly right still fails, and reading the message told you nothing
+// about which knob to turn. So the budget failure reports the numbers that caused it.
+export const describeAlterFailure = (result) => {
+  if (result.budget_exceeded) {
+    const total = result.tokens?.total ?? 0;
+    const reasoning = result.tokens?.reasoning ?? 0;
+    const reasoningNote = reasoning ? `, ${reasoning} of them reasoning` : "";
+    return `exceeded its ${result.max_tokens}-token budget (used ${total}${reasoningNote}) — raise maxTokens`;
+  }
+  if (result.contract_failed) return `output contract not met: ${result.contract_error || "no reason given"}`;
+  if (result.empty_output) return "returned no output";
+  if (result.aborted) return "cancelled before it finished";
+  if (result.killed) return "timed out and was killed";
+  if (result.llm_error) return result.llm_error;
+  return "alter run failed";
+};
+
 export const runAlterGraph = async (
   root,
   graph,
@@ -171,7 +191,7 @@ export const runAlterGraph = async (
             record.home = spawned.home;
             record.result = spawned.result;
             record.state = spawned.result.ok ? "succeeded" : "failed";
-            if (!spawned.result.ok) record.error = "alter run failed";
+            if (!spawned.result.ok) record.error = describeAlterFailure(spawned.result);
             if (spawned.result.ok && node.memory?.curate) {
               const trace = record.memory.curate;
               trace.state = "queued";

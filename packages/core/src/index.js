@@ -35,7 +35,7 @@ export {
   requirePrincipalProject,
   runPrincipalTurn,
 } from "./principal.js";
-export { runAlterGraph } from "./graph.js";
+export { describeAlterFailure, runAlterGraph } from "./graph.js";
 export { DEFAULT_MAX_EDGE_CHARS, renderGraphPrompt, validateGraph } from "./graph-spec.js";
 export { withFileLock } from "./file-lock.js";
 export {
