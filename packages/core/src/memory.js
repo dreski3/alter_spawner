@@ -14,6 +14,7 @@ import path from "node:path";
 import { kitDir } from "./config.js";
 import { writeJsonAtomic } from "./persistence.js";
 import { resolveRuntime } from "./runtime.js";
+import { createSqliteMemoryStore, sqliteMemoryFilePath } from "./sqlite-memory.js";
 import { canonicalJson, normalizeJsonValue } from "./structured-data.js";
 
 export const MEMORY_SCHEMA_VERSION = 1;
@@ -35,7 +36,7 @@ const optionalString = (value, label, maxLength = 500) => {
   return requiredString(value, label, maxLength);
 };
 
-const normalizeScope = (scope, label = "memory scope") => {
+export const normalizeMemoryScope = (scope, label = "memory scope") => {
   if (!scope || typeof scope !== "object" || Array.isArray(scope)) throw new Error(`${label} must be an object`);
   const unexpected = Object.keys(scope).filter((key) => !["project", "catalog", "conversation", "namespace"].includes(key));
   if (unexpected.length) throw new Error(`${label}.${unexpected[0]} is not allowed`);
@@ -87,7 +88,7 @@ const normalizeSource = (source = {}) => {
   });
 };
 
-const normalizeMemoryInput = (input) => {
+export const normalizeMemoryInput = (input) => {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("memory record must be an object");
   const unexpected = Object.keys(input).filter((key) => ![
     "kind",
@@ -116,13 +117,13 @@ const normalizeMemoryInput = (input) => {
   });
 };
 
-const contentHash = (scope, record) => createHash("sha256").update(canonicalJson({
+export const memoryContentHash = (scope, record) => createHash("sha256").update(canonicalJson({
   scope,
   kind: record.kind,
   content: record.content,
 })).digest("hex");
 
-const recordLogicalBytes = (scope, record) => Buffer.byteLength(canonicalJson({
+export const memoryRecordLogicalBytes = (scope, record) => Buffer.byteLength(canonicalJson({
   scope,
   kind: record.kind,
   content: record.content,
@@ -155,14 +156,14 @@ const validateDocument = (document, projectId) => {
   }
   for (const record of document.records) {
     record.scope.namespace ??= null;
-    record.logicalBytes ??= recordLogicalBytes(record.scope, record);
+    record.logicalBytes ??= memoryRecordLogicalBytes(record.scope, record);
   }
   return document;
 };
 
-const tokenize = (value) => [...new Set(String(value).toLocaleLowerCase().match(/[\p{L}\p{N}_-]+/gu) || [])];
+export const tokenizeMemoryQuery = (value) => [...new Set(String(value).toLocaleLowerCase().match(/[\p{L}\p{N}_-]+/gu) || [])];
 
-const searchScore = (record, query, terms) => {
+export const scoreMemorySearchResult = (record, query, terms) => {
   const content = record.content.toLocaleLowerCase();
   const tags = record.tags.map((tag) => tag.toLocaleLowerCase());
   const kind = record.kind.toLocaleLowerCase();
@@ -214,7 +215,7 @@ export const createFileMemoryStore = ({
   const lockFile = `${file}.lock`;
   let writeQueue = Promise.resolve();
   const normalizeStoreScope = (scope) => {
-    const normalized = normalizeScope(scope);
+    const normalized = normalizeMemoryScope(scope);
     if (normalized.project !== normalizedProjectId) {
       throw new Error(`memory scope project must match store project: ${normalizedProjectId}`);
     }
@@ -302,14 +303,14 @@ export const createFileMemoryStore = ({
     const kinds = options.kinds || [];
     if (!Array.isArray(kinds) || kinds.some((kind) => !memoryKinds.has(kind))) throw new Error("memory search kinds are invalid");
     const requiredTags = normalizeTags(options.tags || []).map((tag) => tag.toLocaleLowerCase());
-    const terms = tokenize(normalizedQuery);
+    const terms = tokenizeMemoryQuery(normalizedQuery);
     const now = runtime.now();
     return readDocument().records
       .filter((record) => scopeCanRead(normalizedScope, record.scope))
       .filter((record) => !record.expiresAt || Date.parse(record.expiresAt) > now)
       .filter((record) => kinds.length === 0 || kinds.includes(record.kind))
       .filter((record) => requiredTags.every((tag) => record.tags.some((candidate) => candidate.toLocaleLowerCase() === tag)))
-      .map((record) => ({ record, ...searchScore(record, normalizedQuery, terms) }))
+      .map((record) => ({ record, ...scoreMemorySearchResult(record, normalizedQuery, terms) }))
       .filter((result) => result.score > 0)
       .sort((left, right) => right.score - left.score || right.record.updatedAt.localeCompare(left.record.updatedAt) || left.record.id.localeCompare(right.record.id))
       .slice(0, limit)
@@ -368,7 +369,7 @@ export const createFileMemoryStore = ({
   const putInDocument = (document, input, scope) => {
     const normalizedScope = normalizeStoreScope(scope);
     const normalized = normalizeMemoryInput(input);
-    const hash = contentHash(normalizedScope, normalized);
+    const hash = memoryContentHash(normalizedScope, normalized);
     const duplicate = document.records.find((record) =>
       record.contentHash === hash &&
       sameScope(record.scope, normalizedScope) &&
@@ -383,7 +384,7 @@ export const createFileMemoryStore = ({
       scope: normalizedScope,
       ...normalized,
       contentHash: hash,
-      logicalBytes: recordLogicalBytes(normalizedScope, normalized),
+      logicalBytes: memoryRecordLogicalBytes(normalizedScope, normalized),
       version: 1,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -415,8 +416,8 @@ export const createFileMemoryStore = ({
     const updated = {
       ...current,
       ...normalized,
-      contentHash: contentHash(normalizedScope, normalized),
-      logicalBytes: recordLogicalBytes(normalizedScope, normalized),
+      contentHash: memoryContentHash(normalizedScope, normalized),
+      logicalBytes: memoryRecordLogicalBytes(normalizedScope, normalized),
       version: current.version + 1,
       updatedAt: new Date(runtime.now()).toISOString(),
     };
@@ -465,6 +466,7 @@ export const createFileMemoryStore = ({
   return Object.freeze({
     file,
     projectId: normalizedProjectId,
+    backend: "json",
     get,
     search,
     list,
@@ -476,8 +478,21 @@ export const createFileMemoryStore = ({
   });
 };
 
-export const createProjectMemoryStore = (root, options = {}) => createFileMemoryStore({
-  ...options,
-  file: options.file || memoryFilePath(root),
-  projectId: options.projectId || path.basename(path.resolve(root)),
-});
+export const createProjectMemoryStore = (root, options = {}) => {
+  const projectId = options.projectId || path.basename(path.resolve(root));
+  if (options.backend === "sqlite") {
+    return createSqliteMemoryStore({
+      ...options,
+      file: options.file || sqliteMemoryFilePath(root),
+      projectId,
+    });
+  }
+  if (options.backend !== undefined && options.backend !== "json") {
+    throw new Error("memory store backend must be json or sqlite");
+  }
+  return createFileMemoryStore({
+    ...options,
+    file: options.file || memoryFilePath(root),
+    projectId,
+  });
+};

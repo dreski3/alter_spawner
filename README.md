@@ -205,14 +205,15 @@ await approvals.decide(approvalId, "allow-once");
 const result = await execution;
 ```
 
-**Persistent memory** — `createProjectMemoryStore` provides a scoped,
-versioned store under `.alters/memory/store.json`. Writes are atomic, use a
-cross-process lock, enforce optimistic versions, deduplicate active records,
-and keep project, catalog, conversation, and named-namespace visibility
-separate. The store reports physical and logical byte consumption with a
-per-namespace breakdown, and optional store or namespace quotas reject an
-entire atomic mutation before it reaches disk. `mind memory stats` requests
-the visible storage report through the host. `mind init`
+**Persistent memory** — `createProjectMemoryStore` provides interchangeable
+JSON and SQLite backends. JSON remains the compatibility default under
+`.alters/memory/store.json`; `{ backend: "sqlite" }` uses WAL and FTS5 under
+`.alters/memory/store.sqlite`. Both enforce the same scopes, normalization,
+optimistic versions, active-record deduplication, atomic mutation batches,
+storage accounting, and store/namespace quotas. SQLite performs indexed scope
+reads and keeps its FTS rows in the same transactions as record changes.
+`mind memory stats` requests the visible storage report through the host.
+`mind init`
 and `mind update` add `.alters/memory/` to `.gitignore` because memory may
 contain private project context.
 
@@ -237,6 +238,28 @@ const curated = await runMemoryCurator(root, {
   scope: { project: "naut" },
   source: { runId: completedRun.id },
   approvals
+});
+```
+
+SQLite uses the built-in `node:sqlite` module and therefore requires Node
+22.13 or newer. Migration copies the schema-v1 JSON records while preserving
+IDs, scopes, versions, timestamps, provenance, and metadata. It never modifies
+or removes the JSON source and is idempotent when rerun:
+
+```bash
+mind memory migrate --to sqlite
+```
+
+```js
+await migrateFileMemoryStoreToSqlite({
+  sourceFile: memoryFilePath(root),
+  destinationFile: sqliteMemoryFilePath(root),
+  projectId: "naut",
+});
+
+const store = createProjectMemoryStore(root, {
+  projectId: "naut",
+  backend: "sqlite",
 });
 ```
 
@@ -309,8 +332,8 @@ cycle writes `maintenance.json` beside the graph's `result.json` for audit.
   A custom provider can still require its configured AI SDK runtime package.
 - Only one harness adapter exists (`opencode`); the interface is unexercised
   by a second implementation.
-- Persistent-memory search is lexical in the dependency-free file backend;
-  the store contract is designed for a future SQLite/FTS or vector adapter.
+- Persistent-memory retrieval is lexical. SQLite adds FTS indexing, but no
+  embedding/vector or semantic-reranking adapter exists yet.
 - Output validation is opt-in. Catalog entries without `output_contract` still
   treat any non-empty final message as semantically successful.
 - A nestable Alter occasionally fails to correctly compose its own scoped

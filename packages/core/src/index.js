@@ -90,6 +90,12 @@ export {
   createProjectMemoryStore,
 } from "./memory.js";
 export {
+  SQLITE_MEMORY_SCHEMA_VERSION,
+  sqliteMemoryFilePath,
+  createSqliteMemoryStore,
+  migrateFileMemoryStoreToSqlite,
+} from "./sqlite-memory.js";
+export {
   DEFAULT_MEMORY_CATALOG_CAPABILITIES,
   createMemoryCapabilityDefinitions,
   createMemoryCapabilityRegistry,

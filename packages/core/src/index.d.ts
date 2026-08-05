@@ -464,6 +464,7 @@ export type MemoryMutation =
 export type MemoryStore = {
   file: string;
   projectId: string;
+  backend?: "json" | "sqlite";
   get(id: string, scope: MemoryScope): Promise<MemoryRecord | null>;
   search(query: string, scope: MemoryScope, options?: {
     limit?: number;
@@ -507,7 +508,17 @@ export function createFileMemoryStore(options: {
   quotaBytes?: number | null;
   namespaceQuotaBytes?: Record<string, number>;
 }): MemoryStore;
+export function createProjectMemoryStore(root: string, options: {
+  backend: "sqlite";
+  file?: string;
+  projectId?: string;
+  runtime?: Runtime;
+  quotaBytes?: number | null;
+  namespaceQuotaBytes?: Record<string, number>;
+  busyTimeoutMs?: number;
+}): SqliteMemoryStore;
 export function createProjectMemoryStore(root: string, options?: {
+  backend?: "json" | "sqlite";
   file?: string;
   projectId?: string;
   runtime?: Runtime;
@@ -515,7 +526,41 @@ export function createProjectMemoryStore(root: string, options?: {
   staleLockMs?: number;
   quotaBytes?: number | null;
   namespaceQuotaBytes?: Record<string, number>;
+  busyTimeoutMs?: number;
 }): MemoryStore;
+
+export type SqliteMemoryStore = MemoryStore & {
+  backend: "sqlite";
+  importRecords(records: MemoryRecord[]): Promise<{ imported: number; skipped: number; total: number }>;
+  close(): void;
+};
+
+export const SQLITE_MEMORY_SCHEMA_VERSION: number;
+export function sqliteMemoryFilePath(root: string): string;
+export function createSqliteMemoryStore(options: {
+  file: string;
+  projectId: string;
+  runtime?: Runtime;
+  quotaBytes?: number | null;
+  namespaceQuotaBytes?: Record<string, number>;
+  busyTimeoutMs?: number;
+}): SqliteMemoryStore;
+export function migrateFileMemoryStoreToSqlite(options: {
+  sourceFile: string;
+  destinationFile: string;
+  projectId?: string;
+  runtime?: Runtime;
+  quotaBytes?: number | null;
+  namespaceQuotaBytes?: Record<string, number>;
+  busyTimeoutMs?: number;
+}): Promise<{
+  imported: number;
+  skipped: number;
+  total: number;
+  sourceFile: string;
+  destinationFile: string;
+  projectId: string;
+}>;
 
 export const DEFAULT_MEMORY_CATALOG_CAPABILITIES: Readonly<Record<string, readonly string[]>>;
 export function createMemoryCapabilityDefinitions(options: { store: MemoryStore }): CapabilityDefinition[];

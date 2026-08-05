@@ -5,15 +5,21 @@ import {
   formatPutOutcome,
   formatSearchOutcome,
   inspectMemoryStorage,
+  memoryFilePath,
+  migrateFileMemoryStoreToSqlite,
   putMemory,
+  requireProjectRoot,
   searchMemory,
+  sqliteMemoryFilePath,
 } from "@mind/core";
+import path from "node:path";
 
 const usage = () => {
   console.error("usage: mind memory search <query> [--limit <n>] [--kind <k>]* [--json]");
   console.error("       mind memory put <content> [--kind <k>] [--tag <t>]* [--confidence <0-1>]");
   console.error("                                 [--expires-at <iso>] [--json]");
   console.error("       mind memory stats [--json]");
+  console.error("       mind memory migrate --to sqlite [--source <file>] [--destination <file>] [--json]");
   console.error("");
   console.error("  kinds: fact, preference, decision, summary");
   console.error("  The host decides the project/conversation scope and whether the operation runs at all.");
@@ -56,6 +62,13 @@ const PUT_FLAGS = {
   content: (o, v) => { o.content = v; },
 };
 
+const MIGRATE_FLAGS = {
+  to: (o, v) => { o.to = v; },
+  source: (o, v) => { o.source = v; },
+  destination: (o, v) => { o.destination = v; },
+  "project-id": (o, v) => { o.projectId = v; },
+};
+
 // A denial is reported on stdout with a zero exit status, and that is deliberate.
 // The user was asked and answered; nothing went wrong. A non-zero exit reads to
 // an agent as "transient, worth another go", and another go would just raise the
@@ -65,6 +78,26 @@ const PUT_FLAGS = {
 export const run = async (argv) => {
   const operation = argv[0];
   const rest = argv.slice(1);
+  if (operation === "migrate") {
+    const options = parse(rest, MIGRATE_FLAGS);
+    if (options.help) return usage();
+    if (options.positional.length) fail("mind memory migrate does not accept positional arguments");
+    if (options.to !== "sqlite") fail("mind memory migrate currently requires --to sqlite");
+    const root = requireProjectRoot();
+    const sourceFile = options.source ? path.resolve(options.source) : memoryFilePath(root);
+    const destinationFile = options.destination ? path.resolve(options.destination) : sqliteMemoryFilePath(root);
+    const result = await migrateFileMemoryStoreToSqlite({
+      sourceFile,
+      destinationFile,
+      projectId: options.projectId || path.basename(root),
+    });
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(
+      `migrated ${result.imported} records to ${result.destinationFile}; ` +
+        `${result.skipped} already present; source left unchanged`,
+    );
+    return;
+  }
   if (operation === "stats") {
     const options = parse(rest, {});
     if (options.help) return usage();
