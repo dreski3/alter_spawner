@@ -11,7 +11,23 @@ import { fail, iso, sanitizeName, timestampSlug } from "./util.js";
 export const runAlterGraph = async (
   root,
   graph,
-  { harness = null, signal, concurrency = Infinity, mindBinPath = null, runtime: runtimeOverride } = {},
+  {
+    harness = null,
+    signal,
+    concurrency = Infinity,
+    mindBinPath = null,
+    runtime: runtimeOverride,
+    // Called with the whole graph document on every state transition, on the same
+    // schedule as the result.json write. A host rendering a graph live has otherwise
+    // nothing to render until the last node returns: the document on disk is current
+    // throughout, but there is no way to know when it changed without polling a
+    // directory whose name is not known until this function returns.
+    onProgress,
+    // Forwarded to every node's spawnAlter. Node-level events carry no node id of
+    // their own, so the id is added here — without it a host with four nodes in flight
+    // cannot tell which one is streaming.
+    onEvent,
+  } = {},
 ) => {
   const runtime = resolveRuntime(runtimeOverride);
   const { nodes, output } = validateGraph(graph);
@@ -33,6 +49,14 @@ export const runAlterGraph = async (
   const persist = (endedAt = null) => {
     const document = createGraphResult({ graphId, output, records, startedAt, startMs, endedAt, now: runtime.now() });
     writeJsonAtomic(path.join(graphHome, "result.json"), document);
+    // After the write, so a host that reacts by reading the file sees what it was
+    // told about. Isolated: a throwing observer is a bug in the host, not a reason
+    // to abandon a graph whose nodes have already done their work.
+    if (onProgress) {
+      try {
+        onProgress(document);
+      } catch {}
+    }
     return document;
   };
   persist();
@@ -81,7 +105,12 @@ export const runAlterGraph = async (
             // Recorded on the node that received the shortened input, so the trace
             // shows which prompt was cut rather than leaving it to be inferred.
             if (truncatedEdges.length) record.truncated_edges = truncatedEdges;
-            const spawned = await spawnAlter(root, options, { harness, signal, runtime });
+            const spawned = await spawnAlter(root, options, {
+              harness,
+              signal,
+              runtime,
+              onEvent: onEvent ? (event) => onEvent({ ...event, node: id }) : undefined,
+            });
             record.home = spawned.home;
             record.result = spawned.result;
             record.state = spawned.result.ok ? "succeeded" : "failed";
