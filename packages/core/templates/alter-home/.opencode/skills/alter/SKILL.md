@@ -49,6 +49,8 @@ answer) and also saved to `<home>/result.md` (+ `result.json` with stats).
 | `--prompt-prefix <text>` / `--prompt-suffix <text>` | text wrapped around the prompt |
 | `--bash-allow <pattern>` | allow one exact command pattern in the Alter's shell |
 | `--bash-only` | deny non-shell tools, useful for deterministic tool wrappers |
+| `--text-only` | no tools at all: a text-in/text-out leaf, and the cheapest Alter to run |
+| `--executor <name>` | which harness adapter runs it: `opencode` (default) or `llm` — see below. The model-free executors have to be bound by a host process, so do not reach for them here |
 | `--output-exact <text>` / `--output-prefix <text>` | require a matching final result |
 | `--output-regex <pattern>` | require the final result to match a regular expression |
 | `--output-json` | require the final result to parse as JSON |
@@ -80,6 +82,44 @@ depends on the harness's own buffering, which this tool does not control. In
 the worst case it is equivalent to "reject after the fact" — the run has
 already spent its tokens, and the effect is limited to `result.json` recording
 `ok:false, budget_exceeded:true` with no further retries proceeding.
+
+## Choosing an executor
+`--executor opencode` (the default) gives the child a real coding-agent session: a
+home directory, file tools, optionally a shell. Use it whenever the child has to
+*do* something — read, write, search, run a command, spawn its own children.
+
+`--executor llm` makes a single model call instead: your `--description` becomes
+its system prompt, your prompt becomes the user message, and its reply is the
+result. No home, no tools, no session. Measured against the same endpoint it
+returns in ~2ms of local overhead versus ~2.4s for a session, and sends about a
+fifth of the input tokens.
+
+Reach for `llm` for text-in/text-out work — rewriting, compressing, extracting,
+classifying, translating, normalizing. Reach for `opencode` for anything else.
+A child that needs `--allow`, `--web`, `--bash-allow` or `--nestable` is not an
+`llm` node; those flags have nothing to act on there.
+
+## Tree budgets
+`--max-tokens` bounds one Alter. A whole *tree* — you, your children, and
+everything below them — is bounded separately by `.alters/config.json`:
+
+- `max_tree_nodes` — total Alters the tree may spawn (default 64).
+- `max_tree_tokens` — total tokens the tree may spend (off by default).
+- `max_concurrent_alters` — how many run at once (default 4).
+
+These are shared across every branch and every process, so spending is counted
+once per tree rather than once per branch. Two consequences for you:
+
+- A spawn can be **refused** with `tree node budget exhausted` (exit 1). That is
+  a ceiling, not a transient error — **do not retry it**. Finish the task with
+  what you already have, or answer directly, and say in your result that the
+  tree budget ran out.
+- A spawn can **block** while the tree is at `max_concurrent_alters`. That is
+  normal backpressure; it will proceed on its own. Waiting on a child does not
+  count against the cap, so a deep chain never starves itself.
+
+Prefer a few well-scoped children over many speculative ones: the budget is the
+whole tree's, and spending it on the shallow levels leaves nothing underneath.
 
 ## Failure fallback
 On failure (non-zero exit, timeout, budget overrun, or an empty result), a spawn
@@ -194,13 +234,21 @@ to install it from a package registry — nothing published there is this CLI.
 ## Other commands
 ```bash
 mind create ...                  # scaffold a home without running it
-mind run <home-or-id> "<prompt>" # run an existing home
+mind run <home-or-id> "<prompt>" # re-run a home you spawned (see below)
 mind list                        # list homes + status
 mind tree                        # nesting tree
 mind show <id>                   # print a home's result.json
 mind rm <id>                     # delete a home
 mind catalog list|show|save      # manage predefined harnesses
 ```
+
+`mind run` re-runs **only homes you spawned** — the ones under your own
+`.alters/runs`. Naming a home above or beside you (your parent as `../../..`,
+a sibling, another project) is refused, because a re-run overwrites that home's
+`result.json` and agent definition, and its own run may still be in flight.
+Re-running a child is the supported case: give it a new prompt to retry or
+extend work it already did, without paying to scaffold a new home. To redo your
+*own* work, finish and let your parent decide — you cannot re-enter yourself.
 
 ## Model inheritance
 Without `--model`, an Alter inherits its parent's model (root defaults to

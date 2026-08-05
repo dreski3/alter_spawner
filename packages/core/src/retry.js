@@ -9,8 +9,13 @@ import { resolveRuntime } from "./runtime.js";
 // Attempt plan: initial run, then `same_harness_retries` retries on the same model, then
 // `fallback_retries` retries on an escalated/fallback model (if one is available). A catalog
 // entry without a fallback_model gets no fallback tier — we do not guess one for named harnesses.
-export const buildAttemptPlan = (o, cfg, runtimeOverride) => {
+export const buildAttemptPlan = (o, cfg, runtimeOverride, { allowRetries = true } = {}) => {
   const runtime = resolveRuntime(runtimeOverride);
+  // An executor that declares `supportsRetry: false` runs a deterministic operation:
+  // the same input gives the same answer, so a second attempt is a guaranteed-identical
+  // failure, and the fallback tier — which escalates to a different *model* — is
+  // incoherent for something that never called one.
+  if (!allowRetries) return [{ model: o.model, reason: "initial" }];
   const sameRetries = cfg.retry?.same_harness_retries ?? 1;
   const fallbackRetries = cfg.retry?.fallback_retries ?? 1;
   const fallbackModel =
@@ -43,6 +48,7 @@ export const runWithRetries = async ({
   runtime: runtimeOverride,
   agent = "alter",
   sessionId = null,
+  allowRetries = true,
   // An Alter's model lives in its generated `alter.md` frontmatter, so swapping
   // models mid-plan means rewriting that file. A principal runs a project's own
   // agent definition, which is user-authored and must never be rewritten here.
@@ -50,7 +56,7 @@ export const runWithRetries = async ({
 }) => {
   const runtime = resolveRuntime(runtimeOverride);
   const harness = getHarness(harnessName);
-  const plan = buildAttemptPlan(o, cfg, runtime);
+  const plan = buildAttemptPlan(o, cfg, runtime, { allowRetries });
   const emit = (event) => {
     try {
       onEvent?.(event);
@@ -84,6 +90,12 @@ export const runWithRetries = async ({
       environment: runtime.env,
       agent,
       sessionId,
+      // Read only by the executors that have no agent home to read them from: the
+      // capability pair needs the binding, the llm executor needs the role for its
+      // system prompt. Every other adapter ignores them.
+      capability: o.capability || null,
+      catalogName: o.catalogName || null,
+      description: o.description || null,
     });
     if (res.ok && o.outputContract) {
       const contract = checkOutputContract(res.text, o.outputContract);

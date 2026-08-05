@@ -13,6 +13,7 @@ export const parseSpawnArgs = (argv) => {
     else if (a === "--allow-write") o.writeGrants.push(normPath(argv[++i]));
     else if (a === "--bash-allow") o.bashAllow.push(argv[++i]);
     else if (a === "--bash-only") o.bashOnly = true;
+    else if (a === "--text-only") o.textOnly = true;
     else if (a === "--nestable") o.nestable = true;
     else if (a === "--web") o.webAccess = true;
     else if (a === "--timeout") o.timeout = Number(argv[++i]);
@@ -20,6 +21,7 @@ export const parseSpawnArgs = (argv) => {
     else if (a === "--verbose") o.verbose = true;
     else if (a === "--prompt") o.prompt = argv[++i];
     else if (a === "--catalog") o.catalog = argv[++i];
+    else if (a === "--executor") o.executor = argv[++i];
     else if (a === "--allow-catalog") (o.allowedCatalogs ??= []).push(argv[++i]);
     else if (a === "--allow-no-catalogs") o.allowedCatalogs = [];
     else if (a === "--max-tokens") o.maxTokens = Number(argv[++i]);

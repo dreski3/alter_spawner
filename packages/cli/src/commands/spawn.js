@@ -15,7 +15,7 @@ export const run = async (argv, ctx, { createOnly = false } = {}) => {
   }
   if (o.verbose) {
     console.error(
-      `alter ${o.id}: ok=${res.ok} depth=${o.depth} model=${o.model} steps=${res.steps} tokens=${res.tokens.total} ms=${result.duration_ms}`
+      `alter ${o.id}: ok=${res.ok} depth=${o.depth} executor=${o.executor} model=${o.model} steps=${res.steps} tokens=${res.tokens.total} ms=${result.duration_ms}`
     );
     console.error(`home: ${result.home}`);
   }

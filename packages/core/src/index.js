@@ -1,4 +1,7 @@
 import "./harness/opencode.js";
+// Self-registering like opencode: it needs nothing a host must build, only the catalog
+// and credentials opencode already keeps on disk. See harness/llm.js.
+import "./harness/llm.js";
 
 export { MindError, fail, normPath, sanitizeName } from "./util.js";
 export { parseSpawnArgs } from "./parseArgs.js";
@@ -33,8 +36,36 @@ export {
   runPrincipalTurn,
 } from "./principal.js";
 export { runAlterGraph } from "./graph.js";
+export { DEFAULT_MAX_EDGE_CHARS, renderGraphPrompt, validateGraph } from "./graph-spec.js";
+export { withFileLock } from "./file-lock.js";
+export {
+  TREE_ID_ENV,
+  TREE_LEDGER_ENV,
+  TREE_NODE_ENV,
+  TREE_LEDGER_SCHEMA_VERSION,
+  treeLedgerPath,
+  treeLimits,
+  treeGuardsEnabled,
+  admitTreeNode,
+  releaseTreeNode,
+  readTreeLedger,
+  resolveTreeContext,
+  withTreeEnv,
+} from "./tree-budget.js";
 export { ALTER_HOME_TEMPLATE_DIR, TEMPLATE_AGENT, TEMPLATE_SKILL } from "./paths.js";
 export { registerHarness, getHarness, HARNESS_ADAPTERS } from "./harness/adapter.js";
+// Not registered by default: a capability registry is host-built, and there is
+// deliberately no path that loads one from a project directory. See harness/capability.js.
+export { createFunctionExecutor, createCapabilityExecutor } from "./harness/capability.js";
+export {
+  authFilePath,
+  loadAuth,
+  loadModelsCatalog,
+  modelsCatalogPath,
+  resolveLlmEndpoint,
+  resolveLlmEndpointFromDisk,
+  splitModelRef,
+} from "./providers.js";
 export {
   VALID_APPROVAL_DECISIONS,
   CapabilityDeniedError,

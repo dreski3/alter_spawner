@@ -36,11 +36,24 @@ const resolveRunFolder = (root, id, runtime) => {
 // catalog, both cheap JSON) — never a copy of the engine itself. The engine
 // is resolved from the installed `mind` package via `o.mindBinPath`, which
 // the CLI layer bakes into the nestable Alter's scoped bash permission.
-export const scaffold = (root, cfg, o, runtimeOverride) => {
+//
+// `agentFiles: false` builds only the part of a home that is executor-independent:
+// the run folder and its alter.json record, which `mind list`/`tree`/`show` and
+// writeResult all read. Everything else here — the git boundary, the instruction
+// files, the generated agent definition, a nestable Alter's child kit — exists for
+// a harness that reads a home off disk. An adapter that declares
+// `needsAgentHome: false` reads none of it, so writing it would be pure latency.
+export const scaffold = (root, cfg, o, runtimeOverride, { agentFiles = true } = {}) => {
   const runtime = resolveRuntime(runtimeOverride);
   o.runFolder = resolveRunFolder(root, o.id, runtime);
   const home = path.join(runsDir(root), o.runFolder);
   mkdirSync(home, { recursive: true });
+  if (agentFiles) scaffoldAgentFiles(root, cfg, o, runtime, home);
+  writeAlterJson(root, o, runtime, home);
+  return home;
+};
+
+const scaffoldAgentFiles = (root, cfg, o, runtime, home) => {
   gitInit(home);
   cpSync(ALTER_HOME_TEMPLATE_DIR, home, { recursive: true });
   // The alter-spawning skill (and the "you can spawn children" framing baked
@@ -50,7 +63,7 @@ export const scaffold = (root, cfg, o, runtimeOverride) => {
   if (!o.nestable) {
     rmSync(path.join(home, ".opencode", "skills", "alter"), { recursive: true, force: true });
   }
-  if (o.catalogEntryDir && o.catalogSkillsDir) {
+  if (o.catalogEntryDir && o.catalogSkillsDir && !o.textOnly) {
     const src = path.join(o.catalogEntryDir, o.catalogSkillsDir);
     if (existsSync(src)) {
       const dest = path.join(home, ".opencode", "skills");
@@ -58,41 +71,20 @@ export const scaffold = (root, cfg, o, runtimeOverride) => {
       cpSync(src, dest, { recursive: true });
     }
   }
-  writeTextAtomic(path.join(home, "AGENTS.md"), buildAgentsMd(o));
+  // opencode injects a home's AGENTS.md into the agent prompt *in addition to* the
+  // agent's own body, and the two say nearly the same thing — so an ordinary Alter
+  // pays for its instructions twice. Setting `instructions: []` does not suppress
+  // the injection; only the file's absence does. A text_only leaf therefore ships
+  // no AGENTS.md and carries its whole contract in the agent body. The `git init`
+  // above matters here: it makes the home a repository root, so opencode stops
+  // walking up and never reaches the project's own (parent-harness) AGENTS.md.
+  if (o.textOnly) rmSync(path.join(home, "AGENTS.md"), { force: true });
+  else writeTextAtomic(path.join(home, "AGENTS.md"), buildAgentsMd(o));
   const agentDir = path.join(home, ".opencode", "agents");
   mkdirSync(agentDir, { recursive: true });
   writeTextAtomic(
     path.join(agentDir, "alter.md"),
     buildFrontmatter(o) + "\n\n" + buildBody(o) + "\n"
-  );
-  writeJsonAtomic(
-    path.join(home, "alter.json"),
-      {
-        schema_version: ALTER_SCHEMA_VERSION,
-        id: o.id,
-        name: o.name || null,
-        description: o.description || null,
-        model: o.model,
-        nestable: !!o.nestable,
-        web: !!o.webAccess,
-        depth: o.depth,
-        parent_id: o.spawned_by === "root" ? null : o.spawned_by,
-        spawned_by: o.spawned_by,
-        read_grants: o.readGrants,
-        write_grants: o.writeGrants,
-        bash_allow: o.bashAllow || [],
-        bash_only: !!o.bashOnly,
-        allowed_catalogs: o.allowedCatalogs ? [...o.allowedCatalogs] : null,
-        catalog: o.catalogName || null,
-        max_tokens: o.maxTokens ?? null,
-        fallback_model: o.fallbackModel || null,
-        graph_id: o.graphId || null,
-        depends_on: o.dependsOn || [],
-        opencode_provider: o.opencodeProvider || null,
-        output_contract: o.outputContract || null,
-        created_at: iso(runtime.now()),
-        home: path.relative(root, home),
-      }
   );
   if (o.opencodeProvider) {
     writeJsonAtomic(
@@ -131,7 +123,13 @@ export const scaffold = (root, cfg, o, runtimeOverride) => {
       path.join(childKit, "config.json"),
         {
           default_model: o.model,
-          max_depth: cfg.max_depth ?? 5,
+          max_depth: cfg.max_depth ?? 12,
+          // The tree limits have to reach every level: a child reads its own kit
+          // config, so a limit left behind here would be silently lifted one level
+          // down. The ledger they share travels separately, in the environment.
+          max_tree_nodes: cfg.max_tree_nodes ?? null,
+          max_tree_tokens: cfg.max_tree_tokens ?? null,
+          max_concurrent_alters: cfg.max_concurrent_alters ?? null,
           run_timeout_ms: cfg.run_timeout_ms ?? 180000,
           catalog_dir: catalogDirName,
           default_fallback_model: o.fallbackModel || cfg.default_fallback_model || null,
@@ -141,5 +139,41 @@ export const scaffold = (root, cfg, o, runtimeOverride) => {
         }
     );
   }
-  return home;
+};
+
+// The record of what this Alter is, written for every executor. `mind list`, `tree`,
+// `show`, `rm`, and `runExistingAlter` all read it, and none of them care what ran.
+const writeAlterJson = (root, o, runtime, home) => {
+  writeJsonAtomic(
+    path.join(home, "alter.json"),
+      {
+        schema_version: ALTER_SCHEMA_VERSION,
+        id: o.id,
+        name: o.name || null,
+        description: o.description || null,
+        model: o.model,
+        executor: o.executor || null,
+        capability: o.capability ? { ...o.capability } : null,
+        nestable: !!o.nestable,
+        web: !!o.webAccess,
+        depth: o.depth,
+        parent_id: o.spawned_by === "root" ? null : o.spawned_by,
+        spawned_by: o.spawned_by,
+        read_grants: o.readGrants,
+        write_grants: o.writeGrants,
+        bash_allow: o.bashAllow || [],
+        bash_only: !!o.bashOnly,
+        text_only: !!o.textOnly,
+        allowed_catalogs: o.allowedCatalogs ? [...o.allowedCatalogs] : null,
+        catalog: o.catalogName || null,
+        max_tokens: o.maxTokens ?? null,
+        fallback_model: o.fallbackModel || null,
+        graph_id: o.graphId || null,
+        depends_on: o.dependsOn || [],
+        opencode_provider: o.opencodeProvider || null,
+        output_contract: o.outputContract || null,
+        created_at: iso(runtime.now()),
+        home: path.relative(root, home),
+      }
+  );
 };

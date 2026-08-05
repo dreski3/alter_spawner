@@ -66,6 +66,7 @@ const catalogSave = (argv) => {
       readGrants: aj.read_grants || [],
       writeGrants: aj.write_grants || [],
       bashOnly: !!aj.bash_only,
+      textOnly: !!aj.text_only,
       promptPrefix: null,
       promptSuffix: null,
       opencodeProvider: aj.opencode_provider || null,

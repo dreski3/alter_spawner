@@ -10,6 +10,11 @@ export const buildGraphSpawnOptions = (node, graphId, mindBinPath) => createSpaw
   writeGrants: node.writeGrants || [],
   bashAllow: node.bashAllow || [],
   bashOnly: !!node.bashOnly,
+  textOnly: !!node.textOnly,
+  // A graph is the natural place for mixed executors: a reasoning node and the leaf
+  // transformers hanging off it need not run on the same machinery.
+  executor: node.executor ?? null,
+  capability: node.capability ?? null,
   nestable: !!node.nestable,
   timeout: node.timeout ?? null,
   catalog: node.catalog ?? null,
@@ -65,5 +70,23 @@ export const validateGraph = (graph) => {
   return { nodes, output };
 };
 
-export const renderGraphPrompt = (node, records) =>
-  node.prompt.replace(/\{\{result:([^}]+)\}\}/g, (_match, id) => records[id].result.text);
+// A dependency's whole result is pasted into its dependents' prompts, so in a deep
+// pipeline the payload compounds: a node that fans into three dependents hands each
+// of them everything it produced, and their outputs carry it forward again. Nothing
+// bounded that, which is how a graph that looks small on paper ends up sending the
+// same text a dozen times.
+//
+// 32k characters is roughly 8k tokens — far more than any single dependency payload
+// should be, while still stopping the compounding case. Truncation is deliberately
+// loud: a marker lands in the prompt itself and `onTruncate` records it in the graph
+// trace, because a silently shortened input reads downstream as a complete one.
+// Set `max_edge_chars: null` on the graph to turn it off.
+export const DEFAULT_MAX_EDGE_CHARS = 32000;
+
+export const renderGraphPrompt = (node, records, { maxEdgeChars = DEFAULT_MAX_EDGE_CHARS, onTruncate } = {}) =>
+  node.prompt.replace(/\{\{result:([^}]+)\}\}/g, (_match, id) => {
+    const text = records[id].result.text;
+    if (maxEdgeChars == null || typeof text !== "string" || text.length <= maxEdgeChars) return text;
+    onTruncate?.({ from: id, to: node.id, kept: maxEdgeChars, total: text.length });
+    return `${text.slice(0, maxEdgeChars)}\n\n[truncated: ${maxEdgeChars} of ${text.length} characters from "${id}"]`;
+  });

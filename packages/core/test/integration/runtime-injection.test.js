@@ -68,10 +68,17 @@ test("spawn execution uses the injected clock, identifiers, and environment", as
   assert.equal(result.spawned_by, "parent-alter");
   assert.equal(result.started_at, "2026-01-02T03:04:05.000Z");
   assert.equal(result.duration_ms, 0);
+  // The capability grant is gone (an Alter is a sandbox and must not inherit the
+  // turn's privilege), and the tree context has been added: anything this Alter
+  // spawns has to find the same ledger, or its budget and concurrency guards would
+  // be enforced once per branch instead of once per tree.
   assert.deepEqual(calls[0].options.environment, {
     ALTER_MODEL: "runtime/model",
     ALTER_DEPTH: "1",
     ALTER_ID: "parent-alter",
+    ALTER_TREE: "tree_abcdef12",
+    ALTER_NODE: "abcdef123456",
+    ALTER_TREE_LEDGER: path.join(root, ".alters", "trees", "tree_abcdef12.json"),
   });
   const alter = JSON.parse(readFileSync(path.join(home, "alter.json"), "utf8"));
   assert.equal(alter.created_at, "2026-01-02T03:04:05.000Z");
