@@ -205,9 +205,9 @@ mind memory put "Prefers no code comments unless asked." --kind preference
 | `--json` | the raw result instead of the readable summary |
 
 **You are asking, not doing.** You do not hold the memory store and cannot reach
-it. Each command posts your request to your host, which shows the user an
-approval card and — only if they approve — performs the operation itself. Three
-outcomes, all of which you must handle:
+it. Each command posts your request to your host, which performs the operation
+itself only once the user has approved it — on a card raised now, or by a
+standing grant they gave earlier. Three outcomes, all of which you must handle:
 
 - **Approved** — the records, or the stored result, print on stdout.
 - **Denied** — a line beginning `denied:` prints on stdout and the command

@@ -8,6 +8,7 @@ const publicRecord = (record) => ({
   result: record.result || null,
   error: record.error || null,
   truncated_edges: record.truncated_edges || null,
+  memory: record.memory || null,
 });
 
 const aggregateTokens = (records) => {
@@ -23,7 +24,7 @@ const aggregateTokens = (records) => {
   return tokens;
 };
 
-export const createGraphResult = ({ graphId, output, records, startedAt, startMs, endedAt = null, now = Date.now() }) => {
+export const createGraphResult = ({ graphId, output, records, memoryCycle = null, startedAt, startMs, endedAt = null, now = Date.now() }) => {
   const values = Object.values(records);
   const outputRecord = records[output];
   return {
@@ -43,6 +44,7 @@ export const createGraphResult = ({ graphId, output, records, startedAt, startMs
     started_at: startedAt,
     ended_at: endedAt,
     duration_ms: endedAt ? now - startMs : null,
+    memory_cycle: memoryCycle,
     nodes: Object.fromEntries(values.map((record) => [record.id, publicRecord(record)])),
   };
 };

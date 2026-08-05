@@ -14,6 +14,7 @@ import path from "node:path";
 import { kitDir } from "./config.js";
 import { writeJsonAtomic } from "./persistence.js";
 import { resolveRuntime } from "./runtime.js";
+import { createSqliteMemoryStore, sqliteMemoryFilePath } from "./sqlite-memory.js";
 import { canonicalJson, normalizeJsonValue } from "./structured-data.js";
 
 export const MEMORY_SCHEMA_VERSION = 1;
@@ -35,24 +36,33 @@ const optionalString = (value, label, maxLength = 500) => {
   return requiredString(value, label, maxLength);
 };
 
-const normalizeScope = (scope, label = "memory scope") => {
+export const normalizeMemoryScope = (scope, label = "memory scope") => {
   if (!scope || typeof scope !== "object" || Array.isArray(scope)) throw new Error(`${label} must be an object`);
-  const unexpected = Object.keys(scope).filter((key) => !["project", "catalog", "conversation"].includes(key));
+  const unexpected = Object.keys(scope).filter((key) => !["project", "catalog", "conversation", "namespace"].includes(key));
   if (unexpected.length) throw new Error(`${label}.${unexpected[0]} is not allowed`);
   return Object.freeze({
     project: requiredString(scope.project, `${label}.project`, 500),
     catalog: optionalString(scope.catalog, `${label}.catalog`, 200),
     conversation: optionalString(scope.conversation, `${label}.conversation`, 500),
+    namespace: optionalString(scope.namespace, `${label}.namespace`, 500),
   });
 };
 
 const sameScope = (left, right) =>
-  left.project === right.project && left.catalog === right.catalog && left.conversation === right.conversation;
+  left.project === right.project && left.catalog === right.catalog && left.conversation === right.conversation &&
+  left.namespace === right.namespace;
 
 const scopeCanRead = (request, record) =>
   request.project === record.project &&
   (record.catalog === null || request.catalog === record.catalog) &&
-  (record.conversation === null || request.conversation === record.conversation);
+  (record.conversation === null || request.conversation === record.conversation) &&
+  (record.namespace === null || request.namespace === record.namespace);
+
+const scopeCanInspect = (request, record) =>
+  request.project === record.project &&
+  (request.catalog === null || request.catalog === record.catalog) &&
+  (request.conversation === null || request.conversation === record.conversation) &&
+  (request.namespace === null || request.namespace === record.namespace);
 
 const normalizeTimestamp = (value, label) => {
   if (value === undefined || value === null || value === "") return null;
@@ -78,7 +88,7 @@ const normalizeSource = (source = {}) => {
   });
 };
 
-const normalizeMemoryInput = (input) => {
+export const normalizeMemoryInput = (input) => {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("memory record must be an object");
   const unexpected = Object.keys(input).filter((key) => ![
     "kind",
@@ -107,11 +117,22 @@ const normalizeMemoryInput = (input) => {
   });
 };
 
-const contentHash = (scope, record) => createHash("sha256").update(canonicalJson({
+export const memoryContentHash = (scope, record) => createHash("sha256").update(canonicalJson({
   scope,
   kind: record.kind,
   content: record.content,
 })).digest("hex");
+
+export const memoryRecordLogicalBytes = (scope, record) => Buffer.byteLength(canonicalJson({
+  scope,
+  kind: record.kind,
+  content: record.content,
+  tags: record.tags,
+  source: record.source,
+  confidence: record.confidence,
+  expiresAt: record.expiresAt,
+  metadata: record.metadata,
+}), "utf8");
 
 const emptyDocument = (projectId) => ({
   schema_version: MEMORY_SCHEMA_VERSION,
@@ -133,12 +154,16 @@ const validateDocument = (document, projectId) => {
   if (document.records.some((record) => record?.scope?.project !== projectId)) {
     throw new Error("memory store contains a record from another project scope");
   }
+  for (const record of document.records) {
+    record.scope.namespace ??= null;
+    record.logicalBytes ??= memoryRecordLogicalBytes(record.scope, record);
+  }
   return document;
 };
 
-const tokenize = (value) => [...new Set(String(value).toLocaleLowerCase().match(/[\p{L}\p{N}_-]+/gu) || [])];
+export const tokenizeMemoryQuery = (value) => [...new Set(String(value).toLocaleLowerCase().match(/[\p{L}\p{N}_-]+/gu) || [])];
 
-const searchScore = (record, query, terms) => {
+export const scoreMemorySearchResult = (record, query, terms) => {
   const content = record.content.toLocaleLowerCase();
   const tags = record.tags.map((tag) => tag.toLocaleLowerCase());
   const kind = record.kind.toLocaleLowerCase();
@@ -171,14 +196,26 @@ export const createFileMemoryStore = ({
   runtime: runtimeOverride,
   lockTimeoutMs = 5000,
   staleLockMs = 30000,
+  quotaBytes = null,
+  namespaceQuotaBytes = {},
 } = {}) => {
   if (typeof file !== "string" || !path.isAbsolute(file)) throw new Error("memory store requires an absolute file path");
   const normalizedProjectId = requiredString(projectId, "memory store projectId", 500);
   const runtime = resolveRuntime(runtimeOverride);
+  if (quotaBytes !== null && (!Number.isInteger(quotaBytes) || quotaBytes < 1)) {
+    throw new Error("memory store quotaBytes must be a positive integer or null");
+  }
+  if (!namespaceQuotaBytes || typeof namespaceQuotaBytes !== "object" || Array.isArray(namespaceQuotaBytes)) {
+    throw new Error("memory store namespaceQuotaBytes must be an object");
+  }
+  for (const [namespace, quota] of Object.entries(namespaceQuotaBytes)) {
+    requiredString(namespace, "memory namespace quota key", 500);
+    if (!Number.isInteger(quota) || quota < 1) throw new Error("memory namespace quotas must be positive integers");
+  }
   const lockFile = `${file}.lock`;
   let writeQueue = Promise.resolve();
   const normalizeStoreScope = (scope) => {
-    const normalized = normalizeScope(scope);
+    const normalized = normalizeMemoryScope(scope);
     if (normalized.project !== normalizedProjectId) {
       throw new Error(`memory scope project must match store project: ${normalizedProjectId}`);
     }
@@ -226,6 +263,16 @@ export const createFileMemoryStore = ({
       try {
         const document = readDocument();
         const result = await operation(document);
+        const serializedBytes = Buffer.byteLength(JSON.stringify(document, null, 2) + "\n", "utf8");
+        if (quotaBytes !== null && serializedBytes > quotaBytes) {
+          throw new Error(`memory store quota exceeded: ${serializedBytes} > ${quotaBytes} bytes`);
+        }
+        for (const [namespace, quota] of Object.entries(namespaceQuotaBytes)) {
+          const used = document.records
+            .filter((record) => record.scope.namespace === namespace)
+            .reduce((total, record) => total + record.logicalBytes, 0);
+          if (used > quota) throw new Error(`memory namespace quota exceeded for ${namespace}: ${used} > ${quota} bytes`);
+        }
         writeJsonAtomic(file, document, { mode: 0o600 });
         chmodSync(file, 0o600);
         return clone(result);
@@ -256,24 +303,78 @@ export const createFileMemoryStore = ({
     const kinds = options.kinds || [];
     if (!Array.isArray(kinds) || kinds.some((kind) => !memoryKinds.has(kind))) throw new Error("memory search kinds are invalid");
     const requiredTags = normalizeTags(options.tags || []).map((tag) => tag.toLocaleLowerCase());
-    const terms = tokenize(normalizedQuery);
+    const terms = tokenizeMemoryQuery(normalizedQuery);
     const now = runtime.now();
     return readDocument().records
       .filter((record) => scopeCanRead(normalizedScope, record.scope))
       .filter((record) => !record.expiresAt || Date.parse(record.expiresAt) > now)
       .filter((record) => kinds.length === 0 || kinds.includes(record.kind))
       .filter((record) => requiredTags.every((tag) => record.tags.some((candidate) => candidate.toLocaleLowerCase() === tag)))
-      .map((record) => ({ record, ...searchScore(record, normalizedQuery, terms) }))
+      .map((record) => ({ record, ...scoreMemorySearchResult(record, normalizedQuery, terms) }))
       .filter((result) => result.score > 0)
       .sort((left, right) => right.score - left.score || right.record.updatedAt.localeCompare(left.record.updatedAt) || left.record.id.localeCompare(right.record.id))
       .slice(0, limit)
       .map(clone);
   };
 
+  const list = async (scope, options = {}) => {
+    const normalizedScope = normalizeStoreScope(scope);
+    const limit = options.limit === undefined ? 100 : Number(options.limit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+      throw new Error("memory list limit must be an integer from 1 to 1000");
+    }
+    const includeExpired = options.includeExpired === true;
+    const now = runtime.now();
+    return readDocument().records
+      .filter((record) => scopeCanInspect(normalizedScope, record.scope))
+      .filter((record) => includeExpired || !record.expiresAt || Date.parse(record.expiresAt) > now)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id))
+      .slice(0, limit)
+      .map(clone);
+  };
+
+  const stats = async (scope) => {
+    const normalizedScope = normalizeStoreScope(scope);
+    const document = readDocument();
+    const now = runtime.now();
+    const visible = document.records.filter((record) => scopeCanInspect(normalizedScope, record.scope));
+    const active = visible.filter((record) => !record.expiresAt || Date.parse(record.expiresAt) > now);
+    const byNamespace = {};
+    for (const record of visible) {
+      const namespace = record.scope.namespace || "default";
+      const entry = byNamespace[namespace] ||= { records: 0, activeRecords: 0, logicalBytes: 0 };
+      entry.records += 1;
+      entry.logicalBytes += record.logicalBytes;
+      if (!record.expiresAt || Date.parse(record.expiresAt) > now) entry.activeRecords += 1;
+    }
+    let physicalBytes = 0;
+    try {
+      physicalBytes = statSync(file).size;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    const logicalBytes = visible.reduce((total, record) => total + record.logicalBytes, 0);
+    return clone({
+      physicalBytes,
+      // Every write rewrites the whole document, so the file holds exactly the live
+      // records and there is never slack to reclaim. Both fields are reported anyway
+      // so a caller can read storage the same way whichever backend is underneath.
+      fileBytes: physicalBytes,
+      reclaimableBytes: 0,
+      logicalBytes,
+      recordCount: visible.length,
+      activeRecordCount: active.length,
+      expiredRecordCount: visible.length - active.length,
+      quotaBytes,
+      quotaRatio: quotaBytes === null ? null : physicalBytes / quotaBytes,
+      byNamespace,
+    });
+  };
+
   const putInDocument = (document, input, scope) => {
     const normalizedScope = normalizeStoreScope(scope);
     const normalized = normalizeMemoryInput(input);
-    const hash = contentHash(normalizedScope, normalized);
+    const hash = memoryContentHash(normalizedScope, normalized);
     const duplicate = document.records.find((record) =>
       record.contentHash === hash &&
       sameScope(record.scope, normalizedScope) &&
@@ -288,6 +389,7 @@ export const createFileMemoryStore = ({
       scope: normalizedScope,
       ...normalized,
       contentHash: hash,
+      logicalBytes: memoryRecordLogicalBytes(normalizedScope, normalized),
       version: 1,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -319,7 +421,8 @@ export const createFileMemoryStore = ({
     const updated = {
       ...current,
       ...normalized,
-      contentHash: contentHash(normalizedScope, normalized),
+      contentHash: memoryContentHash(normalizedScope, normalized),
+      logicalBytes: memoryRecordLogicalBytes(normalizedScope, normalized),
       version: current.version + 1,
       updatedAt: new Date(runtime.now()).toISOString(),
     };
@@ -359,6 +462,19 @@ export const createFileMemoryStore = ({
     }));
   };
 
+  // Part of the store contract so callers never have to branch on the backend.
+  // Rewriting the document is what every write already does, so there is nothing
+  // left to reclaim and this deliberately touches no records.
+  const compact = async () => {
+    let physicalBytes = 0;
+    try {
+      physicalBytes = statSync(file).size;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    return clone({ physicalBytes, fileBytes: physicalBytes, reclaimableBytes: 0, reclaimedBytes: 0 });
+  };
+
   const put = async (input, scope) => (await apply([{ operation: "put", record: input, scope }]))[0];
   const update = async (id, patch, scope, options = {}) =>
     (await apply([{ operation: "update", id, patch, scope, expectedVersion: options.expectedVersion }]))[0];
@@ -368,17 +484,34 @@ export const createFileMemoryStore = ({
   return Object.freeze({
     file,
     projectId: normalizedProjectId,
+    backend: "json",
     get,
     search,
+    list,
+    stats,
     put,
     update,
     delete: remove,
     apply,
+    compact,
   });
 };
 
-export const createProjectMemoryStore = (root, options = {}) => createFileMemoryStore({
-  ...options,
-  file: options.file || memoryFilePath(root),
-  projectId: options.projectId || path.basename(path.resolve(root)),
-});
+export const createProjectMemoryStore = (root, options = {}) => {
+  const projectId = options.projectId || path.basename(path.resolve(root));
+  if (options.backend === "sqlite") {
+    return createSqliteMemoryStore({
+      ...options,
+      file: options.file || sqliteMemoryFilePath(root),
+      projectId,
+    });
+  }
+  if (options.backend !== undefined && options.backend !== "json") {
+    throw new Error("memory store backend must be json or sqlite");
+  }
+  return createFileMemoryStore({
+    ...options,
+    file: options.file || memoryFilePath(root),
+    projectId,
+  });
+};

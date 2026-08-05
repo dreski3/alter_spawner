@@ -36,6 +36,7 @@ reasons. You decide when to touch it; nothing reads or writes it on your behalf.
 ```bash
 mind memory search "<what you are trying to recall>"   # before assuming, or when history would help
 mind memory put "<one durable fact>" --kind preference # after learning something that will matter again
+mind memory stats                                      # inspect storage consumption and namespace totals
 ```
 
 You are asking, not doing: every call goes to your host, which asks the user to

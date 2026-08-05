@@ -215,6 +215,10 @@ export type AlterGraphNode = {
   promptSuffix?: string;
   opencodeProvider?: Record<string, unknown>;
   outputContract?: OutputContract;
+  memory?: {
+    recall?: boolean | { namespace?: string; query?: string };
+    curate?: boolean | { namespace?: string };
+  };
 };
 
 export function validateOutputContract(contract: OutputContract | null, label?: string): void;
@@ -226,8 +230,20 @@ export function checkOutputContract(
 export type AlterGraph = {
   id?: string;
   output?: string;
+  max_edge_chars?: number | null;
   nodes: AlterGraphNode[];
 };
+
+export type GraphMemoryRuntime = {
+  scope: MemoryScope;
+  recallApprovals?: Pick<CapabilityApprovalSession, "execute">;
+  curateApprovals?: Pick<CapabilityApprovalSession, "execute">;
+  recall?: typeof runMemoryRecall;
+  curate?: typeof runMemoryCurator;
+};
+
+/** Why an Alter run failed, in one actionable sentence. Reports a token-budget overrun ahead of any contract failure it caused. */
+export function describeAlterFailure(result: AlterResult | AlterResponse): string;
 
 export function runAlterGraph(
   root: string,
@@ -238,6 +254,9 @@ export function runAlterGraph(
     concurrency?: number;
     mindBinPath?: string;
     runtime?: Runtime;
+    onProgress?: (result: Record<string, unknown>) => void;
+    onEvent?: (event: AlterRuntimeEvent & { node: string; memory?: "recall" | "curate" }) => void;
+    memory?: GraphMemoryRuntime | null;
   },
 ): Promise<{ home: string; result: Record<string, unknown> }>;
 
@@ -403,6 +422,7 @@ export type MemoryScope = {
   project: string;
   catalog?: string | null;
   conversation?: string | null;
+  namespace?: string | null;
 };
 
 export type MemorySource = {
@@ -427,6 +447,7 @@ export type MemoryRecord = Required<Omit<MemoryInput, "source" | "metadata">> & 
   source: Required<MemorySource>;
   metadata: Record<string, JsonValue>;
   contentHash: string;
+  logicalBytes: number;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -446,16 +467,43 @@ export type MemoryMutation =
 export type MemoryStore = {
   file: string;
   projectId: string;
+  backend?: "json" | "sqlite";
   get(id: string, scope: MemoryScope): Promise<MemoryRecord | null>;
   search(query: string, scope: MemoryScope, options?: {
     limit?: number;
     kinds?: MemoryKind[];
     tags?: string[];
   }): Promise<MemorySearchResult[]>;
+  list(scope: MemoryScope, options?: { limit?: number; includeExpired?: boolean }): Promise<MemoryRecord[]>;
+  stats(scope: MemoryScope): Promise<MemoryStorageStats>;
   put(input: MemoryInput, scope: MemoryScope): Promise<MemoryRecord>;
   update(id: string, patch: Partial<MemoryInput>, scope: MemoryScope, options?: { expectedVersion?: number }): Promise<MemoryRecord>;
   delete(id: string, scope: MemoryScope, options?: { expectedVersion?: number }): Promise<MemoryRecord>;
   apply(mutations: MemoryMutation[]): Promise<MemoryRecord[]>;
+  /** Reclaims unused storage store-wide. Never adds, changes, or removes a record. */
+  compact(): Promise<MemoryCompactionResult>;
+};
+
+export type MemoryNamespaceStats = {
+  records: number;
+  activeRecords: number;
+  logicalBytes: number;
+};
+
+export type MemoryStorageStats = {
+  /** Bytes of live stored data. Falls when records are removed. */
+  physicalBytes: number;
+  /** Raw bytes on disk, including space the backend has not returned yet. */
+  fileBytes: number;
+  /** fileBytes - physicalBytes: what compact() would reclaim. Always 0 for JSON. */
+  reclaimableBytes: number;
+  logicalBytes: number;
+  recordCount: number;
+  activeRecordCount: number;
+  expiredRecordCount: number;
+  quotaBytes: number | null;
+  quotaRatio: number | null;
+  byNamespace: Record<string, MemoryNamespaceStats>;
 };
 
 export const MEMORY_SCHEMA_VERSION: number;
@@ -467,27 +515,109 @@ export function createFileMemoryStore(options: {
   runtime?: Runtime;
   lockTimeoutMs?: number;
   staleLockMs?: number;
+  quotaBytes?: number | null;
+  namespaceQuotaBytes?: Record<string, number>;
 }): MemoryStore;
+export function createProjectMemoryStore(root: string, options: {
+  backend: "sqlite";
+  file?: string;
+  projectId?: string;
+  runtime?: Runtime;
+  quotaBytes?: number | null;
+  namespaceQuotaBytes?: Record<string, number>;
+  busyTimeoutMs?: number;
+  journalSizeLimitBytes?: number;
+}): SqliteMemoryStore;
 export function createProjectMemoryStore(root: string, options?: {
+  backend?: "json" | "sqlite";
   file?: string;
   projectId?: string;
   runtime?: Runtime;
   lockTimeoutMs?: number;
   staleLockMs?: number;
+  quotaBytes?: number | null;
+  namespaceQuotaBytes?: Record<string, number>;
+  busyTimeoutMs?: number;
+  journalSizeLimitBytes?: number;
 }): MemoryStore;
 
+export type MemoryCompactionResult = {
+  physicalBytes: number;
+  fileBytes: number;
+  reclaimableBytes: number;
+  reclaimedBytes: number;
+};
+
+export type SqliteMemoryStore = MemoryStore & {
+  backend: "sqlite";
+  importRecords(records: MemoryRecord[]): Promise<{ imported: number; skipped: number; total: number }>;
+  close(): void;
+};
+
+export const SQLITE_MEMORY_SCHEMA_VERSION: number;
+export function sqliteMemoryFilePath(root: string): string;
+export function createSqliteMemoryStore(options: {
+  file: string;
+  projectId: string;
+  runtime?: Runtime;
+  quotaBytes?: number | null;
+  namespaceQuotaBytes?: Record<string, number>;
+  busyTimeoutMs?: number;
+  journalSizeLimitBytes?: number;
+}): SqliteMemoryStore;
+export function migrateFileMemoryStoreToSqlite(options: {
+  sourceFile: string;
+  destinationFile: string;
+  projectId?: string;
+  runtime?: Runtime;
+  quotaBytes?: number | null;
+  namespaceQuotaBytes?: Record<string, number>;
+  busyTimeoutMs?: number;
+  journalSizeLimitBytes?: number;
+}): Promise<{
+  imported: number;
+  skipped: number;
+  total: number;
+  sourceFile: string;
+  destinationFile: string;
+  projectId: string;
+  storage: MemoryCompactionResult;
+}>;
+
 export const DEFAULT_MEMORY_CATALOG_CAPABILITIES: Readonly<Record<string, readonly string[]>>;
-export function createMemoryCapabilityDefinitions(options: { store: MemoryStore }): CapabilityDefinition[];
+
+/** The memory capabilities that mutate the store, and the only ones `grantable` accepts. */
+export const MEMORY_MUTATION_CAPABILITIES: readonly string[];
+
+/**
+ * Memory mutations default to one-shot approval: `allow-once` or `deny`, so every
+ * commit raises its own card. `grantable` widens the named mutations to accept
+ * `allow-run` and `always-catalog` as well, which is what lets an unattended curate or
+ * maintain cycle be approved once instead of once per pass. `true` means every
+ * mutation. Reads are unaffected — they already accept every decision.
+ */
+export type MemoryCapabilityGrantable = boolean | string[];
+
+export function createMemoryCapabilityDefinitions(options: {
+  store: MemoryStore;
+  grantable?: MemoryCapabilityGrantable;
+}): CapabilityDefinition[];
 export function createMemoryCapabilityRegistry(options: {
   store: MemoryStore;
   catalogCapabilities?: Record<string, string[]>;
+  grantable?: MemoryCapabilityGrantable;
 }): CapabilityRegistry;
 
 export function formatMemoryContext(results: MemorySearchResult[]): string;
+export type MemoryRecallPlan = { query: string; limit?: number; kinds?: MemoryKind[]; tags?: string[] };
+
 export function runMemoryRecall(root: string, options: {
-  prompt: string;
+  /** Required unless `plan` is supplied: the request the planner Alter turns into a query. */
+  prompt?: string;
   scope: MemoryScope;
   approvals: Pick<CapabilityApprovalSession, "execute">;
+  /** A ready plan. Skips the planner Alter; validated against the same schema. */
+  plan?: MemoryRecallPlan | null;
   catalog?: string;
   name?: string | null;
   model?: string | null;
@@ -499,11 +629,12 @@ export function runMemoryRecall(root: string, options: {
   harness?: string;
   spawn?: typeof spawnAlter;
 }): Promise<{
-  plan: { query: string; limit?: number; kinds?: MemoryKind[]; tags?: string[] };
+  plan: MemoryRecallPlan;
   results: MemorySearchResult[];
   context: string;
-  plannerHome: string;
-  plannerResult: AlterResult;
+  /** Null when a caller supplied the plan, because no planner Alter ran. */
+  plannerHome: string | null;
+  plannerResult: AlterResult | null;
 }>;
 export function runMemoryCurator(root: string, options: {
   content: string;
@@ -525,6 +656,52 @@ export function runMemoryCurator(root: string, options: {
   records: MemoryRecord[];
   curatorHome: string;
   curatorResult: AlterResult;
+}>;
+
+export type MemoryMaintenanceOperation =
+  | { operation: "put"; record: MemoryInput }
+  | { operation: "update"; id: string; patch: Partial<MemoryInput>; expectedVersion?: number }
+  | { operation: "delete"; id: string; expectedVersion?: number };
+
+export function buildMemoryMaintenanceGraph(options: {
+  id?: string;
+  scope: MemoryScope;
+  limit?: number;
+  includeExpired?: boolean;
+  allowDeletes?: boolean;
+  catalog?: string;
+  model?: string | null;
+  maxTokens?: number;
+}): AlterGraph;
+
+export function runMemoryMaintenanceGraph(root: string, options: {
+  scope: MemoryScope;
+  approvals?: Pick<CapabilityApprovalSession, "execute">;
+  allowDeletes?: boolean;
+  /** Request store-wide compaction after a committed plan that could free space. Default true. */
+  compact?: boolean;
+  graph?: {
+    id?: string;
+    limit?: number;
+    includeExpired?: boolean;
+    catalog?: string;
+    model?: string | null;
+    maxTokens?: number;
+  };
+  harness?: string | null;
+  signal?: AbortSignal;
+  mindBinPath?: string | null;
+  runtime?: Runtime;
+  onProgress?: (result: Record<string, unknown>) => void;
+  onEvent?: (event: AlterRuntimeEvent) => void;
+}): Promise<{
+  home: string;
+  result: Record<string, unknown>;
+  plan: MemoryMaintenanceOperation[] | null;
+  committed: boolean;
+  records: MemoryRecord[];
+  /** Null when compaction was not attempted, not needed, or declined. */
+  storage: MemoryCompactionResult | null;
 }>;
 
 export const CAPABILITY_URL_ENV: "MIND_CAPABILITY_URL";
@@ -565,8 +742,10 @@ export function putMemory(options: MemoryClientOptions & {
   confidence?: number | null;
   expiresAt?: string | null;
 }): Promise<CapabilityOutcome & { records: MemoryRecord[] }>;
+export function inspectMemoryStorage(options?: MemoryClientOptions): Promise<CapabilityOutcome & { stats: MemoryStorageStats | null }>;
 export function formatSearchOutcome(outcome: { decision: string; results: MemorySearchResult[] }): string;
 export function formatPutOutcome(outcome: { decision: string; records: MemoryRecord[] }): string;
+export function formatStorageOutcome(outcome: { decision: string; stats: MemoryStorageStats | null }): string;
 
 export class CapabilityDeniedError extends Error {
   capabilityId: string;

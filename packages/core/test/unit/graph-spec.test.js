@@ -35,3 +35,24 @@ test("graph nodes map to the canonical spawn contract", () => {
   assert.equal(options.spawned_by, "graph:g1");
   assert.equal(options.mindBinPath, "/mind");
 });
+
+test("graph memory hooks normalize recall and curation declarations", () => {
+  const validated = validateGraph({
+    nodes: [{
+      id: "worker",
+      prompt: "work",
+      memory: {
+        recall: { namespace: " architecture ", query: " prior decisions " },
+        curate: true,
+      },
+    }],
+  });
+  assert.deepEqual(validated.nodes.get("worker").memory, {
+    recall: { namespace: "architecture", query: "prior decisions" },
+    curate: {},
+  });
+  assert.throws(
+    () => validateGraph({ nodes: [{ id: "worker", prompt: "work", memory: { recall: { limit: 5 } } }] }),
+    /limit is not allowed/,
+  );
+});

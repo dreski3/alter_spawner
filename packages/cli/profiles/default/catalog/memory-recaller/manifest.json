@@ -1,12 +1,12 @@
 {
   "name": "memory-recaller",
   "description": "Plans a narrow, scoped persistent-memory search for a user request and returns only a JSON query plan.",
-  "model": null,
-  "fallback_model": null,
+  "model": "cerebras/gpt-oss-120b",
+  "fallback_model": "opencode/big-pickle",
   "max_tokens": 5000,
   "nestable": false,
   "web": false,
-  "timeout_ms": null,
+  "timeout_ms": 60000,
   "read_grants": [],
   "write_grants": [],
   "bash_allow": [],
@@ -16,8 +16,17 @@
   "agents_md_override": null,
   "skills_dir": null,
   "opencode_provider": null,
-  "output_contract": { "type": "json", "trim": true },
-  "source": { "type": "local", "ref": null },
+  "output_contract": {
+    "type": "json",
+    "trim": true
+  },
+  "source": {
+    "type": "local",
+    "ref": null
+  },
   "created_at": "2026-08-03T00:00:00.000Z",
-  "created_from": "native-persistent-memory"
+  "created_from": "native-persistent-memory",
+  "text_only": true,
+  "executor": "llm",
+  "capability": null
 }

@@ -35,7 +35,7 @@ export {
   requirePrincipalProject,
   runPrincipalTurn,
 } from "./principal.js";
-export { runAlterGraph } from "./graph.js";
+export { describeAlterFailure, runAlterGraph } from "./graph.js";
 export { DEFAULT_MAX_EDGE_CHARS, renderGraphPrompt, validateGraph } from "./graph-spec.js";
 export { withFileLock } from "./file-lock.js";
 export {
@@ -90,7 +90,14 @@ export {
   createProjectMemoryStore,
 } from "./memory.js";
 export {
+  SQLITE_MEMORY_SCHEMA_VERSION,
+  sqliteMemoryFilePath,
+  createSqliteMemoryStore,
+  migrateFileMemoryStoreToSqlite,
+} from "./sqlite-memory.js";
+export {
   DEFAULT_MEMORY_CATALOG_CAPABILITIES,
+  MEMORY_MUTATION_CAPABILITIES,
   createMemoryCapabilityDefinitions,
   createMemoryCapabilityRegistry,
 } from "./memory-capabilities.js";
@@ -99,6 +106,10 @@ export {
   runMemoryRecall,
   runMemoryCurator,
 } from "./memory-workflows.js";
+export {
+  buildMemoryMaintenanceGraph,
+  runMemoryMaintenanceGraph,
+} from "./memory-maintenance.js";
 export {
   CAPABILITY_URL_ENV,
   CAPABILITY_TOKEN_ENV,
@@ -111,6 +122,8 @@ export {
 export {
   searchMemory,
   putMemory,
+  inspectMemoryStorage,
   formatSearchOutcome,
   formatPutOutcome,
+  formatStorageOutcome,
 } from "./memory-client.js";

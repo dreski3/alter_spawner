@@ -13,6 +13,6 @@
     "pack:check": "npm pack --dry-run --json --cache .npm-cache --workspace packages/core && npm pack --dry-run --json --cache .npm-cache --workspace packages/cli"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13.0"
   }
 }

@@ -28,6 +28,8 @@ const usage = () => {
   console.error("  rm      <id>          (delete a home)");
   console.error("  memory  search <query> [--limit <n>] [--kind <k>]*    (ask the host to search persistent memory)");
   console.error("  memory  put <content> [--kind <k>] [--tag <t>]*       (ask the host to store a durable record)");
+  console.error("  memory  stats                                           (inspect persistent-memory storage)");
+  console.error("  memory  migrate --to sqlite                            (copy JSON memory into SQLite/FTS)");
   console.error("  catalog list                            (list predefined harnesses)");
   console.error("  catalog show <name>                     (print a harness manifest.json)");
   console.error("  catalog save <name> --from <id> | ...spawn flags   (add/update a harness)");

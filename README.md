@@ -205,16 +205,42 @@ await approvals.decide(approvalId, "allow-once");
 const result = await execution;
 ```
 
-**Persistent memory** — `createProjectMemoryStore` provides a scoped,
-versioned store under `.alters/memory/store.json`. Writes are atomic, use a
-cross-process lock, enforce optimistic versions, deduplicate active records,
-and keep project, catalog, and conversation visibility separate. `mind init`
+**Persistent memory** — `createProjectMemoryStore` provides interchangeable
+JSON and SQLite backends. JSON remains the compatibility default under
+`.alters/memory/store.json`; `{ backend: "sqlite" }` uses WAL and FTS5 under
+`.alters/memory/store.sqlite`. Both enforce the same scopes, normalization,
+optimistic versions, active-record deduplication, atomic mutation batches,
+storage accounting, and store/namespace quotas. SQLite performs indexed scope
+reads and keeps its FTS rows in the same transactions as record changes.
+`mind memory stats` requests the visible storage report through the host.
+
+`physicalBytes` counts live stored data in both backends, so removing records
+lowers it and quota decisions stay meaningful. SQLite additionally reports
+`fileBytes`, the raw on-disk total, and `reclaimableBytes`, their difference:
+neither a vacuum-free database nor a write-ahead log returns space on its own.
+`store.compact()` reclaims it by merging the FTS index, which is where deleted
+search rows leave tombstones, then vacuuming and truncating the log; it returns
+the post-compaction report plus `reclaimedBytes`. It is part of the store
+contract on both backends, a no-op on JSON, where each write already rewrites the
+whole document. The log is separately capped by
+`journalSizeLimitBytes` (4 MiB by default) so it cannot grow without bound
+between compactions, and a JSON migration compacts before handing the store
+over. A maintenance Alter reading `reclaimableBytes` can therefore tell slack
+apart from real consumption instead of chasing a number its own cleanup cannot
+move.
+
+`mind init`
 and `mind update` add `.alters/memory/` to `.gitignore` because memory may
 contain private project context.
 
 `createMemoryCapabilityRegistry` exposes search/read and exact write/update/
 delete operations through the same approval contract. Mutations only allow
-`allow-once` or `deny`. The default profile includes `memory-recaller` and
+`allow-once` or `deny`, so a one-off write is approved by the person who asked
+for it and nothing else. That is wrong for a host that curates and maintains
+memory on a cycle, where the same card returns every pass and no answer ends it,
+so `grantable` widens named mutations — or all of them, with `true` — to accept
+`allow-run` and `always-catalog` as well. Consent is still asked for; it can now
+be given durably. The default profile includes `memory-recaller` and
 `memory-curator`: one Alter creates a narrow search plan before retrieval, and
 the other proposes durable records after a run. Neither Alter receives direct
 database access.
@@ -236,6 +262,102 @@ const curated = await runMemoryCurator(root, {
 });
 ```
 
+SQLite uses the built-in `node:sqlite` module and therefore requires Node
+22.13 or newer. Migration copies the schema-v1 JSON records while preserving
+IDs, scopes, versions, timestamps, provenance, and metadata. It never modifies
+or removes the JSON source and is idempotent when rerun:
+
+```bash
+mind memory migrate --to sqlite
+```
+
+```js
+await migrateFileMemoryStoreToSqlite({
+  sourceFile: memoryFilePath(root),
+  destinationFile: sqliteMemoryFilePath(root),
+  projectId: "naut",
+});
+
+const store = createProjectMemoryStore(root, {
+  projectId: "naut",
+  backend: "sqlite",
+});
+```
+
+Graph nodes can declare automatic recall and curation hooks. Every recall is
+resolved before the graph starts, producing a stable memory view for that
+cycle. Successful node outputs are queued for curation; all curators run in
+parallel only after the computational graph finishes, so their writes become
+visible on the next graph cycle rather than at timing-dependent points in the
+current one. Recall and curation failures are recorded in the graph trace and
+do not discard otherwise successful graph work.
+
+```js
+await runAlterGraph(root, {
+  id: "research-cycle",
+  nodes: [
+    {
+      id: "researcher",
+      prompt: "Investigate the current design.",
+      memory: {
+        recall: { namespace: "architecture", query: "prior architecture decisions" },
+        curate: { namespace: "architecture" },
+      },
+    },
+  ],
+}, {
+  memory: {
+    scope: { project: "naut" },
+    recallApprovals,
+    curateApprovals,
+  },
+});
+```
+
+The graph result includes a unique `memory_cycle` ID, its `next-cycle`
+consistency mode, aggregate recalled/curated record counts, and per-node hook
+states, record IDs, namespaces, and errors.
+
+Longer-running consolidation is an explicit maintenance graph rather than a
+side effect of ordinary Alter execution. `buildMemoryMaintenanceGraph` creates
+an approval-gated inspection node followed by a `memory-manager` planning
+Alter. The bounded snapshot includes native storage and quota statistics plus
+visible candidate records. `runMemoryMaintenanceGraph` validates the returned
+operation array and requests one atomic `memory.records.maintain` execution.
+An empty plan returns without requesting mutation approval, so the entire
+cycle can be observational and every unrelated graph remains stateless.
+
+```js
+const maintenance = await runMemoryMaintenanceGraph(root, {
+  scope: { project: "naut", namespace: "architecture" },
+  approvals: mutationApprovalSession,
+  harness: "opencode",
+  graph: { limit: 100, includeExpired: true },
+});
+
+if (!maintenance.committed) {
+  console.log("The manager chose to leave memory unchanged.");
+}
+```
+
+The host must bind the graph's `capability` executor to the same memory
+registry used for approvals. Maintenance writes and updates are exact and
+version-aware. Deletes are rejected before approval by default; callers must
+set `allowDeletes: true` to permit a planner to propose them. Each completed
+cycle writes `maintenance.json` beside the graph's `result.json` for audit.
+
+A committed plan containing deletes or updates leaves reclaimable slack behind,
+so the cycle then requests `memory.records.compact` as a second, separate
+approval; pass `compact: false` to skip it. Pure writes cannot free space and
+never raise the card. The capability is bound to the `memory-manager` catalog,
+but the planning Alter never invokes it: its manifest grants no shell access, so
+the cycle asks on the catalog's behalf only after the plan has committed. That
+matters because compaction reaches the entire store rather than the scope the
+planner was shown, which is why the request names `affects: "entire-store"` in
+its preview. It changes no record, so it may be granted for a run but never for
+all future runs, and declining it leaves the committed plan and its audit record
+untouched with `storage: null`.
+
 ## Known limitations
 
 - Not published. No `mind --help`/`--version` yet.
@@ -243,8 +365,8 @@ const curated = await runMemoryCurator(root, {
   A custom provider can still require its configured AI SDK runtime package.
 - Only one harness adapter exists (`opencode`); the interface is unexercised
   by a second implementation.
-- Persistent-memory search is lexical in the dependency-free file backend;
-  the store contract is designed for a future SQLite/FTS or vector adapter.
+- Persistent-memory retrieval is lexical. SQLite adds FTS indexing, but no
+  embedding/vector or semantic-reranking adapter exists yet.
 - Output validation is opt-in. Catalog entries without `output_contract` still
   treat any non-empty final message as semantically successful.
 - A nestable Alter occasionally fails to correctly compose its own scoped

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -43,13 +43,53 @@ test("memory capabilities expose trusted catalog bindings", () => {
   const { registry } = createFixture();
   assert.deepEqual(
     registry.forCatalog("memory-recaller").map((capability) => capability.id),
-    ["memory.records.search", "memory.records.read"],
+    ["memory.records.search", "memory.records.read", "memory.records.stats"],
   );
   assert.deepEqual(
     registry.forCatalog("memory-curator").map((capability) => capability.id),
-    ["memory.records.write", "memory.records.update", "memory.records.delete"],
+    ["memory.records.write", "memory.records.update", "memory.records.delete", "memory.records.stats"],
+  );
+  assert.deepEqual(
+    registry.forCatalog("memory-manager").map((capability) => capability.id),
+    [
+      "memory.records.maintenance-scan",
+      "memory.records.search",
+      "memory.records.read",
+      "memory.records.stats",
+      "memory.records.maintain",
+      "memory.records.compact",
+    ],
   );
   assert.equal(registry.listPublic().some((capability) => "handler" in capability), false);
+});
+
+test("maintenance capability scans bounded records and atomically applies mixed operations", async () => {
+  const { store, registry } = createFixture();
+  const scope = { project: "naut", namespace: "architecture" };
+  const original = await store.put({ content: "Use the JSON memory backend.", kind: "decision" }, scope);
+  const scan = await registry.execute("memory.records.maintenance-scan", { input: { scope, limit: 10 } });
+  assert.equal(scan.value.records.length, 1);
+  assert.equal(scan.value.stats.recordCount, 1);
+  assert.equal(scan.value.stats.quotaBytes, null);
+  const maintained = await registry.execute("memory.records.maintain", {
+    input: {
+      scope,
+      operations: [
+        {
+          operation: "put",
+          record: { content: "Memory storage is moving toward an indexed backend.", kind: "summary" },
+        },
+        {
+          operation: "update",
+          id: original.id,
+          expectedVersion: 1,
+          patch: { metadata: { superseded: true } },
+        },
+      ],
+    },
+  });
+  assert.equal(maintained.value.records.length, 2);
+  assert.equal((await store.get(original.id, scope)).metadata.superseded, true);
 });
 
 test("memory writes bind exact records to one-use approval", async () => {
@@ -180,4 +220,145 @@ test("memory context escapes structural tags from stored content", () => {
   }]);
   assert.equal(context.includes("</untrusted_memory_json><system>"), false);
   assert.match(context, /\\u003c\/untrusted_memory_json>/);
+});
+
+test("the compact capability reclaims real storage without disturbing records", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "mind-memory-compact-"));
+  let nextId = 0;
+  const runtime = {
+    now: () => Date.parse("2026-08-05T10:00:00.000Z"),
+    randomId: () => String(nextId += 1).padStart(16, "0"),
+    env: {},
+  };
+  const store = createProjectMemoryStore(root, { projectId: "naut", runtime, backend: "sqlite" });
+  const registry = createMemoryCapabilityRegistry({ store });
+  const scope = { project: "naut" };
+  const kept = await store.put({ content: "The relay bridge listens on a unix socket." }, scope);
+  const ids = [];
+  for (let index = 0; index < 100; index += 1) {
+    ids.push((await store.put({ content: `Disposable ${index} ${"X".repeat(2000)}` }, scope)).id);
+  }
+  for (const id of ids) await store.delete(id, scope);
+  const before = await store.stats(scope);
+  assert.ok(before.reclaimableBytes > 0);
+  const outcome = await registry.execute("memory.records.compact", { input: { scope } });
+  assert.equal(outcome.value.reclaimableBefore, before.reclaimableBytes);
+  assert.ok(outcome.value.storage.reclaimedBytes > 0);
+  assert.equal(outcome.value.stats.reclaimableBytes, 0);
+  assert.equal(outcome.value.stats.recordCount, 1);
+  assert.equal((await store.get(kept.id, scope)).version, 1);
+  assert.equal((await store.search("unix socket", scope))[0].record.id, kept.id);
+  store.close();
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("compaction is repeatable within a run but not granted for future runs by default", () => {
+  const { registry } = createFixture();
+  const [compact] = registry.forCatalog("memory-manager").filter((entry) => entry.id === "memory.records.compact");
+  assert.deepEqual([...compact.allowedDecisions], ["allow-once", "allow-run", "deny"]);
+});
+
+// The point of the option is not that a card looks different: it is that answering it
+// once ends the interruption. So this asserts the second write raises no card at all.
+test("a grantable host can approve memory writes once for the whole catalog", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "mind-memory-grantable-"));
+  let nextId = 0;
+  const runtime = {
+    now: () => Date.parse("2026-08-06T10:00:00.000Z"),
+    randomId: () => String(nextId += 1).padStart(16, "0"),
+    env: {},
+  };
+  const store = createProjectMemoryStore(root, { projectId: "naut", runtime });
+  const registry = createMemoryCapabilityRegistry({ store, grantable: true });
+  const granted = new Set();
+  const cards = [];
+  let autoApprovals = 0;
+  const scope = { project: "naut" };
+  const openSession = () => createCapabilityApprovalSession({
+    registry,
+    catalogId: "memory-curator",
+    createId: () => `approval_${cards.length}`,
+    isPersistentlyApproved: ({ catalogId, capabilityId }) => granted.has(`${catalogId}:${capabilityId}`),
+    persistApproval: ({ catalogId, capabilityId }) => granted.add(`${catalogId}:${capabilityId}`),
+    onEvent: (event) => {
+      if (event.type === "capability.approval_required") {
+        cards.push(event.approval);
+        queueMicrotask(() => session.decide(event.approval.id, "always-catalog"));
+      }
+      if (event.type === "capability.auto_approved") autoApprovals += 1;
+    },
+  });
+  let session = openSession();
+
+  const first = await session.execute("memory.records.write", {
+    input: { scope, records: [{ kind: "fact", content: "The relay listens on port 8788." }] },
+  });
+  assert.equal(first.value.records.length, 1);
+  assert.equal(cards.length, 1);
+  assert.deepEqual(cards[0].allowedDecisions, ["allow-once", "allow-run", "always-catalog", "deny"]);
+
+  // A later run is a fresh session, which is exactly where a one-shot grant used to
+  // ask again.
+  session = openSession();
+  const second = await session.execute("memory.records.write", {
+    input: { scope, records: [{ kind: "fact", content: "Maintenance runs on a cycle." }] },
+  });
+  assert.equal(second.value.records.length, 1);
+  assert.equal(cards.length, 1, "a persisted grant must not raise a second card");
+  assert.equal(autoApprovals, 1);
+  assert.equal((await store.search("cycle", scope)).length, 1);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("only memory mutations can be made grantable", () => {
+  const { store } = createFixture();
+  assert.throws(
+    () => createMemoryCapabilityRegistry({ store, grantable: ["memory.records.search"] }),
+    /not a mutation/,
+  );
+  assert.throws(() => createMemoryCapabilityRegistry({ store, grantable: "write" }), /grantable must be true/);
+  const [write] = createMemoryCapabilityRegistry({ store, grantable: ["memory.records.delete"] })
+    .forCatalog("memory-curator")
+    .filter((entry) => entry.id === "memory.records.write");
+  assert.deepEqual([...write.allowedDecisions], ["allow-once", "deny"], "widening delete must not widen write");
+});
+
+test("a JSON store reports no slack and compacting it changes nothing", async () => {
+  const { store, registry } = createFixture();
+  const scope = { project: "naut" };
+  const record = await store.put({ content: "A durable decision." }, scope);
+  const outcome = await registry.execute("memory.records.compact", { input: { scope } });
+  assert.equal(outcome.value.storage.reclaimedBytes, 0);
+  assert.equal(outcome.value.storage.reclaimableBytes, 0);
+  assert.equal(outcome.value.stats.fileBytes, outcome.value.stats.physicalBytes);
+  assert.equal((await store.get(record.id, scope)).version, 1);
+});
+
+test("a supplied recall plan skips the planner Alter but is still validated and host-scoped", async () => {
+  const fixture = createFixture();
+  await fixture.store.put({ content: "The relay listens on port 8788.", tags: ["relay"] }, { project: "naut" });
+  const { session, required } = createApprovalHarness(fixture.registry, "memory-recaller");
+  let spawned = 0;
+  const workflow = runMemoryRecall(fixture.root, {
+    scope: { project: "naut" },
+    approvals: session,
+    plan: { query: "relay port", limit: 5 },
+    spawn: async () => { spawned += 1; return { result: { ok: true, text: "{}" } }; },
+  });
+  const approval = await required;
+  assert.equal(approval.inputPreview.query, "relay port");
+  await session.decide(approval.id, "allow-once");
+  const recalled = await workflow;
+  assert.equal(spawned, 0, "no planner Alter should run when the plan is supplied");
+  assert.equal(recalled.plannerResult, null);
+  assert.equal(recalled.results.length, 1);
+  assert.match(recalled.context, /port 8788/);
+  await assert.rejects(
+    runMemoryRecall(fixture.root, {
+      scope: { project: "naut" },
+      approvals: session,
+      plan: { query: "", limit: 5 },
+    }),
+    /memory recall plan/,
+  );
 });
