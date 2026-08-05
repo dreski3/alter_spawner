@@ -403,6 +403,7 @@ export type MemoryScope = {
   project: string;
   catalog?: string | null;
   conversation?: string | null;
+  namespace?: string | null;
 };
 
 export type MemorySource = {
@@ -427,6 +428,7 @@ export type MemoryRecord = Required<Omit<MemoryInput, "source" | "metadata">> & 
   source: Required<MemorySource>;
   metadata: Record<string, JsonValue>;
   contentHash: string;
+  logicalBytes: number;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -452,10 +454,28 @@ export type MemoryStore = {
     kinds?: MemoryKind[];
     tags?: string[];
   }): Promise<MemorySearchResult[]>;
+  stats(scope: MemoryScope): Promise<MemoryStorageStats>;
   put(input: MemoryInput, scope: MemoryScope): Promise<MemoryRecord>;
   update(id: string, patch: Partial<MemoryInput>, scope: MemoryScope, options?: { expectedVersion?: number }): Promise<MemoryRecord>;
   delete(id: string, scope: MemoryScope, options?: { expectedVersion?: number }): Promise<MemoryRecord>;
   apply(mutations: MemoryMutation[]): Promise<MemoryRecord[]>;
+};
+
+export type MemoryNamespaceStats = {
+  records: number;
+  activeRecords: number;
+  logicalBytes: number;
+};
+
+export type MemoryStorageStats = {
+  physicalBytes: number;
+  logicalBytes: number;
+  recordCount: number;
+  activeRecordCount: number;
+  expiredRecordCount: number;
+  quotaBytes: number | null;
+  quotaRatio: number | null;
+  byNamespace: Record<string, MemoryNamespaceStats>;
 };
 
 export const MEMORY_SCHEMA_VERSION: number;
@@ -467,6 +487,8 @@ export function createFileMemoryStore(options: {
   runtime?: Runtime;
   lockTimeoutMs?: number;
   staleLockMs?: number;
+  quotaBytes?: number | null;
+  namespaceQuotaBytes?: Record<string, number>;
 }): MemoryStore;
 export function createProjectMemoryStore(root: string, options?: {
   file?: string;
@@ -474,6 +496,8 @@ export function createProjectMemoryStore(root: string, options?: {
   runtime?: Runtime;
   lockTimeoutMs?: number;
   staleLockMs?: number;
+  quotaBytes?: number | null;
+  namespaceQuotaBytes?: Record<string, number>;
 }): MemoryStore;
 
 export const DEFAULT_MEMORY_CATALOG_CAPABILITIES: Readonly<Record<string, readonly string[]>>;
@@ -565,8 +589,10 @@ export function putMemory(options: MemoryClientOptions & {
   confidence?: number | null;
   expiresAt?: string | null;
 }): Promise<CapabilityOutcome & { records: MemoryRecord[] }>;
+export function inspectMemoryStorage(options?: MemoryClientOptions): Promise<CapabilityOutcome & { stats: MemoryStorageStats | null }>;
 export function formatSearchOutcome(outcome: { decision: string; results: MemorySearchResult[] }): string;
 export function formatPutOutcome(outcome: { decision: string; records: MemoryRecord[] }): string;
+export function formatStorageOutcome(outcome: { decision: string; stats: MemoryStorageStats | null }): string;
 
 export class CapabilityDeniedError extends Error {
   capabilityId: string;

@@ -10,6 +10,7 @@ const memoryScopeSchema = {
     project: { type: "string", minLength: 1, maxLength: 500 },
     catalog: { ...nullableString, maxLength: 200 },
     conversation: { ...nullableString, maxLength: 500 },
+    namespace: { ...nullableString, maxLength: 500 },
   },
 };
 
@@ -55,7 +56,7 @@ const memoryPatchSchema = {
 };
 
 const ensureStore = (store) => {
-  for (const method of ["get", "search", "apply"]) {
+  for (const method of ["get", "search", "stats", "apply"]) {
     if (!store || typeof store[method] !== "function") throw new Error(`memory capabilities require a store with ${method}()`);
   }
   return store;
@@ -66,8 +67,8 @@ const abortIfNeeded = (signal) => {
 };
 
 export const DEFAULT_MEMORY_CATALOG_CAPABILITIES = Object.freeze({
-  "memory-recaller": Object.freeze(["memory.records.search", "memory.records.read"]),
-  "memory-curator": Object.freeze(["memory.records.write", "memory.records.update", "memory.records.delete"]),
+  "memory-recaller": Object.freeze(["memory.records.search", "memory.records.read", "memory.records.stats"]),
+  "memory-curator": Object.freeze(["memory.records.write", "memory.records.update", "memory.records.delete", "memory.records.stats"]),
 });
 
 export const createMemoryCapabilityDefinitions = ({ store } = {}) => {
@@ -131,6 +132,25 @@ export const createMemoryCapabilityDefinitions = ({ store } = {}) => {
       handler: async ({ input, signal }) => {
         abortIfNeeded(signal);
         return { record: await memoryStore.get(input.id, input.scope) };
+      },
+    },
+    {
+      id: "memory.records.stats",
+      name: "Inspect persistent memory storage",
+      description: "Reports storage consumption for records visible to the requested scope.",
+      risk: "medium",
+      approval: "always",
+      executorVersion: "memory-stats-v1",
+      inputSchema: {
+        type: "object",
+        required: ["scope"],
+        additionalProperties: false,
+        properties: { scope: memoryScopeSchema },
+      },
+      approvalPreview: ({ scope }) => ({ operation: "stats", scope }),
+      handler: async ({ input, signal }) => {
+        abortIfNeeded(signal);
+        return { stats: await memoryStore.stats(input.scope) };
       },
     },
     {

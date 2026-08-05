@@ -208,7 +208,11 @@ const result = await execution;
 **Persistent memory** — `createProjectMemoryStore` provides a scoped,
 versioned store under `.alters/memory/store.json`. Writes are atomic, use a
 cross-process lock, enforce optimistic versions, deduplicate active records,
-and keep project, catalog, and conversation visibility separate. `mind init`
+and keep project, catalog, conversation, and named-namespace visibility
+separate. The store reports physical and logical byte consumption with a
+per-namespace breakdown, and optional store or namespace quotas reject an
+entire atomic mutation before it reaches disk. `mind memory stats` requests
+the visible storage report through the host. `mind init`
 and `mind update` add `.alters/memory/` to `.gitignore` because memory may
 contain private project context.
 

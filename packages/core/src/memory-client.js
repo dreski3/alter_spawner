@@ -89,6 +89,17 @@ export const putMemory = async ({
   return { ...outcome, records: outcome.value?.records || [] };
 };
 
+export const inspectMemoryStorage = async ({ env, signal, fetchImpl } = {}) => {
+  const outcome = await requestCapability("memory.records.stats", {
+    env,
+    signal,
+    fetchImpl,
+    reason: "The principal asked to inspect persistent memory storage consumption.",
+    input: {},
+  });
+  return { ...outcome, stats: outcome.value?.stats || null };
+};
+
 // Written for a model to read on stdout, so a denial reads as a settled answer
 // ("continue without it") rather than an error worth retrying — a retry would
 // just raise the same card at the user again.
@@ -117,4 +128,20 @@ export const formatPutOutcome = ({ decision, records }) => {
   return `stored ${records.length} ${records.length === 1 ? "record" : "records"}.\n\n${
     records.map((record) => `[${record.kind}] ${record.id} v${record.version}\n${record.content}`).join("\n\n")
   }`;
+};
+
+export const formatStorageOutcome = ({ decision, stats }) => {
+  if (decision === "deny") return "denied: the user declined this storage inspection. Nothing was read.";
+  if (!stats) return "persistent memory storage statistics are unavailable.";
+  const quota = stats.quotaBytes === null
+    ? "no quota"
+    : `${stats.quotaBytes} byte quota (${(stats.quotaRatio * 100).toFixed(1)}% used)`;
+  const namespaces = Object.entries(stats.byNamespace)
+    .map(([namespace, value]) => `  ${namespace}: ${value.records} records, ${value.logicalBytes} logical bytes`)
+    .join("\n");
+  return [
+    `${stats.recordCount} records (${stats.activeRecordCount} active, ${stats.expiredRecordCount} expired)`,
+    `${stats.physicalBytes} physical bytes; ${stats.logicalBytes} logical bytes; ${quota}`,
+    namespaces ? `namespaces:\n${namespaces}` : "namespaces: none",
+  ].join("\n");
 };

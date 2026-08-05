@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -151,4 +151,38 @@ test("memory mutation batches commit atomically", async () => {
     { operation: "update", scope, id: "mem_missing", patch: { content: "Missing." } },
   ]), /not found/);
   assert.deepEqual(await fixture.store.search("roll back", scope), []);
+});
+
+test("memory namespaces isolate sections and report native storage accounting", async () => {
+  const fixture = createFixture();
+  const architecture = { project: "naut", namespace: "architecture" };
+  const operations = { project: "naut", namespace: "operations" };
+  const first = await fixture.store.put({ content: "Use SQLite for indexed memory." }, architecture);
+  await fixture.store.put({ content: "The relay listens on port 8788." }, operations);
+  assert.equal((await fixture.store.search("SQLite", architecture)).length, 1);
+  assert.equal((await fixture.store.search("SQLite", operations)).length, 0);
+  assert.equal(await fixture.store.get(first.id, operations), null);
+  const stats = await fixture.store.stats({ project: "naut" });
+  assert.equal(stats.recordCount, 2);
+  assert.equal(stats.byNamespace.operations.records, 1);
+  const architectureStats = await fixture.store.stats(architecture);
+  assert.equal(architectureStats.recordCount, 1);
+  assert.equal(architectureStats.byNamespace.architecture.records, 1);
+  assert.equal(architectureStats.logicalBytes, first.logicalBytes);
+  assert.ok(architectureStats.physicalBytes >= architectureStats.logicalBytes);
+});
+
+test("memory quotas reject an entire atomic mutation before it reaches disk", async () => {
+  const fixture = createFixture();
+  const constrained = createFileMemoryStore({
+    file: fixture.store.file,
+    projectId: "naut",
+    runtime: fixture.runtime,
+    namespaceQuotaBytes: { architecture: 100 },
+  });
+  await assert.rejects(
+    constrained.put({ content: "A".repeat(500) }, { project: "naut", namespace: "architecture" }),
+    /namespace quota exceeded/,
+  );
+  assert.equal(existsSync(fixture.store.file), false);
 });

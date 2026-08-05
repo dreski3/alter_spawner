@@ -43,11 +43,11 @@ test("memory capabilities expose trusted catalog bindings", () => {
   const { registry } = createFixture();
   assert.deepEqual(
     registry.forCatalog("memory-recaller").map((capability) => capability.id),
-    ["memory.records.search", "memory.records.read"],
+    ["memory.records.search", "memory.records.read", "memory.records.stats"],
   );
   assert.deepEqual(
     registry.forCatalog("memory-curator").map((capability) => capability.id),
-    ["memory.records.write", "memory.records.update", "memory.records.delete"],
+    ["memory.records.write", "memory.records.update", "memory.records.delete", "memory.records.stats"],
   );
   assert.equal(registry.listPublic().some((capability) => "handler" in capability), false);
 });

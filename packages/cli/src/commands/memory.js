@@ -1,8 +1,10 @@
 import {
   CapabilityUnavailableError,
   fail,
+  formatStorageOutcome,
   formatPutOutcome,
   formatSearchOutcome,
+  inspectMemoryStorage,
   putMemory,
   searchMemory,
 } from "@mind/core";
@@ -11,6 +13,7 @@ const usage = () => {
   console.error("usage: mind memory search <query> [--limit <n>] [--kind <k>]* [--json]");
   console.error("       mind memory put <content> [--kind <k>] [--tag <t>]* [--confidence <0-1>]");
   console.error("                                 [--expires-at <iso>] [--json]");
+  console.error("       mind memory stats [--json]");
   console.error("");
   console.error("  kinds: fact, preference, decision, summary");
   console.error("  The host decides the project/conversation scope and whether the operation runs at all.");
@@ -62,6 +65,22 @@ const PUT_FLAGS = {
 export const run = async (argv) => {
   const operation = argv[0];
   const rest = argv.slice(1);
+  if (operation === "stats") {
+    const options = parse(rest, {});
+    if (options.help) return usage();
+    if (options.positional.length) fail("mind memory stats does not accept positional arguments");
+    try {
+      const outcome = await inspectMemoryStorage();
+      if (options.json) console.log(JSON.stringify(outcome, null, 2));
+      else console.log(formatStorageOutcome(outcome));
+      return;
+    } catch (error) {
+      if (error instanceof CapabilityUnavailableError) {
+        fail(`persistent memory is unavailable here (${error.message}). Nothing was read.`);
+      }
+      throw error;
+    }
+  }
   if (operation === "search" || operation === "put") {
     const flags = operation === "search" ? SEARCH_FLAGS : PUT_FLAGS;
     const options = parse(rest, flags);

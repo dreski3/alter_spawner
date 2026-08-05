@@ -37,22 +37,31 @@ const optionalString = (value, label, maxLength = 500) => {
 
 const normalizeScope = (scope, label = "memory scope") => {
   if (!scope || typeof scope !== "object" || Array.isArray(scope)) throw new Error(`${label} must be an object`);
-  const unexpected = Object.keys(scope).filter((key) => !["project", "catalog", "conversation"].includes(key));
+  const unexpected = Object.keys(scope).filter((key) => !["project", "catalog", "conversation", "namespace"].includes(key));
   if (unexpected.length) throw new Error(`${label}.${unexpected[0]} is not allowed`);
   return Object.freeze({
     project: requiredString(scope.project, `${label}.project`, 500),
     catalog: optionalString(scope.catalog, `${label}.catalog`, 200),
     conversation: optionalString(scope.conversation, `${label}.conversation`, 500),
+    namespace: optionalString(scope.namespace, `${label}.namespace`, 500),
   });
 };
 
 const sameScope = (left, right) =>
-  left.project === right.project && left.catalog === right.catalog && left.conversation === right.conversation;
+  left.project === right.project && left.catalog === right.catalog && left.conversation === right.conversation &&
+  left.namespace === right.namespace;
 
 const scopeCanRead = (request, record) =>
   request.project === record.project &&
   (record.catalog === null || request.catalog === record.catalog) &&
-  (record.conversation === null || request.conversation === record.conversation);
+  (record.conversation === null || request.conversation === record.conversation) &&
+  (record.namespace === null || request.namespace === record.namespace);
+
+const scopeCanInspect = (request, record) =>
+  request.project === record.project &&
+  (request.catalog === null || request.catalog === record.catalog) &&
+  (request.conversation === null || request.conversation === record.conversation) &&
+  (request.namespace === null || request.namespace === record.namespace);
 
 const normalizeTimestamp = (value, label) => {
   if (value === undefined || value === null || value === "") return null;
@@ -113,6 +122,17 @@ const contentHash = (scope, record) => createHash("sha256").update(canonicalJson
   content: record.content,
 })).digest("hex");
 
+const recordLogicalBytes = (scope, record) => Buffer.byteLength(canonicalJson({
+  scope,
+  kind: record.kind,
+  content: record.content,
+  tags: record.tags,
+  source: record.source,
+  confidence: record.confidence,
+  expiresAt: record.expiresAt,
+  metadata: record.metadata,
+}), "utf8");
+
 const emptyDocument = (projectId) => ({
   schema_version: MEMORY_SCHEMA_VERSION,
   project_id: projectId,
@@ -132,6 +152,10 @@ const validateDocument = (document, projectId) => {
   }
   if (document.records.some((record) => record?.scope?.project !== projectId)) {
     throw new Error("memory store contains a record from another project scope");
+  }
+  for (const record of document.records) {
+    record.scope.namespace ??= null;
+    record.logicalBytes ??= recordLogicalBytes(record.scope, record);
   }
   return document;
 };
@@ -171,10 +195,22 @@ export const createFileMemoryStore = ({
   runtime: runtimeOverride,
   lockTimeoutMs = 5000,
   staleLockMs = 30000,
+  quotaBytes = null,
+  namespaceQuotaBytes = {},
 } = {}) => {
   if (typeof file !== "string" || !path.isAbsolute(file)) throw new Error("memory store requires an absolute file path");
   const normalizedProjectId = requiredString(projectId, "memory store projectId", 500);
   const runtime = resolveRuntime(runtimeOverride);
+  if (quotaBytes !== null && (!Number.isInteger(quotaBytes) || quotaBytes < 1)) {
+    throw new Error("memory store quotaBytes must be a positive integer or null");
+  }
+  if (!namespaceQuotaBytes || typeof namespaceQuotaBytes !== "object" || Array.isArray(namespaceQuotaBytes)) {
+    throw new Error("memory store namespaceQuotaBytes must be an object");
+  }
+  for (const [namespace, quota] of Object.entries(namespaceQuotaBytes)) {
+    requiredString(namespace, "memory namespace quota key", 500);
+    if (!Number.isInteger(quota) || quota < 1) throw new Error("memory namespace quotas must be positive integers");
+  }
   const lockFile = `${file}.lock`;
   let writeQueue = Promise.resolve();
   const normalizeStoreScope = (scope) => {
@@ -226,6 +262,16 @@ export const createFileMemoryStore = ({
       try {
         const document = readDocument();
         const result = await operation(document);
+        const serializedBytes = Buffer.byteLength(JSON.stringify(document, null, 2) + "\n", "utf8");
+        if (quotaBytes !== null && serializedBytes > quotaBytes) {
+          throw new Error(`memory store quota exceeded: ${serializedBytes} > ${quotaBytes} bytes`);
+        }
+        for (const [namespace, quota] of Object.entries(namespaceQuotaBytes)) {
+          const used = document.records
+            .filter((record) => record.scope.namespace === namespace)
+            .reduce((total, record) => total + record.logicalBytes, 0);
+          if (used > quota) throw new Error(`memory namespace quota exceeded for ${namespace}: ${used} > ${quota} bytes`);
+        }
         writeJsonAtomic(file, document, { mode: 0o600 });
         chmodSync(file, 0o600);
         return clone(result);
@@ -270,6 +316,39 @@ export const createFileMemoryStore = ({
       .map(clone);
   };
 
+  const stats = async (scope) => {
+    const normalizedScope = normalizeStoreScope(scope);
+    const document = readDocument();
+    const now = runtime.now();
+    const visible = document.records.filter((record) => scopeCanInspect(normalizedScope, record.scope));
+    const active = visible.filter((record) => !record.expiresAt || Date.parse(record.expiresAt) > now);
+    const byNamespace = {};
+    for (const record of visible) {
+      const namespace = record.scope.namespace || "default";
+      const entry = byNamespace[namespace] ||= { records: 0, activeRecords: 0, logicalBytes: 0 };
+      entry.records += 1;
+      entry.logicalBytes += record.logicalBytes;
+      if (!record.expiresAt || Date.parse(record.expiresAt) > now) entry.activeRecords += 1;
+    }
+    let physicalBytes = 0;
+    try {
+      physicalBytes = statSync(file).size;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    const logicalBytes = visible.reduce((total, record) => total + record.logicalBytes, 0);
+    return clone({
+      physicalBytes,
+      logicalBytes,
+      recordCount: visible.length,
+      activeRecordCount: active.length,
+      expiredRecordCount: visible.length - active.length,
+      quotaBytes,
+      quotaRatio: quotaBytes === null ? null : physicalBytes / quotaBytes,
+      byNamespace,
+    });
+  };
+
   const putInDocument = (document, input, scope) => {
     const normalizedScope = normalizeStoreScope(scope);
     const normalized = normalizeMemoryInput(input);
@@ -288,6 +367,7 @@ export const createFileMemoryStore = ({
       scope: normalizedScope,
       ...normalized,
       contentHash: hash,
+      logicalBytes: recordLogicalBytes(normalizedScope, normalized),
       version: 1,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -320,6 +400,7 @@ export const createFileMemoryStore = ({
       ...current,
       ...normalized,
       contentHash: contentHash(normalizedScope, normalized),
+      logicalBytes: recordLogicalBytes(normalizedScope, normalized),
       version: current.version + 1,
       updatedAt: new Date(runtime.now()).toISOString(),
     };
@@ -370,6 +451,7 @@ export const createFileMemoryStore = ({
     projectId: normalizedProjectId,
     get,
     search,
+    stats,
     put,
     update,
     delete: remove,
