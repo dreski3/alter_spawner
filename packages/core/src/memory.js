@@ -316,6 +316,22 @@ export const createFileMemoryStore = ({
       .map(clone);
   };
 
+  const list = async (scope, options = {}) => {
+    const normalizedScope = normalizeStoreScope(scope);
+    const limit = options.limit === undefined ? 100 : Number(options.limit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+      throw new Error("memory list limit must be an integer from 1 to 1000");
+    }
+    const includeExpired = options.includeExpired === true;
+    const now = runtime.now();
+    return readDocument().records
+      .filter((record) => scopeCanInspect(normalizedScope, record.scope))
+      .filter((record) => includeExpired || !record.expiresAt || Date.parse(record.expiresAt) > now)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id))
+      .slice(0, limit)
+      .map(clone);
+  };
+
   const stats = async (scope) => {
     const normalizedScope = normalizeStoreScope(scope);
     const document = readDocument();
@@ -451,6 +467,7 @@ export const createFileMemoryStore = ({
     projectId: normalizedProjectId,
     get,
     search,
+    list,
     stats,
     put,
     update,

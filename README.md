@@ -274,6 +274,34 @@ The graph result includes a unique `memory_cycle` ID, its `next-cycle`
 consistency mode, aggregate recalled/curated record counts, and per-node hook
 states, record IDs, namespaces, and errors.
 
+Longer-running consolidation is an explicit maintenance graph rather than a
+side effect of ordinary Alter execution. `buildMemoryMaintenanceGraph` creates
+an approval-gated inspection node followed by a `memory-manager` planning
+Alter. The bounded snapshot includes native storage and quota statistics plus
+visible candidate records. `runMemoryMaintenanceGraph` validates the returned
+operation array and requests one atomic `memory.records.maintain` execution.
+An empty plan returns without requesting mutation approval, so the entire
+cycle can be observational and every unrelated graph remains stateless.
+
+```js
+const maintenance = await runMemoryMaintenanceGraph(root, {
+  scope: { project: "naut", namespace: "architecture" },
+  approvals: mutationApprovalSession,
+  harness: "opencode",
+  graph: { limit: 100, includeExpired: true },
+});
+
+if (!maintenance.committed) {
+  console.log("The manager chose to leave memory unchanged.");
+}
+```
+
+The host must bind the graph's `capability` executor to the same memory
+registry used for approvals. Maintenance writes and updates are exact and
+version-aware. Deletes are rejected before approval by default; callers must
+set `allowDeletes: true` to permit a planner to propose them. Each completed
+cycle writes `maintenance.json` beside the graph's `result.json` for audit.
+
 ## Known limitations
 
 - Not published. No `mind --help`/`--version` yet.

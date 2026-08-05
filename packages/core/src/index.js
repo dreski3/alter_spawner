@@ -100,6 +100,10 @@ export {
   runMemoryCurator,
 } from "./memory-workflows.js";
 export {
+  buildMemoryMaintenanceGraph,
+  runMemoryMaintenanceGraph,
+} from "./memory-maintenance.js";
+export {
   CAPABILITY_URL_ENV,
   CAPABILITY_TOKEN_ENV,
   CapabilityUnavailableError,

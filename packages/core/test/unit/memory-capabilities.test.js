@@ -49,7 +49,46 @@ test("memory capabilities expose trusted catalog bindings", () => {
     registry.forCatalog("memory-curator").map((capability) => capability.id),
     ["memory.records.write", "memory.records.update", "memory.records.delete", "memory.records.stats"],
   );
+  assert.deepEqual(
+    registry.forCatalog("memory-manager").map((capability) => capability.id),
+    [
+      "memory.records.maintenance-scan",
+      "memory.records.search",
+      "memory.records.read",
+      "memory.records.stats",
+      "memory.records.maintain",
+    ],
+  );
   assert.equal(registry.listPublic().some((capability) => "handler" in capability), false);
+});
+
+test("maintenance capability scans bounded records and atomically applies mixed operations", async () => {
+  const { store, registry } = createFixture();
+  const scope = { project: "naut", namespace: "architecture" };
+  const original = await store.put({ content: "Use the JSON memory backend.", kind: "decision" }, scope);
+  const scan = await registry.execute("memory.records.maintenance-scan", { input: { scope, limit: 10 } });
+  assert.equal(scan.value.records.length, 1);
+  assert.equal(scan.value.stats.recordCount, 1);
+  assert.equal(scan.value.stats.quotaBytes, null);
+  const maintained = await registry.execute("memory.records.maintain", {
+    input: {
+      scope,
+      operations: [
+        {
+          operation: "put",
+          record: { content: "Memory storage is moving toward an indexed backend.", kind: "summary" },
+        },
+        {
+          operation: "update",
+          id: original.id,
+          expectedVersion: 1,
+          patch: { metadata: { superseded: true } },
+        },
+      ],
+    },
+  });
+  assert.equal(maintained.value.records.length, 2);
+  assert.equal((await store.get(original.id, scope)).metadata.superseded, true);
 });
 
 test("memory writes bind exact records to one-use approval", async () => {

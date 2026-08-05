@@ -55,8 +55,21 @@ const memoryPatchSchema = {
   properties: memoryRecordProperties,
 };
 
+const maintenanceOperationSchema = {
+  type: "object",
+  required: ["operation"],
+  additionalProperties: false,
+  properties: {
+    operation: { type: "string", enum: ["put", "update", "delete"] },
+    record: memoryRecordSchema,
+    id: { type: "string", minLength: 1, maxLength: 200 },
+    patch: memoryPatchSchema,
+    expectedVersion: { type: "integer", minimum: 1 },
+  },
+};
+
 const ensureStore = (store) => {
-  for (const method of ["get", "search", "stats", "apply"]) {
+  for (const method of ["get", "search", "list", "stats", "apply"]) {
     if (!store || typeof store[method] !== "function") throw new Error(`memory capabilities require a store with ${method}()`);
   }
   return store;
@@ -69,6 +82,13 @@ const abortIfNeeded = (signal) => {
 export const DEFAULT_MEMORY_CATALOG_CAPABILITIES = Object.freeze({
   "memory-recaller": Object.freeze(["memory.records.search", "memory.records.read", "memory.records.stats"]),
   "memory-curator": Object.freeze(["memory.records.write", "memory.records.update", "memory.records.delete", "memory.records.stats"]),
+  "memory-manager": Object.freeze([
+    "memory.records.maintenance-scan",
+    "memory.records.search",
+    "memory.records.read",
+    "memory.records.stats",
+    "memory.records.maintain",
+  ]),
 });
 
 export const createMemoryCapabilityDefinitions = ({ store } = {}) => {
@@ -151,6 +171,39 @@ export const createMemoryCapabilityDefinitions = ({ store } = {}) => {
       handler: async ({ input, signal }) => {
         abortIfNeeded(signal);
         return { stats: await memoryStore.stats(input.scope) };
+      },
+    },
+    {
+      id: "memory.records.maintenance-scan",
+      name: "Inspect memory maintenance candidates",
+      description: "Returns bounded visible memory records together with native storage statistics.",
+      risk: "medium",
+      approval: "always",
+      executorVersion: "memory-maintenance-scan-v1",
+      inputSchema: {
+        type: "object",
+        required: ["scope"],
+        additionalProperties: false,
+        properties: {
+          scope: memoryScopeSchema,
+          limit: { type: "integer", minimum: 1, maximum: 1000 },
+          includeExpired: { type: "boolean" },
+        },
+      },
+      approvalPreview: ({ scope, limit, includeExpired }) => ({
+        operation: "maintenance-scan",
+        scope,
+        limit: limit || 100,
+        includeExpired: includeExpired === true,
+      }),
+      handler: async ({ input, signal }) => {
+        abortIfNeeded(signal);
+        const [stats, records] = await Promise.all([
+          memoryStore.stats(input.scope),
+          memoryStore.list(input.scope, { limit: input.limit, includeExpired: input.includeExpired }),
+        ]);
+        abortIfNeeded(signal);
+        return { stats, records };
       },
     },
     {
@@ -266,6 +319,54 @@ export const createMemoryCapabilityDefinitions = ({ store } = {}) => {
           id: record.id,
           expectedVersion: record.expectedVersion,
         })));
+        abortIfNeeded(signal);
+        return { records };
+      },
+    },
+    {
+      id: "memory.records.maintain",
+      name: "Apply a memory maintenance plan",
+      description: "Atomically applies an exact mixed write, update, and delete plan within one memory scope.",
+      risk: "high",
+      approval: "always",
+      allowedDecisions: ["allow-once", "deny"],
+      executorVersion: "memory-maintain-v1",
+      inputSchema: {
+        type: "object",
+        required: ["scope", "operations"],
+        additionalProperties: false,
+        properties: {
+          scope: memoryScopeSchema,
+          operations: { type: "array", minItems: 1, maxItems: 100, items: maintenanceOperationSchema },
+        },
+      },
+      approvalPreview: ({ scope, operations }) => ({ operation: "maintain", scope, operations }),
+      handler: async ({ input, signal }) => {
+        abortIfNeeded(signal);
+        const mutations = input.operations.map((operation, index) => {
+          if (operation.operation === "put" && operation.record && !operation.id && !operation.patch && !operation.expectedVersion) {
+            return { operation: "put", scope: input.scope, record: operation.record };
+          }
+          if (operation.operation === "update" && operation.id && operation.patch && !operation.record) {
+            return {
+              operation: "update",
+              scope: input.scope,
+              id: operation.id,
+              patch: operation.patch,
+              expectedVersion: operation.expectedVersion,
+            };
+          }
+          if (operation.operation === "delete" && operation.id && !operation.record && !operation.patch) {
+            return {
+              operation: "delete",
+              scope: input.scope,
+              id: operation.id,
+              expectedVersion: operation.expectedVersion,
+            };
+          }
+          throw new Error(`memory maintenance operation ${index} has fields inconsistent with ${operation.operation}`);
+        });
+        const records = await memoryStore.apply(mutations);
         abortIfNeeded(signal);
         return { records };
       },

@@ -470,6 +470,7 @@ export type MemoryStore = {
     kinds?: MemoryKind[];
     tags?: string[];
   }): Promise<MemorySearchResult[]>;
+  list(scope: MemoryScope, options?: { limit?: number; includeExpired?: boolean }): Promise<MemoryRecord[]>;
   stats(scope: MemoryScope): Promise<MemoryStorageStats>;
   put(input: MemoryInput, scope: MemoryScope): Promise<MemoryRecord>;
   update(id: string, patch: Partial<MemoryInput>, scope: MemoryScope, options?: { expectedVersion?: number }): Promise<MemoryRecord>;
@@ -565,6 +566,48 @@ export function runMemoryCurator(root: string, options: {
   records: MemoryRecord[];
   curatorHome: string;
   curatorResult: AlterResult;
+}>;
+
+export type MemoryMaintenanceOperation =
+  | { operation: "put"; record: MemoryInput }
+  | { operation: "update"; id: string; patch: Partial<MemoryInput>; expectedVersion?: number }
+  | { operation: "delete"; id: string; expectedVersion?: number };
+
+export function buildMemoryMaintenanceGraph(options: {
+  id?: string;
+  scope: MemoryScope;
+  limit?: number;
+  includeExpired?: boolean;
+  allowDeletes?: boolean;
+  catalog?: string;
+  model?: string | null;
+  maxTokens?: number;
+}): AlterGraph;
+
+export function runMemoryMaintenanceGraph(root: string, options: {
+  scope: MemoryScope;
+  approvals?: Pick<CapabilityApprovalSession, "execute">;
+  allowDeletes?: boolean;
+  graph?: {
+    id?: string;
+    limit?: number;
+    includeExpired?: boolean;
+    catalog?: string;
+    model?: string | null;
+    maxTokens?: number;
+  };
+  harness?: string | null;
+  signal?: AbortSignal;
+  mindBinPath?: string | null;
+  runtime?: Runtime;
+  onProgress?: (result: Record<string, unknown>) => void;
+  onEvent?: (event: AlterRuntimeEvent) => void;
+}): Promise<{
+  home: string;
+  result: Record<string, unknown>;
+  plan: MemoryMaintenanceOperation[] | null;
+  committed: boolean;
+  records: MemoryRecord[];
 }>;
 
 export const CAPABILITY_URL_ENV: "MIND_CAPABILITY_URL";
