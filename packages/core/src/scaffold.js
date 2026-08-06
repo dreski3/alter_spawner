@@ -22,11 +22,25 @@ export const resolveId = (name, runtimeOverride) => {
 // Every Alter home lives at `.alters/runs/<timestamp>_<id>/`, so re-spawning
 // the same `--name` repeatedly ("reruns") never collides and naturally sorts
 // chronologically instead of overwriting/cluttering `.alters/` directly.
-const resolveRunFolder = (root, id, runtime) => {
+//
+// The folder is claimed *by creating it*, not by checking whether it exists. Timestamp
+// slugs are second-resolution and a graph node's run name is its node id, so two spikes
+// released on the same tick compute a byte-identical folder name; an `existsSync` check
+// followed by `mkdirSync(..., { recursive: true })` lets both through — the second run
+// then overwrites the first's alter.json and result.json. `mkdirSync` *without*
+// `recursive` is atomic and throws EEXIST, which is what makes this retry load-bearing
+// rather than decorative.
+const claimRunFolder = (root, id, runtime) => {
+  mkdirSync(runsDir(root), { recursive: true });
   for (let i = 0; i < 5; i++) {
     const suffix = i === 0 ? "" : `-${runtime.randomId(4)}`;
     const folder = `${timestampSlug(runtime.now())}_${id}${suffix}`;
-    if (!existsSync(path.join(runsDir(root), folder))) return folder;
+    try {
+      mkdirSync(path.join(runsDir(root), folder));
+      return folder;
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+    }
   }
   fail("could not allocate a unique run folder for: " + id);
 };
@@ -45,9 +59,8 @@ const resolveRunFolder = (root, id, runtime) => {
 // `needsAgentHome: false` reads none of it, so writing it would be pure latency.
 export const scaffold = (root, cfg, o, runtimeOverride, { agentFiles = true } = {}) => {
   const runtime = resolveRuntime(runtimeOverride);
-  o.runFolder = resolveRunFolder(root, o.id, runtime);
+  o.runFolder = claimRunFolder(root, o.id, runtime);
   const home = path.join(runsDir(root), o.runFolder);
-  mkdirSync(home, { recursive: true });
   if (agentFiles) scaffoldAgentFiles(root, cfg, o, runtime, home);
   writeAlterJson(root, o, runtime, home);
   return home;

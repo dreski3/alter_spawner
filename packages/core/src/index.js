@@ -38,6 +38,7 @@ export {
 export { describeAlterFailure, runAlterGraph } from "./graph.js";
 export { DEFAULT_MAX_EDGE_CHARS, renderGraphPrompt, validateGraph } from "./graph-spec.js";
 export { withFileLock } from "./file-lock.js";
+export { withRefractoryPeriod, readRefractoryState, readSkipLog } from "./refractory.js";
 export {
   TREE_ID_ENV,
   TREE_LEDGER_ENV,
