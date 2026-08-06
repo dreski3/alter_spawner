@@ -50,6 +50,28 @@ export { DEFAULT_MAX_EDGE_CHARS, renderGraphPrompt, validateGraph } from "./grap
 export { withFileLock } from "./file-lock.js";
 export { withRefractoryPeriod, readRefractoryState, readSkipLog } from "./refractory.js";
 export {
+  OSCILLATION_SCHEMA_VERSION,
+  BANDS,
+  parseDuration,
+  formatDuration,
+  oscillationsDir,
+  oscillationStateDir,
+  oscillationStatePath,
+  validateOscillation,
+  readOscillations,
+  readOscillation,
+  oscillationDueness,
+  readCycleLog,
+  runOscillation,
+} from "./oscillation.js";
+export {
+  BUILTIN_GRAPHS,
+  daemonPolicyPath,
+  createSpikeRunner,
+  runDaemonTick,
+  runDaemon,
+} from "./daemon.js";
+export {
   MIND_HOME_ENV,
   REGISTRY_SCHEMA_VERSION,
   mindHomeDir,

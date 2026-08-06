@@ -42,8 +42,11 @@ export const writeProfileMeta = (root, meta) => {
 };
 
 // Run-local state that accumulates and belongs to nobody's history: the memory store,
-// and one ledger per tree of Alters.
-const IGNORED_KIT_PATHS = [".alters/memory/", ".alters/trees/"];
+// one ledger per tree of Alters, and — under `state/` — when each rhythm last fired, the
+// ticks it skipped, and the grants that authorize it to act unattended. Oscillation
+// *definitions* live in `.alters/oscillations/` and are authored config, so they stay
+// tracked; only their state is ignored.
+const IGNORED_KIT_PATHS = [".alters/memory/", ".alters/trees/", ".alters/state/"];
 
 export const ensureMemoryIgnored = (root) => {
   const file = path.join(root, ".gitignore");

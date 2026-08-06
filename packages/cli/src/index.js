@@ -33,6 +33,10 @@ const usage = () => {
   console.error("  memory  migrate --to sqlite                            (copy JSON memory into SQLite/FTS)");
   console.error("  agents  ls | scan | add <dir> [--workspace] | rm <dir> | where <id|name>");
   console.error("                                          (the registry of minds this machine knows)");
+  console.error("  oscillation ls | show <id> | run <id> [--force] | grants | grant <cat> <cap>");
+  console.error("                                          (this mind's rhythms)");
+  console.error("  daemon  [--once] [--interval <dur>] [--dry-run] [--mind <id|name>]");
+  console.error("                                          (tick every mind's due oscillations)");
   console.error("  catalog list                            (list predefined harnesses)");
   console.error("  catalog show <name>                     (print a harness manifest.json)");
   console.error("  catalog save <name> --from <id> | ...spawn flags   (add/update a harness)");
@@ -50,6 +54,8 @@ const COMMANDS = {
   show: () => import("./commands/show.js"),
   rm: () => import("./commands/rm.js"),
   agents: () => import("./commands/agents.js"),
+  oscillation: () => import("./commands/oscillation.js"),
+  daemon: () => import("./commands/daemon.js"),
   catalog: () => import("./commands/catalog.js"),
   memory: () => import("./commands/memory.js"),
 };
