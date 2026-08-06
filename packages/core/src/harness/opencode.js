@@ -144,6 +144,7 @@ const run = (
         text: acc.text,
         sessionID: acc.sessionID,
         steps: acc.steps,
+        tools: acc.tools,
         exitCode,
         killed,
         aborted,

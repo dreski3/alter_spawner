@@ -91,6 +91,7 @@ export const runPrincipalTurn = async (projectDir, {
     model: options.model,
     tokens: res.tokens,
     steps: res.steps,
+    tools: res.tools || null,
     attempts,
     aborted: res.aborted || false,
     budgetExceeded: res.budget_exceeded || false,

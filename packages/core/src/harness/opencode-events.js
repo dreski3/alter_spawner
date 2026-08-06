@@ -3,7 +3,45 @@ export const createOpenCodeAccumulator = () => ({
   text: "",
   sessionID: null,
   steps: 0,
+  // What the run actually *did*, as opposed to what it spent. `steps` counts model
+  // turns, which is not a tool count: a step may call several tools or none, so the two
+  // numbers answer different questions and neither substitutes for the other.
+  tools: { calls: 0, errors: 0, byName: {} },
+  // opencode emits one `tool_use` per state transition, so a single call can arrive
+  // twice — once running, once completed. Counting events would inflate every total, so
+  // calls are counted by `callID` and the last state seen for that id wins.
+  toolStates: new Map(),
 });
+
+const consumeToolEvent = (accumulator, part, emit) => {
+  const callId = part.callID || part.callId || null;
+  const name = part.tool || "(unnamed)";
+  const status = part.state?.status || "unknown";
+  // Anything still in flight is not yet a fact about the run: an interrupted call would
+  // otherwise be counted as one that happened.
+  if (status !== "completed" && status !== "error") return;
+  const key = callId || `${name}:${accumulator.tools.calls}:${status}`;
+  const previous = accumulator.toolStates.get(key);
+  if (previous === status) return;
+  accumulator.toolStates.set(key, status);
+  if (previous === undefined) {
+    accumulator.tools.calls += 1;
+    accumulator.tools.byName[name] = (accumulator.tools.byName[name] || 0) + 1;
+  } else if (previous === "error") {
+    // A retried call that finally succeeded: the call was already counted, only its
+    // outcome changed.
+    accumulator.tools.errors -= 1;
+  }
+  if (status === "error") accumulator.tools.errors += 1;
+  emit({
+    type: "tool.used",
+    tool: name,
+    callID: callId,
+    status,
+    tools: { calls: accumulator.tools.calls, errors: accumulator.tools.errors, byName: { ...accumulator.tools.byName } },
+    sessionID: accumulator.sessionID,
+  });
+};
 
 export const consumeOpenCodeEvent = (line, accumulator, onEvent) => {
   const text = line.trim();
@@ -34,6 +72,8 @@ export const consumeOpenCodeEvent = (line, accumulator, onEvent) => {
       steps: accumulator.steps,
       sessionID: accumulator.sessionID,
     });
+  } else if (event.type === "tool_use") {
+    if (event.part?.type === "tool" || event.part?.tool) consumeToolEvent(accumulator, event.part, emit);
   } else if (event.type === "text") {
     const delta = event.part?.text || "";
     accumulator.text += delta;

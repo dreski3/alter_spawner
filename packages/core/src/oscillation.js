@@ -1,6 +1,7 @@
-import { appendFileSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { kitDir } from "./config.js";
+import { writeJsonAtomic } from "./persistence.js";
 import { withRefractoryPeriod, readRefractoryState } from "./refractory.js";
 import { resolveRuntime } from "./runtime.js";
 import { fail, iso } from "./util.js";
@@ -157,6 +158,70 @@ export const readOscillation = (root, id) => {
   const found = readOscillations(root).find((oscillation) => oscillation.id === id);
   if (!found) fail(`no oscillation named ${id} in ${path.relative(root, oscillationsDir(root))}/`);
   return found;
+};
+
+// The authored form of a validated rhythm. Definitions are config a human reads and edits
+// in version control, so what gets written back is the shape someone would have typed —
+// `"period": "6h"` rather than `"periodMs": 21600000` — and the fields a spike did not set
+// are omitted instead of stored as a wall of nulls.
+const authoredForm = (oscillation) => ({
+  schema_version: OSCILLATION_SCHEMA_VERSION,
+  id: oscillation.id,
+  band: oscillation.band,
+  period: formatDuration(oscillation.periodMs),
+  refractory: formatDuration(oscillation.refractoryMs),
+  enabled: oscillation.enabled,
+  ...(oscillation.description ? { description: oscillation.description } : {}),
+  spikes: oscillation.spikes.map((spike) => ({
+    id: spike.id,
+    phase: spike.phase,
+    ...(spike.graph ? { graph: spike.graph } : {}),
+    ...(spike.catalog ? { catalog: spike.catalog } : {}),
+    ...(spike.prompt ? { prompt: spike.prompt } : {}),
+    ...(spike.after ? { after: spike.after } : {}),
+    ...(spike.when ? { when: spike.when } : {}),
+    ...(Object.keys(spike.options).length ? { options: spike.options } : {}),
+  })),
+});
+
+// Defining a rhythm was a text-editor job: `readOscillations` has always existed and
+// nothing could write one. That is fine for a repo-committed definition and useless for a
+// host, which is the caller that needs to create a rhythm in order to demonstrate one.
+//
+// Validation happens before anything touches the disk, so a rejected definition leaves no
+// file behind — a half-written rhythm is one the daemon would then fail on every tick.
+export const writeOscillation = (root, spec, { overwrite = true } = {}) => {
+  const validated = validateOscillation(spec, { source: "oscillation" });
+  const existing = readOscillations(root).find((oscillation) => oscillation.id === validated.id);
+  if (existing && !overwrite) fail(`an oscillation named ${validated.id} already exists (${path.basename(existing.file)})`);
+  // An id may live in a file named something else — `readOscillations` only falls back to
+  // the filename. Rewriting the file it was found in keeps one definition per id instead of
+  // silently creating a second one under the canonical name.
+  const file = existing ? existing.file : path.join(oscillationsDir(root), `${validated.id}.json`);
+  mkdirSync(oscillationsDir(root), { recursive: true });
+  writeJsonAtomic(file, authoredForm(validated));
+  return { ...validated, file, created: !existing };
+};
+
+// State is deliberately kept by default. It is this rhythm's audit — when it last fired,
+// what each cycle did, which ticks it skipped — and deleting a definition is not a claim
+// that none of that happened. `purgeState` is for the case that genuinely wants a clean
+// slate: re-creating a rhythm you just deleted would otherwise inherit its predecessor's
+// `last_run_at` and sit there looking not-due.
+export const deleteOscillation = (root, id, { purgeState = false } = {}) => {
+  const found = readOscillations(root).find((oscillation) => oscillation.id === id);
+  if (!found) fail(`no oscillation named ${id} in ${path.relative(root, oscillationsDir(root))}/`);
+  rmSync(found.file, { force: true });
+  const purged = [];
+  if (purgeState) {
+    for (const file of [oscillationStatePath(root, found.id), cycleLogPath(root, found.id)]) {
+      if (existsSync(file)) {
+        rmSync(file, { force: true });
+        purged.push(file);
+      }
+    }
+  }
+  return { id: found.id, file: found.file, purged };
 };
 
 // Due-ness and the refractory period answer different questions, which is why both exist.

@@ -60,10 +60,34 @@ export {
   validateOscillation,
   readOscillations,
   readOscillation,
+  writeOscillation,
+  deleteOscillation,
   oscillationDueness,
   readCycleLog,
   runOscillation,
 } from "./oscillation.js";
+export { isMindProject, initMind } from "./init.js";
+export {
+  PROFILE_META_PATH,
+  PROFILE_OWNED_FILES,
+  defaultProfileDir,
+  ensureMemoryIgnored,
+  loadProfileManifest,
+  readProfileMeta,
+  resolveProfileDir,
+  sha256,
+  writeProfileMeta,
+} from "./profile.js";
+export {
+  USAGE_SCHEMA_VERSION,
+  resolveRange,
+  folderTimestampMs,
+  summarizeRunFolder,
+  readSpendUsage,
+  readOscillationActivity,
+  readStorageUsage,
+  readUsage,
+} from "./usage.js";
 export {
   BUILTIN_GRAPHS,
   daemonPolicyPath,

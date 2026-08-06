@@ -1,7 +1,9 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   createSpikeRunner,
   daemonPolicyPath,
+  deleteOscillation,
   fail,
   formatDuration,
   grantCatalogCapability,
@@ -16,12 +18,15 @@ import {
   requireProjectRoot,
   runOscillation,
   writeCapabilityPolicy,
+  writeOscillation,
 } from "@mind/core";
 
 const usage = () => {
   console.error("usage: mind oscillation ls [--json]              (rhythms in this mind, and when each is due)");
   console.error("       mind oscillation show <id> [--json]       (definition, last cycles, skipped ticks)");
   console.error("       mind oscillation run <id> [--force]       (fire one cycle now)");
+  console.error("       mind oscillation add <file.json|-> [--no-overwrite]   (define or replace a rhythm)");
+  console.error("       mind oscillation rm <id> [--purge-state]  (drop a rhythm; its audit stays unless purged)");
   console.error("       mind oscillation grants                   (capabilities this mind may use unattended)");
   console.error("       mind oscillation grant <catalog> <capability>");
 };
@@ -115,6 +120,34 @@ const oscillationRun = async (argv, ctx) => {
   if (outcome.cycle.spikes.some((spike) => spike.state === "error")) process.exitCode = 1;
 };
 
+const oscillationAdd = (argv) => {
+  const source = argv.find((a) => !a.startsWith("--"));
+  if (!source) fail("usage: mind oscillation add <file.json|-> [--no-overwrite]");
+  const raw = readFileSync(source === "-" ? 0 : source, "utf8");
+  let spec;
+  try {
+    spec = JSON.parse(raw);
+  } catch (error) {
+    fail(`${source === "-" ? "stdin" : source} is not valid JSON (${error.message})`);
+  }
+  const root = requireProjectRoot();
+  const written = writeOscillation(root, spec, { overwrite: !argv.includes("--no-overwrite") });
+  console.log(`${written.created ? "defined" : "replaced"} ${written.id} — ${written.band} band, every ${formatDuration(written.periodMs)}`);
+  console.log(`  ${path.relative(root, written.file)}`);
+  console.log(`  ${written.spikes.length} spike(s): ${written.spikes.map((spike) => `${spike.id}@${spike.phase}`).join(", ")}`);
+  if (!written.enabled) console.log("  disabled — the daemon will skip it until enabled is true");
+};
+
+const oscillationRm = (argv) => {
+  const id = argv.find((a) => !a.startsWith("--"));
+  if (!id) fail("usage: mind oscillation rm <id> [--purge-state]");
+  const root = requireProjectRoot();
+  const removed = deleteOscillation(root, id, { purgeState: argv.includes("--purge-state") });
+  console.log(`removed ${removed.id} (${path.relative(root, removed.file)})`);
+  if (removed.purged.length) console.log(`  purged its state and cycle log (${removed.purged.length} file(s))`);
+  else console.log("  its cycle log and last-run state are kept — pass --purge-state to drop them too");
+};
+
 const oscillationGrants = () => {
   const root = requireProjectRoot();
   const file = daemonPolicyPath(root);
@@ -148,6 +181,8 @@ export const run = async (argv, ctx) => {
   if (operation === "ls" || operation === "list") return oscillationLs(rest);
   if (operation === "show") return oscillationShow(rest);
   if (operation === "run") return oscillationRun(rest, ctx);
+  if (operation === "add" || operation === "set") return oscillationAdd(rest);
+  if (operation === "rm" || operation === "remove") return oscillationRm(rest);
   if (operation === "grants") return oscillationGrants();
   if (operation === "grant") return oscillationGrant(rest);
   usage();

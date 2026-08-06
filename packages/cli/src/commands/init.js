@@ -1,20 +1,7 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import path from "node:path";
-import { DEFAULT_CONFIG, TEMPLATE_SKILL, fail, mintAgentId, readAgentIdentity } from "@mind/core";
-import {
-  PROFILE_OWNED_FILES,
-  ensureMemoryIgnored,
-  loadProfileManifest,
-  resolveProfileDir,
-  sha256,
-  writeProfileMeta,
-} from "../profile.js";
+import { fail, initMind } from "@mind/core";
 
-const copyFile = (src, dest) => {
-  mkdirSync(path.dirname(dest), { recursive: true });
-  cpSync(src, dest, { recursive: true });
-};
-
+// Flag parsing and printing. The procedure itself lives in core (`initMind`), so a host
+// creating a mind over HTTP and a human running `mind init` scaffold the same thing.
 export const run = (argv, ctx) => {
   let source = null;
   let force = false;
@@ -28,114 +15,12 @@ export const run = (argv, ctx) => {
     else fail("unknown flag: " + argv[i]);
   }
 
-  const cwd = process.cwd();
-  const profileDir = resolveProfileDir(source);
-  const manifest = loadProfileManifest(profileDir);
-  // Read before anything is written — the config is rewritten below, so this is the only
-  // point at which the *previous* identity is still observable.
-  const recorded = readAgentIdentity(cwd);
+  const report = initMind(process.cwd(), { name, source, force, newIdentity, cliVersion: ctx.cliVersion });
 
-  if (existsSync(path.join(cwd, ".alters", "config.json")) && !force) {
-    fail("this directory is already a mind project (.alters/config.json exists). Pass --force to reinitialize.");
-  }
-
-  // Root AGENTS.md
-  const agentsSrc = path.join(profileDir, "AGENTS.md");
-  if (existsSync(agentsSrc)) copyFile(agentsSrc, path.join(cwd, "AGENTS.md"));
-
-  // Root harness config
-  const opencodeSrc = path.join(profileDir, "opencode.jsonc");
-  if (existsSync(opencodeSrc)) copyFile(opencodeSrc, path.join(cwd, "opencode.jsonc"));
-
-  // Alter skill doc: the profile's own, or fall back to the engine's canonical copy.
-  const profileSkill = path.join(profileDir, "skills", "alter", "SKILL.md");
-  const skillSrc = existsSync(profileSkill) ? profileSkill : TEMPLATE_SKILL;
-  copyFile(skillSrc, path.join(cwd, ".opencode", "skills", "alter", "SKILL.md"));
-
-  // .alters/config.json — profile overrides merged over engine defaults
-  let configOverrides = {};
-  const configSrc = path.join(profileDir, "config.json");
-  if (existsSync(configSrc)) {
-    try {
-      configOverrides = JSON.parse(readFileSync(configSrc, "utf8"));
-    } catch (e) {
-      fail(`profile config.json is not valid JSON (${e.message})`);
-    }
-  }
-  // Identity is resolved before the write and placed *after* the profile overrides, for
-  // two reasons. A profile is a shared template, so an `agent_id` appearing in one would
-  // clone a single identity into every mind initialized from it. And `--force`
-  // reinitializes an existing project: refreshing its files must not re-identify it,
-  // which would orphan the memory it has already accumulated.
-  //
-  // `--new-identity` is the one sanctioned way past that rule, and it exists because
-  // copying a mind copies its `agent_id`: the fork and the original then both claim one
-  // identity, which `mind agents scan` reports as a conflict it cannot resolve on the
-  // user's behalf. Re-identifying is deliberately explicit, because it cuts the fork off
-  // from every memory record the original accumulated — which is the point of a fork, and
-  // a disaster by accident. The legacy memory pin goes with it, or the "new" mind would
-  // keep writing into the old one's namespace.
-  const existing = newIdentity ? { agentId: null, name: null, memoryProjectId: null } : recorded;
-  const mergedConfig = {
-    ...DEFAULT_CONFIG,
-    ...configOverrides,
-    agent_id: existing.agentId || mintAgentId(),
-    name: name || existing.name || path.basename(cwd),
-    ...(existing.memoryProjectId ? { memory_project_id: existing.memoryProjectId } : {}),
-    retry: { ...DEFAULT_CONFIG.retry, ...(configOverrides.retry || {}) },
-  };
-  mkdirSync(path.join(cwd, ".alters"), { recursive: true });
-  writeFileSync(path.join(cwd, ".alters", "config.json"), JSON.stringify(mergedConfig, null, 2) + "\n");
-
-  // .alters/catalog/*
-  const catalogSrc = path.join(profileDir, "catalog");
-  if (existsSync(catalogSrc)) copyFile(catalogSrc, path.join(cwd, ".alters", mergedConfig.catalog_dir || "catalog"));
-  ensureMemoryIgnored(cwd);
-
-  // package.json: ensure `mind` is a dependency, merge in any profile package.json fragment
-  const pkgPath = path.join(cwd, "package.json");
-  let pkg = {};
-  if (existsSync(pkgPath)) {
-    try {
-      pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-    } catch (e) {
-      fail(`existing package.json is not valid JSON (${e.message})`);
-    }
-  } else {
-    pkg = { name: path.basename(cwd), private: true, version: "0.0.0" };
-  }
-  pkg.dependencies = pkg.dependencies || {};
-  if (!pkg.dependencies.mind) pkg.dependencies.mind = "^" + ctx.cliVersion;
-  const profilePkgSrc = path.join(profileDir, "package.json");
-  if (existsSync(profilePkgSrc)) {
-    try {
-      const frag = JSON.parse(readFileSync(profilePkgSrc, "utf8"));
-      pkg.dependencies = { ...pkg.dependencies, ...(frag.dependencies || {}) };
-      pkg.devDependencies = { ...(pkg.devDependencies || {}), ...(frag.devDependencies || {}) };
-    } catch (e) {
-      fail(`profile package.json is not valid JSON (${e.message})`);
-    }
-  }
-  writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-
-  // Track profile-owned files by checksum so `mind update` can tell an
-  // untouched copy (safe to refresh) from a user-edited one (skip + warn).
-  const files = {};
-  for (const rel of PROFILE_OWNED_FILES) {
-    const p = path.join(cwd, rel);
-    if (existsSync(p)) files[rel] = sha256(readFileSync(p));
-  }
-  writeProfileMeta(cwd, {
-    profile: manifest.name,
-    source: source ? path.resolve(source) : null,
-    applied_at: new Date().toISOString(),
-    files,
-  });
-
-  const verb = recorded.agentId ? "reinitialized" : "initialized";
-  console.log(`${verb} mind "${mergedConfig.name}" (profile: ${manifest.name}) in ${cwd}`);
-  console.log(`  agent_id: ${mergedConfig.agent_id}${existing.agentId ? " (preserved)" : ""}`);
-  if (newIdentity && recorded.agentId && recorded.agentId !== mergedConfig.agent_id) {
-    console.log(`  was:      ${recorded.agentId} — this mind no longer reads that mind's memory`);
+  const verb = report.reinitialized ? "reinitialized" : "initialized";
+  console.log(`${verb} mind "${report.name}" (profile: ${report.profile}) in ${report.root}`);
+  console.log(`  agent_id: ${report.agentId}${report.identityPreserved ? " (preserved)" : ""}`);
+  if (report.previousAgentId) {
+    console.log(`  was:      ${report.previousAgentId} — this mind no longer reads that mind's memory`);
   }
 };

@@ -33,8 +33,10 @@ const usage = () => {
   console.error("  memory  migrate --to sqlite                            (copy JSON memory into SQLite/FTS)");
   console.error("  agents  ls | scan | add <dir> [--workspace] | rm <dir> | where <id|name>");
   console.error("                                          (the registry of minds this machine knows)");
-  console.error("  oscillation ls | show <id> | run <id> [--force] | grants | grant <cat> <cap>");
-  console.error("                                          (this mind's rhythms)");
+  console.error("  oscillation ls | show <id> | run <id> [--force] | add <file|-> | rm <id>");
+  console.error("              | grants | grant <cat> <cap>  (this mind's rhythms)");
+  console.error("  usage   [--since <dur>] [--from <when>] [--to <when>] [--mind <id|name>]");
+  console.error("          [--no-storage] [--json]         (tokens, tool calls and storage for one mind)");
   console.error("  daemon  [--once] [--interval <dur>] [--dry-run] [--mind <id|name>]");
   console.error("                                          (tick every mind's due oscillations)");
   console.error("  catalog list                            (list predefined harnesses)");
@@ -56,6 +58,7 @@ const COMMANDS = {
   agents: () => import("./commands/agents.js"),
   oscillation: () => import("./commands/oscillation.js"),
   daemon: () => import("./commands/daemon.js"),
+  usage: () => import("./commands/usage.js"),
   catalog: () => import("./commands/catalog.js"),
   memory: () => import("./commands/memory.js"),
 };
