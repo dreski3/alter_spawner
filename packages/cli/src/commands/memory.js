@@ -9,6 +9,7 @@ import {
   migrateFileMemoryStoreToSqlite,
   putMemory,
   requireProjectRoot,
+  resolveProjectId,
   searchMemory,
   sqliteMemoryFilePath,
 } from "@mind/core";
@@ -89,7 +90,7 @@ export const run = async (argv) => {
     const result = await migrateFileMemoryStoreToSqlite({
       sourceFile,
       destinationFile,
-      projectId: options.projectId || path.basename(root),
+      projectId: resolveProjectId(root, options.projectId),
     });
     if (options.json) console.log(JSON.stringify(result, null, 2));
     else console.log(

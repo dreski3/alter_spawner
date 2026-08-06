@@ -15,7 +15,17 @@ export {
 } from "./persistence.js";
 export { validateOutputContract, checkOutputContract } from "./output-contract.js";
 export { createRuntime, resolveRuntime } from "./runtime.js";
-export { DEFAULT_CONFIG, findProjectRoot, requireProjectRoot, readConfig, kitDir } from "./config.js";
+export {
+  DEFAULT_CONFIG,
+  findProjectRoot,
+  requireProjectRoot,
+  readConfig,
+  kitDir,
+  mintAgentId,
+  readAgentIdentity,
+  ensureAgentIdentity,
+  resolveProjectId,
+} from "./config.js";
 export {
   catalogDirPath,
   validateManifest,

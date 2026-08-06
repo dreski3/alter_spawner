@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { kitDir } from "./config.js";
+import { kitDir, resolveProjectId } from "./config.js";
 import { writeJsonAtomic } from "./persistence.js";
 import { resolveRuntime } from "./runtime.js";
 import { createSqliteMemoryStore, sqliteMemoryFilePath } from "./sqlite-memory.js";
@@ -498,7 +498,7 @@ export const createFileMemoryStore = ({
 };
 
 export const createProjectMemoryStore = (root, options = {}) => {
-  const projectId = options.projectId || path.basename(path.resolve(root));
+  const projectId = resolveProjectId(root, options.projectId);
   if (options.backend === "sqlite") {
     return createSqliteMemoryStore({
       ...options,

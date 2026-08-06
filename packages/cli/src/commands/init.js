@@ -1,6 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { DEFAULT_CONFIG, TEMPLATE_SKILL, fail } from "@mind/core";
+import { DEFAULT_CONFIG, TEMPLATE_SKILL, fail, mintAgentId, readAgentIdentity } from "@mind/core";
 import {
   PROFILE_OWNED_FILES,
   ensureMemoryIgnored,
@@ -18,8 +18,10 @@ const copyFile = (src, dest) => {
 export const run = (argv, ctx) => {
   let source = null;
   let force = false;
+  let name = null;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--source") source = argv[++i];
+    else if (argv[i] === "--name") name = argv[++i];
     else if (argv[i] === "--force") force = true;
     else fail("unknown flag: " + argv[i]);
   }
@@ -55,9 +57,18 @@ export const run = (argv, ctx) => {
       fail(`profile config.json is not valid JSON (${e.message})`);
     }
   }
+  // Identity is resolved before the write and placed *after* the profile overrides, for
+  // two reasons. A profile is a shared template, so an `agent_id` appearing in one would
+  // clone a single identity into every mind initialized from it. And `--force`
+  // reinitializes an existing project: refreshing its files must not re-identify it,
+  // which would orphan the memory it has already accumulated.
+  const existing = readAgentIdentity(cwd);
   const mergedConfig = {
     ...DEFAULT_CONFIG,
     ...configOverrides,
+    agent_id: existing.agentId || mintAgentId(),
+    name: name || existing.name || path.basename(cwd),
+    ...(existing.memoryProjectId ? { memory_project_id: existing.memoryProjectId } : {}),
     retry: { ...DEFAULT_CONFIG.retry, ...(configOverrides.retry || {}) },
   };
   mkdirSync(path.join(cwd, ".alters"), { recursive: true });
@@ -108,5 +119,7 @@ export const run = (argv, ctx) => {
     files,
   });
 
-  console.log(`initialized mind project (profile: ${manifest.name}) in ${cwd}`);
+  const verb = existing.agentId ? "reinitialized" : "initialized";
+  console.log(`${verb} mind "${mergedConfig.name}" (profile: ${manifest.name}) in ${cwd}`);
+  console.log(`  agent_id: ${mergedConfig.agent_id}${existing.agentId ? " (preserved)" : ""}`);
 };

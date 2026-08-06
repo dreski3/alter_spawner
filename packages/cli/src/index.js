@@ -10,7 +10,7 @@ const CLI_PKG = JSON.parse(readFileSync(path.join(path.dirname(CLI_ENTRY), "..",
 const usage = () => {
   console.error("usage: mind <command> [args]");
   console.error("");
-  console.error("  init    [--source <path>] [--force]   (scaffold this directory as a mind project)");
+  console.error("  init    [--source <path>] [--name <n>] [--force]   (scaffold this directory as a mind project)");
   console.error("  update  [--source <path>]              (re-apply profile-owned files + new catalog entries)");
   console.error("  spawn   --name? --description? --model? --allow <p> --allow-write <p>");
   console.error("          --nestable? --web? --timeout? --rm? --verbose?");

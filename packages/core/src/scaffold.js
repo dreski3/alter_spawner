@@ -62,7 +62,7 @@ export const scaffold = (root, cfg, o, runtimeOverride, { agentFiles = true } = 
   o.runFolder = claimRunFolder(root, o.id, runtime);
   const home = path.join(runsDir(root), o.runFolder);
   if (agentFiles) scaffoldAgentFiles(root, cfg, o, runtime, home);
-  writeAlterJson(root, o, runtime, home);
+  writeAlterJson(root, cfg, o, runtime, home);
   return home;
 };
 
@@ -156,11 +156,16 @@ const scaffoldAgentFiles = (root, cfg, o, runtime, home) => {
 
 // The record of what this Alter is, written for every executor. `mind list`, `tree`,
 // `show`, `rm`, and `runExistingAlter` all read it, and none of them care what ran.
-const writeAlterJson = (root, o, runtime, home) => {
+const writeAlterJson = (root, cfg, o, runtime, home) => {
   writeJsonAtomic(
     path.join(home, "alter.json"),
       {
         schema_version: ALTER_SCHEMA_VERSION,
+        // Which mind this spike belongs to. Derivable from the containing root only for
+        // as long as the directory stays put — which is exactly the assumption agent_id
+        // exists to remove. Null for a nestable Alter's child root, which is a run
+        // artifact rather than a mind and never gets an identity of its own.
+        agent_id: cfg.agent_id || null,
         id: o.id,
         name: o.name || null,
         description: o.description || null,
