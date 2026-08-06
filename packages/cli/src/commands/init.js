@@ -19,16 +19,21 @@ export const run = (argv, ctx) => {
   let source = null;
   let force = false;
   let name = null;
+  let newIdentity = false;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--source") source = argv[++i];
     else if (argv[i] === "--name") name = argv[++i];
     else if (argv[i] === "--force") force = true;
+    else if (argv[i] === "--new-identity") newIdentity = true;
     else fail("unknown flag: " + argv[i]);
   }
 
   const cwd = process.cwd();
   const profileDir = resolveProfileDir(source);
   const manifest = loadProfileManifest(profileDir);
+  // Read before anything is written — the config is rewritten below, so this is the only
+  // point at which the *previous* identity is still observable.
+  const recorded = readAgentIdentity(cwd);
 
   if (existsSync(path.join(cwd, ".alters", "config.json")) && !force) {
     fail("this directory is already a mind project (.alters/config.json exists). Pass --force to reinitialize.");
@@ -62,7 +67,15 @@ export const run = (argv, ctx) => {
   // clone a single identity into every mind initialized from it. And `--force`
   // reinitializes an existing project: refreshing its files must not re-identify it,
   // which would orphan the memory it has already accumulated.
-  const existing = readAgentIdentity(cwd);
+  //
+  // `--new-identity` is the one sanctioned way past that rule, and it exists because
+  // copying a mind copies its `agent_id`: the fork and the original then both claim one
+  // identity, which `mind agents scan` reports as a conflict it cannot resolve on the
+  // user's behalf. Re-identifying is deliberately explicit, because it cuts the fork off
+  // from every memory record the original accumulated — which is the point of a fork, and
+  // a disaster by accident. The legacy memory pin goes with it, or the "new" mind would
+  // keep writing into the old one's namespace.
+  const existing = newIdentity ? { agentId: null, name: null, memoryProjectId: null } : recorded;
   const mergedConfig = {
     ...DEFAULT_CONFIG,
     ...configOverrides,
@@ -119,7 +132,10 @@ export const run = (argv, ctx) => {
     files,
   });
 
-  const verb = existing.agentId ? "reinitialized" : "initialized";
+  const verb = recorded.agentId ? "reinitialized" : "initialized";
   console.log(`${verb} mind "${mergedConfig.name}" (profile: ${manifest.name}) in ${cwd}`);
   console.log(`  agent_id: ${mergedConfig.agent_id}${existing.agentId ? " (preserved)" : ""}`);
+  if (newIdentity && recorded.agentId && recorded.agentId !== mergedConfig.agent_id) {
+    console.log(`  was:      ${recorded.agentId} — this mind no longer reads that mind's memory`);
+  }
 };

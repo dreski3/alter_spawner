@@ -50,6 +50,26 @@ export { DEFAULT_MAX_EDGE_CHARS, renderGraphPrompt, validateGraph } from "./grap
 export { withFileLock } from "./file-lock.js";
 export { withRefractoryPeriod, readRefractoryState, readSkipLog } from "./refractory.js";
 export {
+  MIND_HOME_ENV,
+  REGISTRY_SCHEMA_VERSION,
+  mindHomeDir,
+  registryPath,
+  registryConfigPath,
+  defaultWorkspaces,
+  readRegistryConfig,
+  writeRegistryConfig,
+  addRegistryInput,
+  removeRegistryInput,
+  isMindRoot,
+  discoverMindRoots,
+  readRegistry,
+  scanRegistry,
+  ensureRegistry,
+  touchMind,
+  resolveMind,
+  listMinds,
+} from "./registry.js";
+export {
   TREE_ID_ENV,
   TREE_LEDGER_ENV,
   TREE_NODE_ENV,

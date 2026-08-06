@@ -10,7 +10,8 @@ const CLI_PKG = JSON.parse(readFileSync(path.join(path.dirname(CLI_ENTRY), "..",
 const usage = () => {
   console.error("usage: mind <command> [args]");
   console.error("");
-  console.error("  init    [--source <path>] [--name <n>] [--force]   (scaffold this directory as a mind project)");
+  console.error("  init    [--source <path>] [--name <n>] [--force] [--new-identity]");
+  console.error("                                          (scaffold this directory as a mind project)");
   console.error("  update  [--source <path>]              (re-apply profile-owned files + new catalog entries)");
   console.error("  spawn   --name? --description? --model? --allow <p> --allow-write <p>");
   console.error("          --nestable? --web? --timeout? --rm? --verbose?");
@@ -30,6 +31,8 @@ const usage = () => {
   console.error("  memory  put <content> [--kind <k>] [--tag <t>]*       (ask the host to store a durable record)");
   console.error("  memory  stats                                           (inspect persistent-memory storage)");
   console.error("  memory  migrate --to sqlite                            (copy JSON memory into SQLite/FTS)");
+  console.error("  agents  ls | scan | add <dir> [--workspace] | rm <dir> | where <id|name>");
+  console.error("                                          (the registry of minds this machine knows)");
   console.error("  catalog list                            (list predefined harnesses)");
   console.error("  catalog show <name>                     (print a harness manifest.json)");
   console.error("  catalog save <name> --from <id> | ...spawn flags   (add/update a harness)");
@@ -46,6 +49,7 @@ const COMMANDS = {
   tree: () => import("./commands/tree.js"),
   show: () => import("./commands/show.js"),
   rm: () => import("./commands/rm.js"),
+  agents: () => import("./commands/agents.js"),
   catalog: () => import("./commands/catalog.js"),
   memory: () => import("./commands/memory.js"),
 };
