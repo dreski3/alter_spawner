@@ -24,6 +24,7 @@ export const buildGraphSpawnOptions = (node, graphId, mindBinPath) => createSpaw
   promptSuffix: node.promptSuffix ?? null,
   webAccess: !!node.webAccess,
   opencodeProvider: node.opencodeProvider || null,
+  opencodeVariant: node.opencodeVariant || null,
   outputContract: node.outputContract || null,
   mindBinPath,
   spawned_by: `graph:${graphId}`,

@@ -82,6 +82,7 @@ export const runWithRetries = async ({
       alterId: o.id,
       maxTokens: o.maxTokens,
       model: attemptModel,
+      variant: o.opencodeVariant || null,
       pure,
       recordEvents,
       attempt: i + 1,

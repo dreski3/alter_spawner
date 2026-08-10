@@ -1,6 +1,8 @@
 import {
+  askMemoryAssistant,
   CapabilityUnavailableError,
   fail,
+  formatAssistantOutcome,
   formatStorageOutcome,
   formatPutOutcome,
   formatSearchOutcome,
@@ -19,11 +21,16 @@ const usage = () => {
   console.error("usage: mind memory search <query> [--limit <n>] [--kind <k>]* [--json]");
   console.error("       mind memory put <content> [--kind <k>] [--tag <t>]* [--confidence <0-1>]");
   console.error("                                 [--expires-at <iso>] [--json]");
+  console.error("       mind memory ask <text> [--json]");
   console.error("       mind memory stats [--json]");
   console.error("       mind memory migrate --to sqlite [--source <file>] [--destination <file>] [--json]");
   console.error("");
   console.error("  kinds: fact, preference, decision, summary");
   console.error("  The host decides the project/conversation scope and whether the operation runs at all.");
+  console.error("  ask hands text to the memory assistant, which decides for itself whether it states");
+  console.error("  something durable to remember or asks for something to recall, and returns a plain-");
+  console.error("  language result either way — use it instead of search/put when you would rather not");
+  console.error("  make that call yourself.");
 };
 
 const parse = (argv, flags) => {
@@ -111,6 +118,23 @@ export const run = async (argv) => {
     } catch (error) {
       if (error instanceof CapabilityUnavailableError) {
         fail(`persistent memory is unavailable here (${error.message}). Nothing was read.`);
+      }
+      throw error;
+    }
+  }
+  if (operation === "ask") {
+    const options = parse(rest, {});
+    if (options.help) return usage();
+    const text = options.positional.join(" ").trim();
+    if (!text) fail("mind memory ask requires text");
+    try {
+      const outcome = await askMemoryAssistant({ text });
+      if (options.json) console.log(JSON.stringify(outcome, null, 2));
+      else console.log(formatAssistantOutcome(outcome));
+      return;
+    } catch (error) {
+      if (error instanceof CapabilityUnavailableError) {
+        fail(`the memory assistant is unavailable here (${error.message}). Nothing was read or written; continue without it.`);
       }
       throw error;
     }

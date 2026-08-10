@@ -199,8 +199,10 @@ export {
 export {
   searchMemory,
   putMemory,
+  askMemoryAssistant,
   inspectMemoryStorage,
   formatSearchOutcome,
   formatPutOutcome,
+  formatAssistantOutcome,
   formatStorageOutcome,
 } from "./memory-client.js";

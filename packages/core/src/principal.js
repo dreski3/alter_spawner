@@ -43,6 +43,14 @@ export const runPrincipalTurn = async (projectDir, {
   timeout = null,
   principalId = null,
   harness = "opencode",
+  // Only the harnesses with no agent home read this, and for them it is not a detail
+  // but the whole persona: the `llm` adapter builds its entire system prompt from this
+  // string and reads nothing off disk, so a principal running there gets no AGENTS.md,
+  // no operating conventions and no skills. Left null it falls back to that adapter's
+  // leaf-transformer default ("Transform the text you are given"), which would tell a
+  // conversational principal it is a text filter. The opencode path ignores it — its
+  // persona comes from the project's own AGENTS.md and agent definition.
+  description = null,
   signal,
   onEvent,
   runtime: runtimeOverride,
@@ -56,6 +64,7 @@ export const runPrincipalTurn = async (projectDir, {
     name: principalId || "principal",
     model: model || runtime.env.ALTER_MODEL || cfg.default_model,
     maxTokens,
+    description,
     // No fallback tier: a principal turn is a conversation the user is watching,
     // so a silent model swap mid-turn would rewrite who they are talking to.
     fallbackModel: null,

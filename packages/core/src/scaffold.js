@@ -189,6 +189,7 @@ const writeAlterJson = (root, cfg, o, runtime, home) => {
         graph_id: o.graphId || null,
         depends_on: o.dependsOn || [],
         opencode_provider: o.opencodeProvider || null,
+        opencode_variant: o.opencodeVariant || null,
         output_contract: o.outputContract || null,
         created_at: iso(runtime.now()),
         home: path.relative(root, home),

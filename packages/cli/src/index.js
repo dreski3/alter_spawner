@@ -29,6 +29,7 @@ const usage = () => {
   console.error("  rm      <id>          (delete a home)");
   console.error("  memory  search <query> [--limit <n>] [--kind <k>]*    (ask the host to search persistent memory)");
   console.error("  memory  put <content> [--kind <k>] [--tag <t>]*       (ask the host to store a durable record)");
+  console.error("  memory  ask <text>                                     (let the memory assistant decide: remember or recall)");
   console.error("  memory  stats                                           (inspect persistent-memory storage)");
   console.error("  memory  migrate --to sqlite                            (copy JSON memory into SQLite/FTS)");
   console.error("  agents  ls | scan | add <dir> [--workspace] | rm <dir> | where <id|name>");

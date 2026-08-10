@@ -42,6 +42,7 @@ export type SpawnOptions = {
   promptSuffix: string | null;
   webAccess: boolean;
   opencodeProvider?: Record<string, unknown> | null;
+  opencodeVariant?: string | null;
   outputContract?: OutputContract | null;
   graphId?: string | null;
   dependsOn?: string[];
@@ -429,6 +430,10 @@ export function runPrincipalTurn(
     timeout?: number | null;
     principalId?: string | null;
     harness?: string;
+    // The persona for harnesses with no agent home to read one from — the `llm`
+    // adapter's whole system prompt. Ignored by `opencode`, which reads the project's
+    // own AGENTS.md instead.
+    description?: string | null;
     signal?: AbortSignal;
     onEvent?: (event: AlterRuntimeEvent) => void;
     runtime?: Runtime;
@@ -502,6 +507,7 @@ export type AlterGraphNode = {
   promptPrefix?: string;
   promptSuffix?: string;
   opencodeProvider?: Record<string, unknown>;
+  opencodeVariant?: string;
   outputContract?: OutputContract;
   memory?: {
     recall?: boolean | { namespace?: string; query?: string };

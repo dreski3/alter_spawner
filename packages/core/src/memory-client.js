@@ -89,6 +89,37 @@ export const putMemory = async ({
   return { ...outcome, records: outcome.value?.records || [] };
 };
 
+// Delegates the whole "is this worth remembering, or does it need recalling" decision
+// to the memory-assistant alter, rather than asking the host to run one specific
+// operation. `mind memory search`/`put` still exist for a caller that has already made
+// that decision; this is for a caller that would rather hand over free text and let the
+// alter route it — one router, one dispatch, one natural-language result — instead of
+// composing the two itself. Same host boundary as every other memory call here: the
+// approval card the user sees names the real operation the router picked, not this call.
+export const askMemoryAssistant = async ({
+  text,
+  env,
+  signal,
+  fetchImpl,
+} = {}) => {
+  if (typeof text !== "string" || !text.trim() || text.length > 20000) {
+    throw new Error("memory assistant text must be a non-empty string of at most 20,000 characters");
+  }
+  const outcome = await requestCapability("memory.assistant.handle", {
+    env,
+    signal,
+    fetchImpl,
+    reason: "The principal is delegating a memory decision to the memory assistant.",
+    input: { text: text.trim() },
+  });
+  return {
+    ...outcome,
+    action: outcome.value?.action || null,
+    detail: outcome.value?.detail || null,
+    text: outcome.value?.text || "",
+  };
+};
+
 export const inspectMemoryStorage = async ({ env, signal, fetchImpl } = {}) => {
   const outcome = await requestCapability("memory.records.stats", {
     env,
@@ -128,6 +159,14 @@ export const formatPutOutcome = ({ decision, records }) => {
   return `stored ${records.length} ${records.length === 1 ? "record" : "records"}.\n\n${
     records.map((record) => `[${record.kind}] ${record.id} v${record.version}\n${record.content}`).join("\n\n")
   }`;
+};
+
+export const formatAssistantOutcome = ({ decision, action, detail, text }) => {
+  if (decision === "deny") {
+    return "denied: the user declined this memory action. Nothing was read or written — continue without it.";
+  }
+  if (!action) return "the memory assistant returned no decision.";
+  return `${action} (${detail}).\n\n${text}`;
 };
 
 export const formatStorageOutcome = ({ decision, stats }) => {

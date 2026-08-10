@@ -115,7 +115,9 @@ export const runDaemonTick = async ({
             signal,
             force,
             onLog: (line) => onLog({ ...line, mind: mind.name }),
-            runSpike: runSpike || createSpikeRunner(mind.root, { runtime, mindBinPath, signal }),
+            runSpike: runSpike
+              ? (context) => runSpike({ ...context, mind })
+              : createSpikeRunner(mind.root, { runtime, mindBinPath, signal }),
           });
           report.oscillations.push({
             ...entry,
