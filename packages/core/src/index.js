@@ -36,6 +36,11 @@ export {
   convertCatalogEntryToProject,
 } from "./catalog.js";
 export {
+  PRIVILEGED_MANIFEST_FIELDS,
+  exportCatalogEntry,
+  importCatalogEntry,
+} from "./catalog-transfer.js";
+export {
   PROJECT_AGENTS_FILE,
   PROJECT_SKILLS_DIR,
   PROJECT_SKILL_FILE,

@@ -43,6 +43,8 @@ const usage = () => {
   console.error("  catalog list                            (list predefined harnesses)");
   console.error("  catalog show <name>                     (print a harness manifest.json)");
   console.error("  catalog save <name> --from <id> | ...spawn flags   (add/update a harness)");
+  console.error("  catalog export <name> --to <dir>        (copy an alter project out, to version or share)");
+  console.error("  catalog import <dir> [--as <name>] [--trust]       (copy one in; grants are dropped unless --trust)");
 };
 
 const COMMANDS = {

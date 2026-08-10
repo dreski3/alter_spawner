@@ -266,6 +266,43 @@ export function saveCatalogEntry(
 /** Seeds project files on an existing entry and records their paths. Changes no other field. */
 export function convertCatalogEntryToProject(root: string, cfg: MindConfig, name: string): CatalogEntry;
 
+// --- Moving projects between machines ---------------------------------------------
+// The files are portable; the grants in the manifest are not. Import reduces the fields
+// below to their safe value unless `trust` is set, and reports what it changed.
+
+export const PRIVILEGED_MANIFEST_FIELDS: Readonly<{
+  read_grants: never[];
+  write_grants: never[];
+  bash_allow: never[];
+  nestable: false;
+  opencode_provider: null;
+}>;
+
+export function exportCatalogEntry(
+  root: string,
+  cfg: MindConfig,
+  name: string,
+  destination: string,
+  options?: { force?: boolean },
+): { name: string; source: string; target: string; files: ProjectFile[] };
+
+export function importCatalogEntry(
+  root: string,
+  cfg: MindConfig,
+  source: string,
+  options?: { as?: string | null; force?: boolean; trust?: boolean },
+): {
+  name: string;
+  dir: string;
+  manifest: CatalogManifest;
+  /** Privileged fields the source manifest asked for, reported whether or not they were kept. */
+  privileged: { field: string; was: unknown }[];
+  /** Those that were actually reduced — the same list, or empty when `trust` was set. */
+  dropped: { field: string; was: unknown }[];
+  /** Capabilities kept but worth surfacing — currently `web`. */
+  notable: string[];
+};
+
 // --- Alters authored as projects -------------------------------------------------
 // The catalog entry directory is the source; `scaffold` compiles a copy into each run
 // home. Every path below is relative to the entry directory and confined to it.
