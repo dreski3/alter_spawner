@@ -1,15 +1,19 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { requireProjectRoot, readConfig, catalogDirPath, TEMPLATE_SKILL, fail } from "@mind/core";
 import {
   PROFILE_OWNED_FILES,
+  TEMPLATE_SKILL,
+  catalogDirPath,
   ensureMemoryIgnored,
+  fail,
   loadProfileManifest,
+  readConfig,
   readProfileMeta,
+  requireProjectRoot,
   resolveProfileDir,
   sha256,
   writeProfileMeta,
-} from "../profile.js";
+} from "@mind/core";
 
 const SKILL_REL = path.join(".opencode", "skills", "alter", "SKILL.md");
 

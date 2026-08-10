@@ -34,10 +34,17 @@ should outlive it — durable facts, the user's preferences, decisions and their
 reasons. You decide when to touch it; nothing reads or writes it on your behalf.
 
 ```bash
-mind memory search "<what you are trying to recall>"   # before assuming, or when history would help
-mind memory put "<one durable fact>" --kind preference # after learning something that will matter again
+mind memory ask "<what the user just said or asked>"   # let the memory assistant decide: remember or recall
+mind memory search "<what you are trying to recall>"   # when you already know you want a search
+mind memory put "<one durable fact>" --kind preference  # when you already know it should be stored, verbatim
 mind memory stats                                      # inspect storage consumption and namespace totals
 ```
+
+Reach for `mind memory ask` first, whenever you notice something worth remembering or
+something that needs recalling, but have not yet decided which — it routes to whichever
+is right and reports back in plain language, so you do not have to make that call
+yourself. Use `search`/`put` directly only when you already know exactly which one you
+want and exactly what to search for or store.
 
 You are asking, not doing: every call goes to your host, which asks the user to
 approve it. A denial prints `denied:` and exits 0 — that is a real answer, so

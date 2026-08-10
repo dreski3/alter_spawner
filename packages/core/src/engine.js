@@ -236,6 +236,7 @@ export const runExistingAlter = async (
     webAccess: !!aj.web,
     maxTokens: aj.max_tokens ?? null,
     fallbackModel: aj.fallback_model || null,
+    opencodeVariant: aj.opencode_variant || null,
     outputContract: aj.output_contract || null,
     catalogName: aj.catalog || null,
     depth,

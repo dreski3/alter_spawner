@@ -10,7 +10,8 @@ const CLI_PKG = JSON.parse(readFileSync(path.join(path.dirname(CLI_ENTRY), "..",
 const usage = () => {
   console.error("usage: mind <command> [args]");
   console.error("");
-  console.error("  init    [--source <path>] [--force]   (scaffold this directory as a mind project)");
+  console.error("  init    [--source <path>] [--name <n>] [--force] [--new-identity]");
+  console.error("                                          (scaffold this directory as a mind project)");
   console.error("  update  [--source <path>]              (re-apply profile-owned files + new catalog entries)");
   console.error("  spawn   --name? --description? --model? --allow <p> --allow-write <p>");
   console.error("          --nestable? --web? --timeout? --rm? --verbose?");
@@ -28,8 +29,17 @@ const usage = () => {
   console.error("  rm      <id>          (delete a home)");
   console.error("  memory  search <query> [--limit <n>] [--kind <k>]*    (ask the host to search persistent memory)");
   console.error("  memory  put <content> [--kind <k>] [--tag <t>]*       (ask the host to store a durable record)");
+  console.error("  memory  ask <text>                                     (let the memory assistant decide: remember or recall)");
   console.error("  memory  stats                                           (inspect persistent-memory storage)");
   console.error("  memory  migrate --to sqlite                            (copy JSON memory into SQLite/FTS)");
+  console.error("  agents  ls | scan | add <dir> [--workspace] | rm <dir> | where <id|name>");
+  console.error("                                          (the registry of minds this machine knows)");
+  console.error("  oscillation ls | show <id> | run <id> [--force] | add <file|-> | rm <id>");
+  console.error("              | grants | grant <cat> <cap>  (this mind's rhythms)");
+  console.error("  usage   [--since <dur>] [--from <when>] [--to <when>] [--mind <id|name>]");
+  console.error("          [--no-storage] [--json]         (tokens, tool calls and storage for one mind)");
+  console.error("  daemon  [--once] [--interval <dur>] [--dry-run] [--mind <id|name>]");
+  console.error("                                          (tick every mind's due oscillations)");
   console.error("  catalog list                            (list predefined harnesses)");
   console.error("  catalog show <name>                     (print a harness manifest.json)");
   console.error("  catalog save <name> --from <id> | ...spawn flags   (add/update a harness)");
@@ -46,6 +56,10 @@ const COMMANDS = {
   tree: () => import("./commands/tree.js"),
   show: () => import("./commands/show.js"),
   rm: () => import("./commands/rm.js"),
+  agents: () => import("./commands/agents.js"),
+  oscillation: () => import("./commands/oscillation.js"),
+  daemon: () => import("./commands/daemon.js"),
+  usage: () => import("./commands/usage.js"),
   catalog: () => import("./commands/catalog.js"),
   memory: () => import("./commands/memory.js"),
 };

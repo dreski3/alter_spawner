@@ -28,6 +28,9 @@ export const DEFAULT_SPAWN_OPTIONS = Object.freeze({
   promptSuffix: null,
   webAccess: false,
   opencodeProvider: null,
+  // Passed to `opencode run --variant`; providers commonly use this for reasoning
+  // effort. Null preserves the model/provider default.
+  opencodeVariant: null,
   outputContract: null,
 });
 

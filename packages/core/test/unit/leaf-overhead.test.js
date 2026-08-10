@@ -64,7 +64,8 @@ test("continuing a session neither re-titles it nor opens a new one", () => {
 });
 
 test("the prompt stays last so no flag can swallow it", () => {
-  const args = buildRunArgs({ home: "/h", prompt: "do the thing", pure: true, agent: "alter", alterId: "x", model: "p/m" });
+  const args = buildRunArgs({ home: "/h", prompt: "do the thing", pure: true, agent: "alter", alterId: "x", model: "p/m", variant: "minimal" });
+  assert.equal(args[args.indexOf("--variant") + 1], "minimal");
   assert.equal(args[args.length - 1], "do the thing");
 });
 

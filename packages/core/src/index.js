@@ -15,7 +15,17 @@ export {
 } from "./persistence.js";
 export { validateOutputContract, checkOutputContract } from "./output-contract.js";
 export { createRuntime, resolveRuntime } from "./runtime.js";
-export { DEFAULT_CONFIG, findProjectRoot, requireProjectRoot, readConfig, kitDir } from "./config.js";
+export {
+  DEFAULT_CONFIG,
+  findProjectRoot,
+  requireProjectRoot,
+  readConfig,
+  kitDir,
+  mintAgentId,
+  readAgentIdentity,
+  ensureAgentIdentity,
+  resolveProjectId,
+} from "./config.js";
 export {
   catalogDirPath,
   validateManifest,
@@ -38,6 +48,73 @@ export {
 export { describeAlterFailure, runAlterGraph } from "./graph.js";
 export { DEFAULT_MAX_EDGE_CHARS, renderGraphPrompt, validateGraph } from "./graph-spec.js";
 export { withFileLock } from "./file-lock.js";
+export { withRefractoryPeriod, readRefractoryState, readSkipLog } from "./refractory.js";
+export {
+  OSCILLATION_SCHEMA_VERSION,
+  BANDS,
+  parseDuration,
+  formatDuration,
+  oscillationsDir,
+  oscillationStateDir,
+  oscillationStatePath,
+  validateOscillation,
+  readOscillations,
+  readOscillation,
+  writeOscillation,
+  deleteOscillation,
+  oscillationDueness,
+  readCycleLog,
+  runOscillation,
+} from "./oscillation.js";
+export { isMindProject, initMind } from "./init.js";
+export {
+  PROFILE_META_PATH,
+  PROFILE_OWNED_FILES,
+  defaultProfileDir,
+  ensureMemoryIgnored,
+  loadProfileManifest,
+  readProfileMeta,
+  resolveProfileDir,
+  sha256,
+  writeProfileMeta,
+} from "./profile.js";
+export {
+  USAGE_SCHEMA_VERSION,
+  resolveRange,
+  folderTimestampMs,
+  summarizeRunFolder,
+  readSpendUsage,
+  readOscillationActivity,
+  readStorageUsage,
+  readUsage,
+} from "./usage.js";
+export {
+  BUILTIN_GRAPHS,
+  daemonPolicyPath,
+  createSpikeRunner,
+  runDaemonTick,
+  runDaemon,
+} from "./daemon.js";
+export {
+  MIND_HOME_ENV,
+  REGISTRY_SCHEMA_VERSION,
+  mindHomeDir,
+  registryPath,
+  registryConfigPath,
+  defaultWorkspaces,
+  readRegistryConfig,
+  writeRegistryConfig,
+  addRegistryInput,
+  removeRegistryInput,
+  isMindRoot,
+  discoverMindRoots,
+  readRegistry,
+  scanRegistry,
+  ensureRegistry,
+  touchMind,
+  resolveMind,
+  listMinds,
+} from "./registry.js";
 export {
   TREE_ID_ENV,
   TREE_LEDGER_ENV,
@@ -122,8 +199,10 @@ export {
 export {
   searchMemory,
   putMemory,
+  askMemoryAssistant,
   inspectMemoryStorage,
   formatSearchOutcome,
   formatPutOutcome,
+  formatAssistantOutcome,
   formatStorageOutcome,
 } from "./memory-client.js";

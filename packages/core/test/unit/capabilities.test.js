@@ -231,3 +231,37 @@ test("structured capabilities reject invalid input and forged invocations", asyn
   );
   assert.equal(calls, 0);
 });
+
+// A scheduled rhythm runs with nobody watching. Raising an approval card there would
+// return a promise no one can resolve, and the cycle holding the refractory lock would
+// never release it — so the rhythm silently stops firing and the only symptom is a process
+// that looks busy. An unattended session therefore gets exactly what a persistent grant
+// already authorized, and denies everything else at once. See daemon.js/createSpikeRunner.
+test("an unattended session denies immediately instead of waiting for a human", async () => {
+  const events = [];
+  const session = createCapabilityApprovalSession({
+    registry: createRegistry(),
+    catalogId: "tester",
+    unattended: true,
+    onEvent: (event) => events.push(event),
+  });
+  await assert.rejects(
+    session.execute("test.echo", { platform: "test", reason: "Scheduled spike." }),
+    /requires approval|denied/i,
+  );
+  assert.equal(session.getPendingApproval(), null, "nothing is left pending for a human to find");
+  assert.deepEqual(events.map((event) => event.type), ["capability.denied"]);
+  assert.equal(events[0].reason, "unattended");
+});
+
+test("an unattended session still runs what a persistent grant authorized", async () => {
+  const policy = grantCatalogCapability({ catalogGrants: {} }, "tester", "test.echo");
+  const session = createCapabilityApprovalSession({
+    registry: createRegistry(),
+    catalogId: "tester",
+    unattended: true,
+    isPersistentlyApproved: ({ catalogId, capabilityId }) => hasCatalogGrant(policy, catalogId, capabilityId),
+  });
+  const result = await session.execute("test.echo", { platform: "test", reason: "Scheduled spike." });
+  assert.equal(result.stdout, "trusted-output");
+});

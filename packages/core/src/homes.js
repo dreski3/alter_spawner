@@ -94,6 +94,11 @@ export const writeResult = (root, home, o, res, startedAt, endedAt, durationMs, 
     text: res.text,
     tokens: res.tokens,
     steps: res.steps,
+    // Null rather than an empty rollup when the harness cannot report tools at all (the
+    // `llm` and `function` executors have none), so a reader can tell "no tools exist
+    // here" from "tools exist and none were called". Runs written before this field
+    // existed are also null, which is the same claim: nothing is known.
+    tools: res.tools ? { calls: res.tools.calls, errors: res.tools.errors, by_name: { ...res.tools.byName } } : null,
     session_id: res.sessionID,
     event_log: res.eventLog ? path.relative(home, res.eventLog) : null,
     model: o.model,

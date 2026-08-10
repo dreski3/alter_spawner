@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { kitDir } from "./config.js";
 import { spawnAlter } from "./engine.js";
@@ -29,6 +29,25 @@ export const describeAlterFailure = (result) => {
   return "alter run failed";
 };
 
+// Same race, and the same fix, as claimRunFolder in scaffold.js: the graph home's name
+// is a second-resolution timestamp plus a caller-supplied id, so two graphs started on
+// one tick name the same directory. Claim it by creating it non-recursively and let
+// EEXIST drive the retry.
+const claimGraphHome = (graphRoot, graphId, runtime) => {
+  mkdirSync(graphRoot, { recursive: true });
+  for (let i = 0; i < 5; i++) {
+    const suffix = i === 0 ? "" : `-${runtime.randomId(6)}`;
+    const home = path.join(graphRoot, `${timestampSlug(runtime.now())}_${graphId}${suffix}`);
+    try {
+      mkdirSync(home);
+      return home;
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+    }
+  }
+  fail("could not allocate a unique graph home for: " + graphId);
+};
+
 export const runAlterGraph = async (
   root,
   graph,
@@ -55,11 +74,7 @@ export const runAlterGraph = async (
   const { nodes, output } = validateGraph(graph);
   const graphId = sanitizeName(graph.id || `graph_${runtime.randomId(6)}`);
   const graphRoot = path.join(kitDir(root), "graphs");
-  let graphHome = path.join(graphRoot, `${timestampSlug(runtime.now())}_${graphId}`);
-  if (existsSync(graphHome)) {
-    graphHome = path.join(graphRoot, `${timestampSlug(runtime.now())}_${graphId}-${runtime.randomId(6)}`);
-  }
-  mkdirSync(graphHome, { recursive: true });
+  const graphHome = claimGraphHome(graphRoot, graphId, runtime);
   const startMs = runtime.now();
   const startedAt = iso(startMs);
   const memoryCycle = [...nodes.values()].some((node) => node.memory)

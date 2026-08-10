@@ -1,7 +1,76 @@
-import { closeSync, mkdirSync, openSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// One attempt at the mutex, with no waiting. Returns the descriptor on success and
+// `null` when someone else holds it — which is the distinction a caller that wants to
+// *skip* rather than queue cannot get out of `withFileLock`, since that one blocks
+// until the deadline and then throws.
+//
+// Reclamation has two rules because it serves two very different locked sections. A
+// counter update takes milliseconds, so an mtime older than `staleMs` means the holder
+// died. A rhythm's locked section can legitimately run for hours, and no `staleMs`
+// generous enough for it would still catch a crash promptly — so when the lock file
+// carries a live pid we trust it over the clock, and only fall back to mtime when the
+// pid is unreadable or belongs to no running process.
+export const claimLockOnce = (lockFile, { staleMs = 30000, now = Date.now, isProcessAlive } = {}) => {
+  mkdirSync(path.dirname(lockFile), { recursive: true });
+  try {
+    const descriptor = openSync(lockFile, "wx", 0o600);
+    writeFileSync(descriptor, `${process.pid}\n`);
+    return descriptor;
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+  }
+  if (!holderLooksDead(lockFile, staleMs, now, isProcessAlive)) return null;
+  try {
+    unlinkSync(lockFile);
+  } catch (error) {
+    // Someone else reclaimed it first; they hold it now, so we do not.
+    if (error?.code !== "ENOENT") throw error;
+    return null;
+  }
+  try {
+    const descriptor = openSync(lockFile, "wx", 0o600);
+    writeFileSync(descriptor, `${process.pid}\n`);
+    return descriptor;
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+    return null;
+  }
+};
+
+const holderLooksDead = (lockFile, staleMs, now, isProcessAlive) => {
+  if (isProcessAlive) {
+    const pid = readLockPid(lockFile);
+    if (pid !== null) return !isProcessAlive(pid);
+  }
+  try {
+    return now() - statSync(lockFile).mtimeMs > staleMs;
+  } catch (error) {
+    // Released between our open and our stat — treat it as free and let the retry
+    // above decide.
+    if (error?.code === "ENOENT") return true;
+    throw error;
+  }
+};
+
+const readLockPid = (lockFile) => {
+  try {
+    const pid = Number.parseInt(readFileSync(lockFile, "utf8").trim(), 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+};
+
+export const releaseLock = (lockFile, descriptor) => {
+  closeSync(descriptor);
+  try {
+    unlinkSync(lockFile);
+  } catch {}
+};
 
 // A mutex between *processes*, built on O_EXCL file creation.
 //

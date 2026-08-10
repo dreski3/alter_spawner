@@ -264,6 +264,13 @@ export const createCapabilityApprovalSession = ({
   persistApproval = () => {},
   audit = () => {},
   onEvent = () => {},
+  // No human is watching. An approval card raised here would return a promise that
+  // nobody can ever resolve, and a scheduled rhythm blocked on one holds its refractory
+  // lock forever — so the rhythm stops firing, silently, and the only symptom is a
+  // process that looks busy. Deny instead: an unattended caller gets exactly what a
+  // persistent grant has already authorized, and everything else fails immediately and
+  // visibly. See runOscillation.
+  unattended = false,
   createId = () => `approval_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
   now = () => new Date().toISOString(),
   clock = () => Date.now(),
@@ -304,6 +311,15 @@ export const createCapabilityApprovalSession = ({
     ) {
       emit("capability.auto_approved", { capabilityId, executionDigest: invocation.executionDigest, decision: "always-catalog" });
       return { decision: "always-catalog" };
+    }
+    if (unattended) {
+      emit("capability.denied", {
+        capabilityId,
+        executionDigest: invocation.executionDigest,
+        decision: "deny",
+        reason: "unattended",
+      });
+      return { decision: "deny" };
     }
     return new Promise((resolve, reject) => {
       const approval = {

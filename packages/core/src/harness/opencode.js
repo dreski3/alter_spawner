@@ -29,7 +29,7 @@ export const classify = classifyOpenCodeResult;
 
 // Exported for the same reason as `classify`: the argument vector decides how much
 // this run costs, so it should be assertable without spawning a real `opencode`.
-export const buildRunArgs = ({ home, prompt, pure, agent, sessionId, title, alterId, model }) => {
+export const buildRunArgs = ({ home, prompt, pure, agent, sessionId, title, alterId, model, variant }) => {
   const args = ["run"];
   if (pure) args.push("--pure");
   if (agent) args.push("--agent", agent);
@@ -42,6 +42,7 @@ export const buildRunArgs = ({ home, prompt, pure, agent, sessionId, title, alte
   if (sessionId) args.push("--session", sessionId);
   else if (title || alterId) args.push("--title", title || alterId);
   if (model) args.push("--model", model);
+  if (variant) args.push("--variant", variant);
   args.push(prompt);
   return args;
 };
@@ -61,6 +62,7 @@ const run = (
     alterId,
     maxTokens,
     model,
+    variant,
     pure,
     recordEvents,
     attempt,
@@ -76,7 +78,7 @@ const run = (
   }
 ) =>
   new Promise((resolve) => {
-    const args = buildRunArgs({ home, prompt, pure, agent, sessionId, title, alterId, model });
+    const args = buildRunArgs({ home, prompt, pure, agent, sessionId, title, alterId, model, variant });
     const child = spawn(
       "opencode",
       args,
@@ -144,6 +146,7 @@ const run = (
         text: acc.text,
         sessionID: acc.sessionID,
         steps: acc.steps,
+        tools: acc.tools,
         exitCode,
         killed,
         aborted,
