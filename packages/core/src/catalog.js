@@ -206,14 +206,46 @@ const manifestFromOptions = (name, o, runtime, { project = false } = {}) => ({
   allowed_catalogs: o.allowedCatalogs ? [...o.allowedCatalogs] : null,
   prompt_prefix: o.promptPrefix ?? null,
   prompt_suffix: o.promptSuffix ?? null,
-  agents_md_override: project ? PROJECT_AGENTS_FILE : null,
-  skills_dir: project ? PROJECT_SKILLS_DIR : null,
+  // An explicit value always wins, so a caller re-saving an existing entry can carry
+  // the paths it already had — including ones that are not the defaults. Without that,
+  // any edit that rewrites the manifest would orphan the files it used to point at.
+  agents_md_override: o.agentsMdOverride ?? (project ? PROJECT_AGENTS_FILE : null),
+  skills_dir: o.skillsDir ?? (project ? PROJECT_SKILLS_DIR : null),
   opencode_provider: o.opencodeProvider || null,
   output_contract: o.outputContract || null,
   source: { type: "local", ref: null },
   created_at: iso(runtime.now()),
   created_from: o.createdFrom ?? null,
 });
+
+// Turns an existing manifest-only entry into a project: seeds the files and records the
+// paths, touching nothing else. Deliberately not a `saveCatalogEntry` call — that rebuilds
+// the whole manifest from spawn options, and a conversion is the one edit where every
+// other field is already correct and must survive untouched.
+export const convertCatalogEntryToProject = (root, cfg, name) => {
+  const sanitized = sanitizeName(name);
+  const dir = path.join(catalogDirPath(root, cfg), sanitized);
+  const manifestPath = path.join(dir, "manifest.json");
+  if (!existsSync(manifestPath)) fail(`catalog entry not found: ${name}`);
+  let m;
+  try {
+    m = JSON.parse(readFileSync(manifestPath, "utf8"));
+  } catch (e) {
+    fail(`catalog entry "${sanitized}": manifest.json is not valid JSON (${e.message}).`);
+  }
+  if (m.text_only) {
+    fail(`catalog entry "${sanitized}": a text_only Alter has no skill tool, so it cannot become a project.`);
+  }
+  scaffoldAlterProject(dir, { description: m.description || "" });
+  const manifest = {
+    ...m,
+    agents_md_override: m.agents_md_override || PROJECT_AGENTS_FILE,
+    skills_dir: m.skills_dir || PROJECT_SKILLS_DIR,
+  };
+  validateManifest(manifest, sanitized);
+  writeJsonAtomic(manifestPath, manifest);
+  return { dir, manifest };
+};
 
 export const saveCatalogEntry = (
   root,

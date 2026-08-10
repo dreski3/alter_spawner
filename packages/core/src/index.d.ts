@@ -44,6 +44,9 @@ export type SpawnOptions = {
   opencodeProvider?: Record<string, unknown> | null;
   opencodeVariant?: string | null;
   outputContract?: OutputContract | null;
+  /** Authoring-only, read by `saveCatalogEntry`: the project paths to record in the manifest. */
+  agentsMdOverride?: string | null;
+  skillsDir?: string | null;
   graphId?: string | null;
   dependsOn?: string[];
   [key: string]: unknown;
@@ -259,6 +262,9 @@ export function saveCatalogEntry(
   /** `project: true` seeds AGENTS.md and skills/ and points the manifest at them. */
   saveOptions?: { force?: boolean; project?: boolean; runtime?: Runtime },
 ): string;
+
+/** Seeds project files on an existing entry and records their paths. Changes no other field. */
+export function convertCatalogEntryToProject(root: string, cfg: MindConfig, name: string): CatalogEntry;
 
 // --- Alters authored as projects -------------------------------------------------
 // The catalog entry directory is the source; `scaffold` compiles a copy into each run

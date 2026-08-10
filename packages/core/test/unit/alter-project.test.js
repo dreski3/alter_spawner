@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   buildFrontmatter,
+  convertCatalogEntryToProject,
   createProjectSkill,
   deleteProjectFile,
   listProjectFiles,
@@ -57,6 +58,48 @@ test("saving a project entry seeds the files its manifest points at", () => {
   assert.equal(entry.manifest.skills_dir, "skills");
 });
 
+test("re-saving an entry carries its project paths instead of orphaning the files", () => {
+  const root = projectRoot();
+  saveProject(root, "kept");
+  const before = JSON.parse(readFileSync(path.join(entryDir(root, "kept"), "manifest.json"), "utf8"));
+
+  // What the bridge does on an edit: read the manifest, rebuild options from it, force-save.
+  saveCatalogEntry(
+    root,
+    CFG,
+    "kept",
+    {
+      description: "An edited description.",
+      agentsMdOverride: before.agents_md_override,
+      skillsDir: before.skills_dir,
+    },
+    { force: true },
+  );
+
+  const after = JSON.parse(readFileSync(path.join(entryDir(root, "kept"), "manifest.json"), "utf8"));
+  assert.equal(after.description, "An edited description.");
+  assert.equal(after.agents_md_override, "AGENTS.md");
+  assert.equal(after.skills_dir, "skills");
+  assert.doesNotThrow(() => resolveCatalogEntry(root, CFG, "kept"));
+});
+
+test("a custom project path survives a re-save rather than snapping back to the default", () => {
+  const root = projectRoot();
+  const dir = saveProject(root, "custom");
+  writeProjectFile(dir, "persona.md", "You are custom.\n");
+
+  saveCatalogEntry(
+    root,
+    CFG,
+    "custom",
+    { description: "d", agentsMdOverride: "persona.md", skillsDir: "skills" },
+    { force: true },
+  );
+
+  const manifest = JSON.parse(readFileSync(path.join(dir, "manifest.json"), "utf8"));
+  assert.equal(manifest.agents_md_override, "persona.md");
+});
+
 test("a non-project entry is unchanged", () => {
   const root = projectRoot();
   const dir = saveCatalogEntry(root, CFG, "plain", { description: "A plain Alter." });
@@ -66,6 +109,33 @@ test("a non-project entry is unchanged", () => {
   assert.equal(manifest.skills_dir, null);
   assert.ok(!existsSync(path.join(dir, "AGENTS.md")));
   assert.deepEqual(listProjectFiles(dir).map((f) => f.path), ["manifest.json"]);
+});
+
+test("converting a plain entry into a project preserves every other field", () => {
+  const root = projectRoot();
+  saveCatalogEntry(root, CFG, "grown", {
+    description: "Was plain.",
+    maxTokens: 8000,
+    webAccess: true,
+    promptPrefix: "Be terse.",
+  });
+
+  const { manifest } = convertCatalogEntryToProject(root, CFG, "grown");
+  assert.equal(manifest.agents_md_override, "AGENTS.md");
+  assert.equal(manifest.skills_dir, "skills");
+  assert.equal(manifest.max_tokens, 8000);
+  assert.equal(manifest.web, true);
+  assert.equal(manifest.prompt_prefix, "Be terse.");
+  assert.ok(existsSync(path.join(entryDir(root, "grown"), "AGENTS.md")));
+  assert.doesNotThrow(() => resolveCatalogEntry(root, CFG, "grown"));
+});
+
+test("a text_only entry cannot be converted, since it would have no skill tool", () => {
+  const root = projectRoot();
+  saveCatalogEntry(root, CFG, "terse", { description: "Text in, text out.", textOnly: true });
+
+  assert.throws(() => convertCatalogEntryToProject(root, CFG, "terse"), /cannot become a project/);
+  assert.ok(!existsSync(path.join(entryDir(root, "terse"), "AGENTS.md")));
 });
 
 test("a manifest pointing at a missing persona fails instead of falling back", () => {

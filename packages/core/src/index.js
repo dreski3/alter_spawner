@@ -33,6 +33,7 @@ export {
   applyCatalog,
   listCatalogEntries,
   saveCatalogEntry,
+  convertCatalogEntryToProject,
 } from "./catalog.js";
 export {
   PROJECT_AGENTS_FILE,
