@@ -100,6 +100,13 @@ const bashAllowRules = (o) => {
 // returning transformed text will never call and should never be sent.
 const deniesTools = (o) => !!(o.bashOnly || o.textOnly);
 
+// The one exception to the rule above. An Alter authored as a project ships a skills/
+// directory that scaffold copies into its home, and the skill tool is the only way to
+// reach it — so denying the tool for context savings would leave those files on disk,
+// unreadable, and the author's intent silently dropped. A text_only entry cannot get
+// here: the manifest validator rejects text_only + skills_dir outright.
+const hasProjectSkills = (o) => !!(o.catalogEntryDir && o.catalogSkillsDir && !o.textOnly);
+
 export const buildFrontmatter = (o) => {
   const L = [];
   const noTools = deniesTools(o);
@@ -111,7 +118,7 @@ export const buildFrontmatter = (o) => {
   L.push(noTools ? "  read: deny" : "  read: allow");
   L.push(noTools ? "  glob: deny" : "  glob: allow");
   L.push(noTools ? "  grep: deny" : "  grep: allow");
-  L.push(noTools ? "  skill: deny" : "  skill: allow");
+  L.push(noTools && !hasProjectSkills(o) ? "  skill: deny" : "  skill: allow");
   const readDirs = o.readGrants;
   const writeDirs = o.writeGrants;
   // A per-path map and a bare `deny` are not equivalent to opencode. A map means

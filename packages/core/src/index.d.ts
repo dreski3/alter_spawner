@@ -247,14 +247,62 @@ export function validateManifest(manifest: unknown, name: string): void;
 export function resolveCatalogEntry(root: string, cfg: MindConfig, name: string): CatalogEntry;
 /** Fills every option still at its parse-time default from the manifest. Mutates `options`. */
 export function applyCatalog(options: SpawnOptions, entry: CatalogEntry): void;
-export function listCatalogEntries(root: string, cfg: MindConfig): { name: string; manifest: CatalogManifest }[];
+export function listCatalogEntries(
+  root: string,
+  cfg: MindConfig,
+): { name: string; dir: string; manifest: CatalogManifest }[];
 export function saveCatalogEntry(
   root: string,
   cfg: MindConfig,
   name: string,
   options: SpawnOptions,
-  saveOptions?: { force?: boolean; runtime?: Runtime },
+  /** `project: true` seeds AGENTS.md and skills/ and points the manifest at them. */
+  saveOptions?: { force?: boolean; project?: boolean; runtime?: Runtime },
 ): string;
+
+// --- Alters authored as projects -------------------------------------------------
+// The catalog entry directory is the source; `scaffold` compiles a copy into each run
+// home. Every path below is relative to the entry directory and confined to it.
+
+export const PROJECT_AGENTS_FILE: "AGENTS.md";
+export const PROJECT_SKILLS_DIR: "skills";
+export const PROJECT_SKILL_FILE: "SKILL.md";
+export const MAX_PROJECT_FILE_BYTES: number;
+
+export type ProjectFile = { path: string; bytes: number; editable: boolean };
+export type ProjectSkill = { name: string; description: string; path: string; bytes: number };
+export type AlterProject = {
+  isProject: boolean;
+  agentsPath: string | null;
+  agents: string | null;
+  skillsDir: string | null;
+  skills: ProjectSkill[];
+  files: ProjectFile[];
+};
+
+export function isAlterProject(manifest: CatalogManifest | null | undefined): boolean;
+export function isEditableProjectFile(relPath: string): boolean;
+/** Throws unless `relPath` resolves inside `entryDir`, following no link out of it. */
+export function resolveProjectPath(entryDir: string, relPath: string, options?: { label?: string }): string;
+export function listProjectFiles(entryDir: string): ProjectFile[];
+export function readProjectFile(entryDir: string, relPath: string): string;
+export function writeProjectFile(entryDir: string, relPath: string, content: string): string;
+export function deleteProjectFile(entryDir: string, relPath: string): void;
+export function listProjectSkills(entryDir: string, skillsDir?: string): ProjectSkill[];
+export function createProjectSkill(
+  entryDir: string,
+  name: string,
+  options?: { description?: string; skillsDir?: string },
+): { name: string; path: string; file: string };
+export function readSkillFrontmatter(text: string): Record<string, string>;
+/** Seeds the project files. Never overwrites one that already exists. */
+export function scaffoldAlterProject(
+  entryDir: string,
+  options?: { description?: string },
+): { agents_md_override: string; skills_dir: string; description: string };
+/** Checks that the files the manifest names are present and usable. */
+export function validateAlterProject(dir: string, manifest: CatalogManifest, name: string): void;
+export function readAlterProject(dir: string, manifest: CatalogManifest | null | undefined): AlterProject;
 
 export function resolveId(name: string | null, runtime?: Runtime): string;
 /** Claims a run folder and writes its `alter.json`. Returns the home. `agentFiles: false` skips everything only a harness reading the home off disk would open. */

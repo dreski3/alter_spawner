@@ -81,7 +81,10 @@ const scaffoldAgentFiles = (root, cfg, o, runtime, home) => {
     if (existsSync(src)) {
       const dest = path.join(home, ".opencode", "skills");
       mkdirSync(dest, { recursive: true });
-      cpSync(src, dest, { recursive: true });
+      // .gitkeep exists so an empty skills/ survives a commit in the authored project.
+      // It has no meaning in a run home, where nothing is committed — copying it would
+      // just put a file in the Alter's sandbox that no part of the run can explain.
+      cpSync(src, dest, { recursive: true, filter: (from) => path.basename(from) !== ".gitkeep" });
     }
   }
   // opencode injects a home's AGENTS.md into the agent prompt *in addition to* the
