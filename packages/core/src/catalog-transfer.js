@@ -10,12 +10,12 @@
 // directory and a shell on first spawn, with nothing on screen having asked. So import
 // drops them by default and reports exactly what it dropped.
 
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fail, sanitizeName } from "./util.js";
 import { writeJsonAtomic } from "./persistence.js";
-import { catalogDirPath, validateManifest } from "./catalog.js";
-import { listProjectFiles, MAX_PROJECT_FILE_BYTES, validateAlterProject } from "./alter-project.js";
+import { catalogDirPath, resolveCatalogEntry, validateManifest } from "./catalog.js";
+import { inspectProjectTree, listProjectFiles, validateAlterProject } from "./alter-project.js";
 
 // Each maps to the value an untrusted import is reduced to. `web` is deliberately absent:
 // network access cannot reach this machine's files or shell, it is what a research Alter
@@ -27,10 +27,11 @@ export const PRIVILEGED_MANIFEST_FIELDS = Object.freeze({
   bash_allow: [],
   nestable: false,
   opencode_provider: null,
+  executor: null,
+  capability: null,
 });
 
-const MAX_PROJECT_FILES = 200;
-const MAX_DEPTH = 8;
+const PORTABLE_EXECUTORS = new Set(["opencode", "llm"]);
 
 const isSet = (value) => {
   if (Array.isArray(value)) return value.length > 0;
@@ -40,29 +41,31 @@ const isSet = (value) => {
   return true;
 };
 
-// A symlink in the source tree would be copied as a link, land in the catalog, and be
-// followed into the run home on the next spawn — turning a file the user reviewed into a
-// window onto one they did not. Refusing outright is cheap: a project is text files.
-const inspectTree = (dir, base, depth = 0) => {
-  if (depth > MAX_DEPTH) fail(`refusing to import: ${path.relative(base, dir)} is nested more than ${MAX_DEPTH} deep.`);
-  let count = 0;
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    const shown = path.relative(base, full) || entry.name;
-    if (entry.isSymbolicLink()) fail(`refusing to import a symlink: ${shown}`);
-    if (entry.isDirectory()) {
-      count += inspectTree(full, base, depth + 1);
-      continue;
+const installDirectory = (source, target, { force = false, prepare } = {}) => {
+  if (existsSync(target) && !force) fail(`target already exists: ${target}`);
+  const parent = path.dirname(target);
+  mkdirSync(parent, { recursive: true });
+  const staged = mkdtempSync(path.join(parent, `.${path.basename(target)}.staged-`));
+  try {
+    cpSync(source, staged, { recursive: true, force: true });
+    prepare?.(staged);
+
+    let backup = null;
+    if (existsSync(target)) {
+      backup = mkdtempSync(path.join(parent, `.${path.basename(target)}.backup-`));
+      rmSync(backup, { recursive: true, force: true });
+      renameSync(target, backup);
     }
-    if (!entry.isFile()) fail(`refusing to import a special file: ${shown}`);
-    const { size } = statSync(full);
-    if (size > MAX_PROJECT_FILE_BYTES) {
-      fail(`refusing to import ${shown}: ${size} bytes exceeds the ${MAX_PROJECT_FILE_BYTES}-byte project file limit.`);
+    try {
+      renameSync(staged, target);
+    } catch (error) {
+      if (backup) renameSync(backup, target);
+      throw error;
     }
-    count += 1;
-    if (count > MAX_PROJECT_FILES) fail(`refusing to import: more than ${MAX_PROJECT_FILES} files.`);
+    if (backup) rmSync(backup, { recursive: true, force: true });
+  } finally {
+    rmSync(staged, { recursive: true, force: true });
   }
-  return count;
 };
 
 export const exportCatalogEntry = (root, cfg, name, destination, { force = false } = {}) => {
@@ -74,8 +77,9 @@ export const exportCatalogEntry = (root, cfg, name, destination, { force = false
   if (existsSync(target) && !force) {
     fail(`export target already exists: ${target} (pass --force to overwrite)`);
   }
-  mkdirSync(path.dirname(target), { recursive: true });
-  cpSync(source, target, { recursive: true, force: true });
+  resolveCatalogEntry(root, cfg, sanitized);
+  inspectProjectTree(source, { action: "export" });
+  installDirectory(source, target, { force });
   return { name: sanitized, source, target, files: listProjectFiles(target) };
 };
 
@@ -85,7 +89,7 @@ export const importCatalogEntry = (root, cfg, source, { as = null, force = false
   if (!existsSync(manifestPath)) {
     fail(`no manifest.json in ${dir} — that is not an exported alter project.`);
   }
-  inspectTree(dir, dir);
+  inspectProjectTree(dir, { action: "import" });
 
   let incoming;
   try {
@@ -102,13 +106,17 @@ export const importCatalogEntry = (root, cfg, source, { as = null, force = false
 
   // validateManifest requires the manifest's own name to match its folder, so a rename is
   // a rewrite rather than just a different destination.
-  const manifest = { ...incoming, name };
+  const manifest = { ...incoming, name, source: { type: "local", ref: null } };
   // `privileged` is what the manifest asked for and is computed either way — a caller
   // that passed `trust` still has to be able to say what it just accepted, and reporting
   // only what was dropped makes a trusted import of a shell grant indistinguishable from
   // a trusted import of nothing at all.
   const privileged = Object.keys(PRIVILEGED_MANIFEST_FIELDS)
-    .filter((field) => isSet(incoming[field]))
+    .filter((field) => {
+      if (!isSet(incoming[field])) return false;
+      if (field === "executor") return !PORTABLE_EXECUTORS.has(incoming.executor);
+      return true;
+    })
     .map((field) => ({ field, was: incoming[field] }));
   if (!trust) {
     for (const { field } of privileged) {
@@ -126,13 +134,13 @@ export const importCatalogEntry = (root, cfg, source, { as = null, force = false
   if (existsSync(target) && !force) {
     fail(`catalog entry already exists: ${name} (pass --force to overwrite)`);
   }
-  mkdirSync(path.dirname(target), { recursive: true });
-  cpSync(dir, target, { recursive: true, force: true });
-  // Written after the copy so the sanitized manifest wins over the one that travelled.
-  writeJsonAtomic(path.join(target, "manifest.json"), manifest);
-  // Last, because it reads the files that were just laid down: a project whose persona or
-  // skills are unusable must fail here rather than at the first spawn.
-  validateAlterProject(target, manifest, name);
+  installDirectory(dir, target, {
+    force,
+    prepare: (staged) => {
+      writeJsonAtomic(path.join(staged, "manifest.json"), manifest);
+      validateAlterProject(staged, manifest, name);
+    },
+  });
 
   return { name, dir: target, manifest, privileged, dropped, notable };
 };

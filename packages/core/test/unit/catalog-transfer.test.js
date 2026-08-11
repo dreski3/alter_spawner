@@ -127,6 +127,34 @@ test("--trust keeps the grants, and still reports exactly what it accepted", () 
   assert.equal(onDisk.nestable, true);
 });
 
+test("an untrusted import cannot select a host-bound function capability", () => {
+  const root = projectRoot();
+  const source = foreignProject({
+    ...BASE,
+    executor: "function",
+    capability: { id: "host.trusted-operation" },
+  });
+
+  const imported = importCatalogEntry(root, CFG, source);
+  assert.deepEqual(imported.dropped.map((d) => d.field).sort(), ["capability", "executor"]);
+  assert.equal(imported.manifest.executor, null);
+  assert.equal(imported.manifest.capability, null);
+});
+
+test("--trust explicitly preserves and reports a host-bound function capability", () => {
+  const root = projectRoot();
+  const source = foreignProject({
+    ...BASE,
+    executor: "function",
+    capability: { id: "host.trusted-operation" },
+  });
+
+  const imported = importCatalogEntry(root, CFG, source, { trust: true });
+  assert.deepEqual(imported.privileged.map((d) => d.field).sort(), ["capability", "executor"]);
+  assert.equal(imported.manifest.executor, "function");
+  assert.deepEqual(imported.manifest.capability, { id: "host.trusted-operation" });
+});
+
 test("web survives an untrusted import, and is reported rather than dropped", () => {
   const root = projectRoot();
   const imported = importCatalogEntry(root, CFG, foreignProject({ ...BASE, web: true }));
@@ -156,12 +184,36 @@ test("importing under a new name rewrites the manifest to match its folder", () 
 
 test("an import refuses to silently replace an entry that is already there", () => {
   const root = projectRoot();
-  saveProject(root, "scout");
+  const existing = saveProject(root, "scout");
+  createProjectSkill(existing, "old", { description: "Use for the old project." });
   const source = foreignProject(BASE);
 
   assert.throws(() => importCatalogEntry(root, CFG, source), /already exists/);
   assert.doesNotThrow(() => importCatalogEntry(root, CFG, source, { force: true }));
   assert.match(readFileSync(path.join(entryDir(root, "scout"), "AGENTS.md"), "utf8"), /You are the imported one/);
+  assert.ok(!existsSync(path.join(entryDir(root, "scout"), "skills", "old", "SKILL.md")));
+});
+
+test("a failed forced import preserves the existing entry", () => {
+  const root = projectRoot();
+  const existing = saveProject(root, "scout");
+  writeProjectFile(existing, "AGENTS.md", "ORIGINAL PERSONA\n");
+  const broken = foreignProject(BASE, { skill: false });
+  writeFileSync(path.join(broken, "skills", "triage", "SKILL.md"), "# Missing description.\n");
+
+  assert.throws(() => importCatalogEntry(root, CFG, broken, { force: true }), /has no description/);
+  assert.equal(readFileSync(path.join(existing, "AGENTS.md"), "utf8"), "ORIGINAL PERSONA\n");
+  assert.ok(!existsSync(path.join(existing, "skills", "triage", "SKILL.md")));
+  assert.doesNotThrow(() => resolveCatalogEntry(root, CFG, "scout"));
+});
+
+test("a failed new import leaves no catalog entry behind", () => {
+  const root = projectRoot();
+  const broken = foreignProject({ ...BASE, name: "broken-new" }, { skill: false });
+  writeFileSync(path.join(broken, "skills", "triage", "SKILL.md"), "# Missing description.\n");
+
+  assert.throws(() => importCatalogEntry(root, CFG, broken), /has no description/);
+  assert.ok(!existsSync(entryDir(root, "broken-new")));
 });
 
 test("a directory that is not an exported project is refused, and so is a broken one", () => {
@@ -180,8 +232,10 @@ test("exporting refuses to overwrite unless asked, and names a missing entry", (
   saveProject(root, "scout");
   const destination = outside();
 
-  exportCatalogEntry(root, CFG, "scout", destination);
+  const first = exportCatalogEntry(root, CFG, "scout", destination);
+  writeFileSync(path.join(first.target, "stale.txt"), "stale\n");
   assert.throws(() => exportCatalogEntry(root, CFG, "scout", destination), /already exists/);
   assert.doesNotThrow(() => exportCatalogEntry(root, CFG, "scout", destination, { force: true }));
+  assert.ok(!existsSync(path.join(first.target, "stale.txt")));
   assert.throws(() => exportCatalogEntry(root, CFG, "nope", destination), /catalog entry not found/);
 });

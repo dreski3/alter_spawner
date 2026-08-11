@@ -47,6 +47,7 @@ export {
   MAX_PROJECT_FILE_BYTES,
   isAlterProject,
   isEditableProjectFile,
+  inspectProjectTree,
   resolveProjectPath,
   listProjectFiles,
   readProjectFile,

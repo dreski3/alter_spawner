@@ -11,7 +11,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   buildFrontmatter,
+  buildBody,
+  applyCatalog,
   convertCatalogEntryToProject,
+  createSpawnOptions,
   createProjectSkill,
   deleteProjectFile,
   listProjectFiles,
@@ -19,6 +22,7 @@ import {
   readSkillFrontmatter,
   resolveCatalogEntry,
   saveCatalogEntry,
+  scaffold,
   scaffoldAlterProject,
   validateManifest,
   writeProjectFile,
@@ -266,4 +270,71 @@ test("listing a project's files reports what an editor would show", () => {
   );
   assert.ok(listProjectFiles(dir).every((f) => f.editable));
   assert.ok(listProjectFiles(entryDir(root, "listed")).every((f) => f.bytes >= 0));
+});
+
+test("a project persona and its skills are compiled into an isolated run home", () => {
+  const root = projectRoot();
+  const dir = saveProject(root, "specialist");
+  writeProjectFile(dir, "AGENTS.md", "{{ROLE_BLOCK}}\n\nCUSTOM PERSONA\n{{NESTING_BLOCK}}\n");
+  createProjectSkill(dir, "triage", { description: "Use when triaging an incident." });
+
+  const entry = resolveCatalogEntry(root, CFG, "specialist");
+  const options = createSpawnOptions({
+    id: "specialist-run",
+    name: "specialist-run",
+    model: "test/model",
+    depth: 0,
+    spawned_by: "root",
+  });
+  applyCatalog(options, entry);
+  const home = scaffold(root, CFG, options);
+  const agent = readFileSync(path.join(home, ".opencode", "agents", "alter.md"), "utf8");
+  const skill = readFileSync(path.join(home, ".opencode", "skills", "triage", "SKILL.md"), "utf8");
+
+  assert.match(agent, /CUSTOM PERSONA/);
+  assert.match(agent, /## Your role\nA project Alter\./);
+  assert.doesNotMatch(agent, /\{\{ROLE_BLOCK\}\}/);
+  assert.match(agent, /^ {2}skill: allow$/m);
+  assert.match(skill, /Use when triaging an incident\./);
+});
+
+test("a nested skill symlink is rejected before it can become a live link in a run", () => {
+  const root = projectRoot();
+  const dir = saveProject(root, "linked-skill");
+  writeProjectFile(dir, "payload.md", "---\ndescription: Use when linked.\n---\n");
+  mkdirSync(path.join(dir, "skills", "linked"), { recursive: true });
+  symlinkSync("../../payload.md", path.join(dir, "skills", "linked", "SKILL.md"));
+
+  assert.throws(() => resolveCatalogEntry(root, CFG, "linked-skill"), /refusing to use .* a symlink/);
+  const options = createSpawnOptions({
+    id: "linked-run",
+    name: "linked-run",
+    model: "test/model",
+    depth: 0,
+    spawned_by: "root",
+    catalogEntryDir: dir,
+    catalogAgentsOverride: "AGENTS.md",
+    catalogSkillsDir: "skills",
+  });
+  assert.throws(() => scaffold(root, CFG, options), /refusing to scaffold catalog entry a symlink/);
+  assert.ok(!existsSync(path.join(root, ".alters", "runs")));
+});
+
+test("a text_only project uses its authored persona while keeping the fixed result contract", () => {
+  const root = projectRoot();
+  const dir = saveCatalogEntry(root, CFG, "text-specialist", {
+    description: "A text specialist.",
+    textOnly: true,
+    agentsMdOverride: "AGENTS.md",
+  });
+  writeProjectFile(dir, "AGENTS.md", "{{ROLE_BLOCK}}\n\nCUSTOM TEXT PERSONA\n");
+
+  const entry = resolveCatalogEntry(root, CFG, "text-specialist");
+  const options = createSpawnOptions();
+  applyCatalog(options, entry);
+  const body = buildBody(options);
+
+  assert.match(body, /CUSTOM TEXT PERSONA/);
+  assert.match(body, /## Your role\nA text specialist\./);
+  assert.match(body, /Return only the transformed\s+text/);
 });

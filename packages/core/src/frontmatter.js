@@ -184,6 +184,9 @@ export const buildFrontmatter = (o) => {
 // tools. A text_only leaf has none — so the advice is not merely wasted context,
 // it describes a situation the model is not in. It gets the role and the output
 // contract, and nothing else.
+const textOnlyResult = `Your entire reply is captured verbatim as the result. Return only the transformed
+text — no preamble, no explanation, no commentary on what you changed.`;
+
 const textOnlyBody = (o) => {
   const role = o.description && o.description.trim()
     ? o.description.trim()
@@ -191,12 +194,12 @@ const textOnlyBody = (o) => {
   return `## Your role
 ${role}
 
-Your entire reply is captured verbatim as the result. Return only the transformed
-text — no preamble, no explanation, no commentary on what you changed.`;
+${textOnlyResult}`;
 };
 
 export const buildBody = (o) => {
-  if (o.textOnly) return textOnlyBody(o);
+  const hasAuthoredPersona = !!(o.catalogEntryDir && o.catalogAgentsOverride);
+  if (o.textOnly && !hasAuthoredPersona) return textOnlyBody(o);
   let tmpl = "";
   const overridePath =
     o.catalogEntryDir && o.catalogAgentsOverride
@@ -209,7 +212,8 @@ export const buildBody = (o) => {
   }
   const idx = tmpl.indexOf("\n---\n");
   const body = idx >= 0 ? tmpl.slice(idx + 5) : tmpl;
-  return applyPlaceholders(body, o).trimStart();
+  const compiled = applyPlaceholders(body, o).trimStart();
+  return o.textOnly ? `${compiled.trimEnd()}\n\n${textOnlyResult}` : compiled;
 };
 
 export const buildAgentsMd = (o) => {

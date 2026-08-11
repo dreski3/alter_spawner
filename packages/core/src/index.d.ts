@@ -276,6 +276,8 @@ export const PRIVILEGED_MANIFEST_FIELDS: Readonly<{
   bash_allow: never[];
   nestable: false;
   opencode_provider: null;
+  executor: null;
+  capability: null;
 }>;
 
 export function exportCatalogEntry(
@@ -325,6 +327,11 @@ export type AlterProject = {
 
 export function isAlterProject(manifest: CatalogManifest | null | undefined): boolean;
 export function isEditableProjectFile(relPath: string): boolean;
+/** Refuses symlinks, special files, oversized files, and unbounded project trees. */
+export function inspectProjectTree(
+  dir: string,
+  options?: { action?: string; maxDepth?: number; maxFiles?: number },
+): number;
 /** Throws unless `relPath` resolves inside `entryDir`, following no link out of it. */
 export function resolveProjectPath(entryDir: string, relPath: string, options?: { label?: string }): string;
 export function listProjectFiles(entryDir: string): ProjectFile[];

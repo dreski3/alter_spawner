@@ -9,7 +9,7 @@
 // anything that authored, validated, or read back the files they point at, so every
 // shipped manifest left them null. That is what lives here.
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { fail, sanitizeName } from "./util.js";
 import { writeTextAtomic } from "./persistence.js";
@@ -34,10 +34,50 @@ const EDITABLE_BASENAMES = new Set([".gitkeep"]);
 export const MAX_PROJECT_FILE_BYTES = 256 * 1024;
 
 const IGNORED_DIRS = new Set([".git", "node_modules"]);
-const MAX_DEPTH = 6;
+const MAX_PROJECT_FILES = 200;
+const MAX_PROJECT_TREE_DEPTH = 8;
 
 export const isEditableProjectFile = (relPath) =>
   EDITABLE_BASENAMES.has(path.basename(relPath)) || EDITABLE_EXTENSIONS.has(path.extname(relPath).toLowerCase());
+
+export const inspectProjectTree = (
+  dir,
+  { action = "use project", maxDepth = MAX_PROJECT_TREE_DEPTH, maxFiles = MAX_PROJECT_FILES } = {},
+) => {
+  const base = path.resolve(dir);
+  let root;
+  try {
+    root = lstatSync(base);
+  } catch (error) {
+    fail(`cannot ${action}: ${base} is not readable (${error.message}).`);
+  }
+  if (root.isSymbolicLink()) fail(`refusing to ${action} a symlink: .`);
+  if (!root.isDirectory()) fail(`cannot ${action}: ${base} is not a directory.`);
+
+  const state = { count: 0 };
+  const visit = (current, depth) => {
+    const relativeDir = path.relative(base, current) || ".";
+    if (depth > maxDepth) fail(`refusing to ${action}: ${relativeDir} is nested more than ${maxDepth} deep.`);
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      const shown = path.relative(base, full) || entry.name;
+      if (entry.isSymbolicLink()) fail(`refusing to ${action} a symlink: ${shown}`);
+      if (entry.isDirectory()) {
+        visit(full, depth + 1);
+        continue;
+      }
+      if (!entry.isFile()) fail(`refusing to ${action} a special file: ${shown}`);
+      const { size } = statSync(full);
+      if (size > MAX_PROJECT_FILE_BYTES) {
+        fail(`refusing to ${action} ${shown}: ${size} bytes exceeds the ${MAX_PROJECT_FILE_BYTES}-byte project file limit.`);
+      }
+      state.count += 1;
+      if (state.count > maxFiles) fail(`refusing to ${action}: more than ${maxFiles} files.`);
+    }
+  };
+  visit(base, 0);
+  return state.count;
+};
 
 // `path.resolve` collapses "..", so comparing the resolved result against the base is
 // what actually stops traversal. Screening the input string for ".." would miss the
@@ -113,7 +153,7 @@ export const readSkillFrontmatter = (text) => {
 };
 
 const walk = (dir, base, depth, out) => {
-  if (depth > MAX_DEPTH) return;
+  if (depth > MAX_PROJECT_TREE_DEPTH) return;
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
@@ -279,6 +319,7 @@ export const isAlterProject = (manifest) => !!(manifest && (manifest.agents_md_o
 // looks like it worked instead of an error that says what is wrong.
 export const validateAlterProject = (dir, m, name) => {
   const label = `catalog entry "${name}"`;
+  if (isAlterProject(m)) inspectProjectTree(dir, { action: `use ${label}` });
   if (m.agents_md_override) {
     const target = resolveProjectPath(dir, m.agents_md_override, { label: `${label}: agents_md_override` });
     if (!existsSync(target)) {
