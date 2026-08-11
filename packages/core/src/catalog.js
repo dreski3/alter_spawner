@@ -210,7 +210,7 @@ const manifestFromOptions = (name, o, runtime, { project = false } = {}) => ({
   // the paths it already had — including ones that are not the defaults. Without that,
   // any edit that rewrites the manifest would orphan the files it used to point at.
   agents_md_override: o.agentsMdOverride ?? (project ? PROJECT_AGENTS_FILE : null),
-  skills_dir: o.skillsDir ?? (project ? PROJECT_SKILLS_DIR : null),
+  skills_dir: o.skillsDir ?? (project && !o.textOnly ? PROJECT_SKILLS_DIR : null),
   opencode_provider: o.opencodeProvider || null,
   output_contract: o.outputContract || null,
   source: { type: "local", ref: null },
@@ -233,14 +233,11 @@ export const convertCatalogEntryToProject = (root, cfg, name) => {
   } catch (e) {
     fail(`catalog entry "${sanitized}": manifest.json is not valid JSON (${e.message}).`);
   }
-  if (m.text_only) {
-    fail(`catalog entry "${sanitized}": a text_only Alter has no skill tool, so it cannot become a project.`);
-  }
-  scaffoldAlterProject(dir, { description: m.description || "" });
+  scaffoldAlterProject(dir, { description: m.description || "", skills: !m.text_only });
   const manifest = {
     ...m,
     agents_md_override: m.agents_md_override || PROJECT_AGENTS_FILE,
-    skills_dir: m.skills_dir || PROJECT_SKILLS_DIR,
+    skills_dir: m.text_only ? null : m.skills_dir || PROJECT_SKILLS_DIR,
   };
   validateManifest(manifest, sanitized);
   writeJsonAtomic(manifestPath, manifest);
@@ -264,7 +261,7 @@ export const saveCatalogEntry = (
   // Seeded before the manifest is written, so the manifest never points at files that
   // are not there yet — resolveCatalogEntry now treats a dangling reference as a hard
   // error rather than falling back to the stock persona.
-  if (project) scaffoldAlterProject(dir, { description: o.description || "" });
+  if (project) scaffoldAlterProject(dir, { description: o.description || "", skills: !o.textOnly });
   const manifest = manifestFromOptions(sanitized, o, runtime, { project });
   writeJsonAtomic(path.join(dir, "manifest.json"), manifest);
   return dir;

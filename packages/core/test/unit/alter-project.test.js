@@ -134,12 +134,16 @@ test("converting a plain entry into a project preserves every other field", () =
   assert.doesNotThrow(() => resolveCatalogEntry(root, CFG, "grown"));
 });
 
-test("a text_only entry cannot be converted, since it would have no skill tool", () => {
+test("a text_only entry converts to a persona-only project without enabling skills", () => {
   const root = projectRoot();
   saveCatalogEntry(root, CFG, "terse", { description: "Text in, text out.", textOnly: true });
 
-  assert.throws(() => convertCatalogEntryToProject(root, CFG, "terse"), /cannot become a project/);
-  assert.ok(!existsSync(path.join(entryDir(root, "terse"), "AGENTS.md")));
+  const { manifest } = convertCatalogEntryToProject(root, CFG, "terse");
+  assert.equal(manifest.agents_md_override, "AGENTS.md");
+  assert.equal(manifest.skills_dir, null);
+  assert.ok(existsSync(path.join(entryDir(root, "terse"), "AGENTS.md")));
+  assert.ok(!existsSync(path.join(entryDir(root, "terse"), "skills")));
+  assert.doesNotThrow(() => resolveCatalogEntry(root, CFG, "terse"));
 });
 
 test("a manifest pointing at a missing persona fails instead of falling back", () => {

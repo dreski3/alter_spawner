@@ -348,8 +348,8 @@ export function readSkillFrontmatter(text: string): Record<string, string>;
 /** Seeds the project files. Never overwrites one that already exists. */
 export function scaffoldAlterProject(
   entryDir: string,
-  options?: { description?: string },
-): { agents_md_override: string; skills_dir: string; description: string };
+  options?: { description?: string; skills?: boolean },
+): { agents_md_override: string; skills_dir: string | null; description: string };
 /** Checks that the files the manifest names are present and usable. */
 export function validateAlterProject(dir: string, manifest: CatalogManifest, name: string): void;
 export function readAlterProject(dir: string, manifest: CatalogManifest | null | undefined): AlterProject;

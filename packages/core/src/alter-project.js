@@ -286,10 +286,12 @@ export const createProjectSkill = (entryDir, name, { description = "", skillsDir
 // Seeds the files the manifest is about to point at. Never clobbers: `--force` on a
 // catalog save means "replace the configuration", and silently overwriting a persona
 // the author spent time on is not something that flag asked for.
-export const scaffoldAlterProject = (entryDir, { description = "" } = {}) => {
-  mkdirSync(path.join(entryDir, PROJECT_SKILLS_DIR), { recursive: true });
-  const gitkeep = path.join(entryDir, PROJECT_SKILLS_DIR, ".gitkeep");
-  if (!existsSync(gitkeep)) writeTextAtomic(gitkeep, "");
+export const scaffoldAlterProject = (entryDir, { description = "", skills = true } = {}) => {
+  if (skills) {
+    mkdirSync(path.join(entryDir, PROJECT_SKILLS_DIR), { recursive: true });
+    const gitkeep = path.join(entryDir, PROJECT_SKILLS_DIR, ".gitkeep");
+    if (!existsSync(gitkeep)) writeTextAtomic(gitkeep, "");
+  }
   const agentsPath = path.join(entryDir, PROJECT_AGENTS_FILE);
   if (!existsSync(agentsPath)) {
     let template = "";
@@ -305,7 +307,7 @@ export const scaffoldAlterProject = (entryDir, { description = "" } = {}) => {
   }
   return {
     agents_md_override: PROJECT_AGENTS_FILE,
-    skills_dir: PROJECT_SKILLS_DIR,
+    skills_dir: skills ? PROJECT_SKILLS_DIR : null,
     description,
   };
 };
