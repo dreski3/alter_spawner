@@ -4,6 +4,8 @@ import {
   requireProjectRoot,
   readConfig,
   catalogDirPath,
+  exportCatalogEntry,
+  importCatalogEntry,
   listCatalogEntries,
   saveCatalogEntry,
   readAlterJson,
@@ -80,11 +82,68 @@ const catalogSave = (argv) => {
   console.log("saved catalog entry: " + path.relative(root, dir));
 };
 
+const flagValue = (argv, flag) => {
+  const i = argv.indexOf(flag);
+  return i >= 0 ? argv[i + 1] : null;
+};
+
+const catalogExport = (argv) => {
+  const name = argv[0];
+  const to = flagValue(argv, "--to");
+  if (!name || !to) fail("usage: mind catalog export <name> --to <dir> [--force]");
+  const root = requireProjectRoot();
+  const result = exportCatalogEntry(root, readConfig(root), name, to, { force: argv.includes("--force") });
+  console.log(`exported ${result.name} to ${result.target}`);
+  for (const file of result.files) console.log(`  ${file.path}`);
+};
+
+const catalogImport = (argv) => {
+  const source = argv[0];
+  if (!source || source.startsWith("--")) {
+    fail("usage: mind catalog import <dir> [--as <name>] [--force] [--trust]");
+  }
+  const root = requireProjectRoot();
+  const trust = argv.includes("--trust");
+  const result = importCatalogEntry(root, readConfig(root), source, {
+    as: flagValue(argv, "--as"),
+    force: argv.includes("--force"),
+    trust,
+  });
+  console.log(`imported catalog entry: ${path.relative(root, result.dir)}`);
+  // Printed to stdout rather than buried: the whole point of dropping a grant is that the
+  // person importing finds out it was asked for. Staying silent would make a stripped
+  // import indistinguishable from a harmless one.
+  if (result.privileged.length) {
+    console.log("");
+    console.log(
+      trust
+        ? "GRANTED, because --trust was passed. This entry can now act on your machine:"
+        : "dropped privileged fields the imported manifest asked for:"
+    );
+    for (const { field, was } of result.privileged) {
+      console.log(`  ${field}: ${JSON.stringify(was)}`);
+    }
+    console.log("");
+    console.log(
+      trust
+        ? "Re-import without --trust to reduce them, or edit the manifest."
+        : "Review them, then re-run with --trust to keep them, or set them yourself."
+    );
+  } else if (trust) {
+    console.log("(--trust was passed; the manifest asked for no privileged fields)");
+  }
+  if (result.notable.length) {
+    console.log(`kept: ${result.notable.join(", ")} — network access, which cannot reach this machine.`);
+  }
+};
+
 export const run = (argv) => {
   const sub = argv[0];
   const rest = argv.slice(1);
   if (sub === "list") catalogList();
   else if (sub === "show") catalogShow(rest);
   else if (sub === "save") catalogSave(rest);
-  else fail("usage: mind catalog <list|show|save> ...");
+  else if (sub === "export") catalogExport(rest);
+  else if (sub === "import") catalogImport(rest);
+  else fail("usage: mind catalog <list|show|save|export|import> ...");
 };

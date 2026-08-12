@@ -33,7 +33,33 @@ export {
   applyCatalog,
   listCatalogEntries,
   saveCatalogEntry,
+  convertCatalogEntryToProject,
 } from "./catalog.js";
+export {
+  PRIVILEGED_MANIFEST_FIELDS,
+  exportCatalogEntry,
+  importCatalogEntry,
+} from "./catalog-transfer.js";
+export {
+  PROJECT_AGENTS_FILE,
+  PROJECT_SKILLS_DIR,
+  PROJECT_SKILL_FILE,
+  MAX_PROJECT_FILE_BYTES,
+  isAlterProject,
+  isEditableProjectFile,
+  inspectProjectTree,
+  resolveProjectPath,
+  listProjectFiles,
+  readProjectFile,
+  writeProjectFile,
+  deleteProjectFile,
+  listProjectSkills,
+  createProjectSkill,
+  readSkillFrontmatter,
+  scaffoldAlterProject,
+  validateAlterProject,
+  readAlterProject,
+} from "./alter-project.js";
 export { resolveId, scaffold } from "./scaffold.js";
 export { buildFrontmatter, buildBody, buildAgentsMd } from "./frontmatter.js";
 export { buildAttemptPlan, runWithRetries } from "./retry.js";

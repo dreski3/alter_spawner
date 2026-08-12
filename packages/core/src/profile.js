@@ -12,7 +12,7 @@ import path from "node:path";
 //
 //   dist:  dist/core/src/profile.js  ->  dist/profiles/default
 //   repo:  packages/core/src/profile.js -> packages/cli/profiles/default
-const PROFILE_DIR_CANDIDATES = ["../../profiles/default", "../../cli/profiles/default"];
+const PROFILE_DIR_CANDIDATES = ["../../profiles/default", "../dist/profiles/default", "../../cli/profiles/default"];
 
 export const defaultProfileDir = () => {
   for (const candidate of PROFILE_DIR_CANDIDATES) {

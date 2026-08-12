@@ -7,10 +7,13 @@
   ],
   "scripts": {
     "test": "node --test \"packages/core/test/**/*.test.js\"",
+    "test:unit": "node --test \"packages/core/test/unit/**/*.test.js\"",
+    "test:integration": "node --test \"packages/core/test/integration/**/*.test.js\"",
     "test:live:nested-spawn": "MIND_LIVE_TESTS=1 node --test packages/core/test/integration/nested-spawn.test.js",
     "test:live:adaptive": "MIND_LIVE_ADAPTIVE_TESTS=1 node --test packages/core/test/integration/adaptive-catalog.test.js",
     "check": "node scripts/check.mjs",
-    "pack:check": "npm pack --dry-run --json --cache .npm-cache --workspace packages/core && npm pack --dry-run --json --cache .npm-cache --workspace packages/cli"
+    "pack:check": "npm pack --dry-run --json --cache .npm-cache --workspace packages/core && npm pack --dry-run --json --cache .npm-cache --workspace packages/cli",
+    "validate": "npm run check && npm test && npm run pack:check"
   },
   "engines": {
     "node": ">=22.13.0"

@@ -7,42 +7,44 @@ import { MindError } from "@mind/core";
 const CLI_ENTRY = fileURLToPath(import.meta.url);
 const CLI_PKG = JSON.parse(readFileSync(path.join(path.dirname(CLI_ENTRY), "..", "package.json"), "utf8"));
 
-const usage = () => {
-  console.error("usage: mind <command> [args]");
-  console.error("");
-  console.error("  init    [--source <path>] [--name <n>] [--force] [--new-identity]");
-  console.error("                                          (scaffold this directory as a mind project)");
-  console.error("  update  [--source <path>]              (re-apply profile-owned files + new catalog entries)");
-  console.error("  spawn   --name? --description? --model? --allow <p> --allow-write <p>");
-  console.error("          --nestable? --web? --timeout? --rm? --verbose?");
-  console.error("          --catalog <name>? --executor <name>? --max-tokens <n>? --fallback-model <m>?");
-  console.error("          --allow-catalog <name>* | --allow-no-catalogs?");
-  console.error("          --prompt-prefix <s>? --prompt-suffix <s>?");
-  console.error("          --bash-allow <pattern>? --bash-only? --text-only?");
-  console.error("          --output-exact <s>? --output-prefix <s>? --output-regex <s>? --output-json?");
-  console.error("          --opencode-provider-file <json>?  <prompt>");
-  console.error("  create  (same flags as spawn; scaffolds a home without running)");
-  console.error("  run     <home-or-id> <prompt...>");
-  console.error("  list    (list alter homes + status)");
-  console.error("  tree    (nesting tree)");
-  console.error("  show    <id>          (print result.json)");
-  console.error("  rm      <id>          (delete a home)");
-  console.error("  memory  search <query> [--limit <n>] [--kind <k>]*    (ask the host to search persistent memory)");
-  console.error("  memory  put <content> [--kind <k>] [--tag <t>]*       (ask the host to store a durable record)");
-  console.error("  memory  ask <text>                                     (let the memory assistant decide: remember or recall)");
-  console.error("  memory  stats                                           (inspect persistent-memory storage)");
-  console.error("  memory  migrate --to sqlite                            (copy JSON memory into SQLite/FTS)");
-  console.error("  agents  ls | scan | add <dir> [--workspace] | rm <dir> | where <id|name>");
-  console.error("                                          (the registry of minds this machine knows)");
-  console.error("  oscillation ls | show <id> | run <id> [--force] | add <file|-> | rm <id>");
-  console.error("              | grants | grant <cat> <cap>  (this mind's rhythms)");
-  console.error("  usage   [--since <dur>] [--from <when>] [--to <when>] [--mind <id|name>]");
-  console.error("          [--no-storage] [--json]         (tokens, tool calls and storage for one mind)");
-  console.error("  daemon  [--once] [--interval <dur>] [--dry-run] [--mind <id|name>]");
-  console.error("                                          (tick every mind's due oscillations)");
-  console.error("  catalog list                            (list predefined harnesses)");
-  console.error("  catalog show <name>                     (print a harness manifest.json)");
-  console.error("  catalog save <name> --from <id> | ...spawn flags   (add/update a harness)");
+const usage = (write = console.log) => {
+  write("usage: mind <command> [args]");
+  write("");
+  write("  init    [--source <path>] [--name <n>] [--force] [--new-identity]");
+  write("                                          (scaffold this directory as a mind project)");
+  write("  update  [--source <path>]              (re-apply profile-owned files + new catalog entries)");
+  write("  spawn   --name? --description? --model? --allow <p> --allow-write <p>");
+  write("          --nestable? --web? --timeout? --rm? --verbose?");
+  write("          --catalog <name>? --executor <name>? --max-tokens <n>? --fallback-model <m>?");
+  write("          --allow-catalog <name>* | --allow-no-catalogs?");
+  write("          --prompt-prefix <s>? --prompt-suffix <s>?");
+  write("          --bash-allow <pattern>? --bash-only? --text-only?");
+  write("          --output-exact <s>? --output-prefix <s>? --output-regex <s>? --output-json?");
+  write("          --opencode-provider-file <json>?  <prompt>");
+  write("  create  (same flags as spawn; scaffolds a home without running)");
+  write("  run     <home-or-id> <prompt...>");
+  write("  list    (list alter homes + status)");
+  write("  tree    (nesting tree)");
+  write("  show    <id>          (print result.json)");
+  write("  rm      <id>          (delete a home)");
+  write("  memory  search <query> [--limit <n>] [--kind <k>]*    (ask the host to search persistent memory)");
+  write("  memory  put <content> [--kind <k>] [--tag <t>]*       (ask the host to store a durable record)");
+  write("  memory  ask <text>                                     (let the memory assistant decide: remember or recall)");
+  write("  memory  stats                                           (inspect persistent-memory storage)");
+  write("  memory  migrate --to sqlite                            (copy JSON memory into SQLite/FTS)");
+  write("  agents  ls | scan | add <dir> [--workspace] | rm <dir> | where <id|name>");
+  write("                                          (the registry of minds this machine knows)");
+  write("  oscillation ls | show <id> | run <id> [--force] | add <file|-> | rm <id>");
+  write("              | grants | grant <cat> <cap>  (this mind's rhythms)");
+  write("  usage   [--since <dur>] [--from <when>] [--to <when>] [--mind <id|name>]");
+  write("          [--no-storage] [--json]         (tokens, tool calls and storage for one mind)");
+  write("  daemon  [--once] [--interval <dur>] [--dry-run] [--mind <id|name>]");
+  write("                                          (tick every mind's due oscillations)");
+  write("  catalog list                            (list predefined harnesses)");
+  write("  catalog show <name>                     (print a harness manifest.json)");
+  write("  catalog save <name> --from <id> | ...spawn flags   (add/update a harness)");
+  write("  catalog export <name> --to <dir>        (copy an alter project out, to version or share)");
+  write("  catalog import <dir> [--as <name>] [--trust]       (copy one in; grants are dropped unless --trust)");
 };
 
 const COMMANDS = {
@@ -67,6 +69,14 @@ const COMMANDS = {
 const main = async () => {
   const cmd = process.argv[2];
   const rest = process.argv.slice(3);
+  if (!cmd || cmd === "--help" || cmd === "-h" || cmd === "help") {
+    usage();
+    return;
+  }
+  if (cmd === "--version" || cmd === "-v" || cmd === "version") {
+    console.log(CLI_PKG.version);
+    return;
+  }
   const loader = COMMANDS[cmd];
   if (!loader) {
     if (cmd) {
@@ -75,8 +85,8 @@ const main = async () => {
       );
       console.error("");
     }
-    usage();
-    process.exitCode = cmd ? 1 : 0;
+    usage(console.error);
+    process.exitCode = 1;
     return;
   }
   const mod = await loader();

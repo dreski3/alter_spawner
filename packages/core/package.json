@@ -1,23 +1,39 @@
 {
   "name": "@mind/core",
   "version": "0.1.0",
+  "description": "Embeddable runtime for isolated AI alters, execution graphs, oscillations, capabilities, and persistent memory.",
+  "keywords": [
+    "ai-agent",
+    "agent-runtime",
+    "multi-agent",
+    "orchestration",
+    "memory"
+  ],
+  "license": "MIT",
   "type": "module",
   "main": "src/index.js",
   "types": "src/index.d.ts",
   "exports": {
     ".": {
+      "types": "./src/index.d.ts",
       "import": "./src/index.js",
-      "types": "./src/index.d.ts"
+      "default": "./src/index.js"
     }
   },
   "files": [
     "src",
-    "templates"
+    "templates",
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=22.13.0"
   },
   "scripts": {
-    "test": "node --test \"test/**/*.test.js\""
+    "test": "node --test \"test/**/*.test.js\"",
+    "build:package": "node scripts/build-package.mjs",
+    "prepack": "npm run build:package",
+    "prepublishOnly": "npm run check --prefix ../.. && npm test --prefix ../.."
   }
 }

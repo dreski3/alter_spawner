@@ -118,6 +118,9 @@ const SCHEMA = `
     ON memory_records(content_hash, project, catalog, conversation, namespace);
   CREATE INDEX IF NOT EXISTS memory_updated_idx ON memory_records(updated_at DESC, id);
   CREATE INDEX IF NOT EXISTS memory_expiry_idx ON memory_records(expires_at);
+`;
+
+const FTS_SCHEMA = `
   CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
     id UNINDEXED,
     content,
@@ -137,6 +140,7 @@ export const createSqliteMemoryStore = ({
   namespaceQuotaBytes = {},
   busyTimeoutMs = 5000,
   journalSizeLimitBytes = DEFAULT_JOURNAL_SIZE_LIMIT_BYTES,
+  searchBackend = "auto",
 } = {}) => {
   if (typeof file !== "string" || (!path.isAbsolute(file) && file !== ":memory:")) {
     throw new Error("SQLite memory store requires an absolute file path or :memory:");
@@ -147,6 +151,9 @@ export const createSqliteMemoryStore = ({
   }
   if (!Number.isInteger(journalSizeLimitBytes) || journalSizeLimitBytes < 0) {
     throw new Error("SQLite memory store journalSizeLimitBytes must be a non-negative integer");
+  }
+  if (!["auto", "fts5", "scan"].includes(searchBackend)) {
+    throw new Error("SQLite memory store searchBackend must be auto, fts5, or scan");
   }
   validateQuotas(quotaBytes, namespaceQuotaBytes);
   const runtime = resolveRuntime(runtimeOverride);
@@ -163,8 +170,24 @@ export const createSqliteMemoryStore = ({
   }
   database.exec("PRAGMA synchronous = NORMAL");
   database.exec(SCHEMA);
+  let activeSearchBackend = "scan";
+  if (searchBackend !== "scan") {
+    try {
+      database.exec(FTS_SCHEMA);
+      activeSearchBackend = "fts5";
+    } catch (error) {
+      if (searchBackend === "fts5" || !/no such module:\s*fts5/i.test(error?.message || "")) {
+        database.close();
+        throw error;
+      }
+    }
+  }
   const getMeta = database.prepare("SELECT value FROM memory_meta WHERE key = ?");
   const putMeta = database.prepare("INSERT INTO memory_meta(key, value) VALUES (?, ?)");
+  const setMeta = database.prepare(`
+    INSERT INTO memory_meta(key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `);
   const schemaVersion = getMeta.get("schema_version")?.value;
   const storedProjectId = getMeta.get("project_id")?.value;
   if (schemaVersion === undefined) {
@@ -181,6 +204,29 @@ export const createSqliteMemoryStore = ({
   } else if (Number(schemaVersion) !== SQLITE_MEMORY_SCHEMA_VERSION || storedProjectId !== normalizedProjectId) {
     database.close();
     throw new Error("SQLite memory store is invalid or belongs to another project");
+  }
+  const previousSearchBackend = getMeta.get("search_backend")?.value;
+  if (activeSearchBackend === "fts5" && previousSearchBackend !== "fts5") {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.exec("DELETE FROM memory_fts");
+      database.exec(`
+        INSERT INTO memory_fts(rowid, id, content, tags, kind)
+        SELECT rowid, id, content, '', kind FROM memory_records
+      `);
+      for (const row of database.prepare("SELECT rowid, tags_json FROM memory_records").all()) {
+        const tags = parseJson(row.tags_json, "tags").join(" ");
+        database.prepare("UPDATE memory_fts SET tags = ? WHERE rowid = ?").run(tags, row.rowid);
+      }
+      setMeta.run("search_backend", "fts5");
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      database.close();
+      throw error;
+    }
+  } else if (activeSearchBackend === "scan" && previousSearchBackend !== "scan") {
+    setMeta.run("search_backend", "scan");
   }
   if (file !== ":memory:") chmodSync(file, 0o600);
 
@@ -216,10 +262,14 @@ export const createSqliteMemoryStore = ({
     scope.namespace,
   ];
 
-  const insertFts = (record) => database.prepare(
-    "INSERT INTO memory_fts(rowid, id, content, tags, kind) VALUES ((SELECT rowid FROM memory_records WHERE id = ?), ?, ?, ?, ?)",
-  ).run(record.id, record.id, record.content, record.tags.join(" "), record.kind);
-  const removeFts = (id) => database.prepare("DELETE FROM memory_fts WHERE rowid = (SELECT rowid FROM memory_records WHERE id = ?)").run(id);
+  const insertFts = activeSearchBackend === "fts5"
+    ? (record) => database.prepare(
+      "INSERT INTO memory_fts(rowid, id, content, tags, kind) VALUES ((SELECT rowid FROM memory_records WHERE id = ?), ?, ?, ?, ?)",
+    ).run(record.id, record.id, record.content, record.tags.join(" "), record.kind)
+    : () => {};
+  const removeFts = activeSearchBackend === "fts5"
+    ? (id) => database.prepare("DELETE FROM memory_fts WHERE rowid = (SELECT rowid FROM memory_records WHERE id = ?)").run(id)
+    : () => {};
 
   const insertRecord = (record) => {
     database.prepare(`
@@ -452,7 +502,7 @@ export const createSqliteMemoryStore = ({
     if (!Array.isArray(kinds) || kinds.some((kind) => !MEMORY_KINDS.includes(kind))) throw new Error("memory search kinds are invalid");
     const requiredTags = [...new Set((options.tags || []).map((tag) => requiredString(tag, "memory tag", 100)))].map((tag) => tag.toLocaleLowerCase());
     const terms = tokenizeMemoryQuery(normalizedQuery);
-    const rows = terms.length
+    const rows = terms.length && activeSearchBackend === "fts5"
       ? database.prepare(`
         SELECT memory_records.* FROM memory_fts
         JOIN memory_records ON memory_records.rowid = memory_fts.rowid
@@ -464,7 +514,10 @@ export const createSqliteMemoryStore = ({
         ...readableScopeArgs(normalizedScope),
         new Date(runtime.now()).toISOString(),
       )
-      : database.prepare(`SELECT * FROM memory_records WHERE ${readableScopeSql}`).all(...readableScopeArgs(normalizedScope));
+      : database.prepare(`
+        SELECT * FROM memory_records WHERE ${readableScopeSql}
+          AND (expires_at IS NULL OR expires_at > ?)
+      `).all(...readableScopeArgs(normalizedScope), new Date(runtime.now()).toISOString());
     const now = runtime.now();
     return rows
       .map(rowToRecord)
@@ -547,7 +600,7 @@ export const createSqliteMemoryStore = ({
   // transaction().
   const compact = async () => {
     const before = storageBytes();
-    database.exec("INSERT INTO memory_fts(memory_fts) VALUES('optimize')");
+    if (activeSearchBackend === "fts5") database.exec("INSERT INTO memory_fts(memory_fts) VALUES('optimize')");
     database.exec("VACUUM");
     if (file !== ":memory:") database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
     const after = storageBytes();
@@ -609,6 +662,7 @@ export const createSqliteMemoryStore = ({
     file,
     projectId: normalizedProjectId,
     backend: "sqlite",
+    searchBackend: activeSearchBackend,
     get,
     search,
     list,
@@ -634,6 +688,7 @@ export const migrateFileMemoryStoreToSqlite = async ({
   namespaceQuotaBytes = {},
   busyTimeoutMs = 5000,
   journalSizeLimitBytes = DEFAULT_JOURNAL_SIZE_LIMIT_BYTES,
+  searchBackend = "auto",
 } = {}) => {
   if (typeof sourceFile !== "string" || !path.isAbsolute(sourceFile)) {
     throw new Error("memory migration requires an absolute sourceFile");
@@ -660,6 +715,7 @@ export const migrateFileMemoryStoreToSqlite = async ({
     namespaceQuotaBytes,
     busyTimeoutMs,
     journalSizeLimitBytes,
+    searchBackend,
   });
   try {
     const result = await store.importRecords(document.records);

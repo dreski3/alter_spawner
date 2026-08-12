@@ -1,8 +1,16 @@
-# mind
+# Alter Spawner (`mind`)
 
-A monorepo that builds the `mind` CLI — a tool for scaffolding and running
-**Alters**: single-use, sandboxed sub-agents that a coding-agent session can
-spawn (recursively, from a reusable catalog) to delegate isolated sub-tasks.
+Alter Spawner is a framework for building user-facing AI agents whose work is
+performed by isolated processing instances called **Alters**. One execution of
+an Alter is a **spike**. Recurring, phased groups of spikes are
+**oscillations**. Together, graphs, oscillations, memory, capability policies,
+and reward or maintenance tasks form the agent's metabolic layer: background
+work can consolidate memory, revisit unfinished goals, inspect resource use,
+and improve future execution without making every internal process part of the
+agent's conversational context.
+
+The monorepo currently builds the `mind` CLI and the `@mind/core` embedding
+library. The names are distribution names; Alter Spawner is the framework.
 
 `mind init` turns any directory into an Alter-enabled project: an `AGENTS.md`
 for the interactive parent session, an `alter` skill it can load on demand,
@@ -11,18 +19,23 @@ one command: `mind spawn --catalog researcher "..."`.
 
 ## Status
 
-Not published. There is no `npx mind` yet. The CLI packs as one small,
-self-contained tarball whose deterministic `dist/` artifact includes the core,
-so local consumers no longer need the old two-package `npm link` sequence.
-See [TODO.md](TODO.md) for what's left before that's a reasonable thing to do.
+Pre-release (`0.1.0`) and not yet published to a public registry. Both packages
+produce installable tarballs. The CLI is self-contained; the core package is an
+ESM library with declarations and its initialization profile included. Consumer
+installation is exercised in the integration suite. See [ROADMAP.md](ROADMAP.md)
+for the remaining publication decisions.
+
+Start with [the architecture](docs/architecture.md) for the framework model,
+[the embedding guide](docs/embedding.md) for host integration, and
+[CONTRIBUTING.md](CONTRIBUTING.md) for the verification and release workflow.
 
 ## Packages
 
 - **`packages/core`** (`@mind/core`) — the engine. Project-root discovery
   (walks up from `cwd` for `.alters/config.json`, like `git` finds `.git`),
   catalog resolution, Alter-home scaffolding, retry/fallback, and a
-  harness-adapter interface (`src/harness/adapter.js`) with `opencode` as the
-  only implementation today (`src/harness/opencode.js`). Library callers can
+  harness-adapter interface (`src/harness/adapter.js`) with a session-based
+  `opencode` adapter and a direct, tool-free `llm` adapter. Library callers can
   use `parseSpawnArgs` plus `spawnAlter` directly and pass an `AbortSignal` to
   cancel the underlying harness process without shelling out to `mind`.
   `runAlterGraph` executes validated dependency graphs, runs ready branches in
@@ -207,11 +220,15 @@ const result = await execution;
 
 **Persistent memory** — `createProjectMemoryStore` provides interchangeable
 JSON and SQLite backends. JSON remains the compatibility default under
-`.alters/memory/store.json`; `{ backend: "sqlite" }` uses WAL and FTS5 under
+`.alters/memory/store.json`; `{ backend: "sqlite" }` uses WAL and, when available,
+FTS5 under
 `.alters/memory/store.sqlite`. Both enforce the same scopes, normalization,
 optimistic versions, active-record deduplication, atomic mutation batches,
 storage accounting, and store/namespace quotas. SQLite performs indexed scope
-reads and keeps its FTS rows in the same transactions as record changes.
+reads and keeps its FTS rows in the same transactions as record changes. Node
+builds without FTS5 fall back to the same lexical scoring over scope-indexed
+records; set `searchBackend: "fts5"` to require FTS5 or `searchBackend: "scan"`
+to select the portable path explicitly.
 `mind memory stats` requests the visible storage report through the host.
 
 `physicalBytes` counts live stored data in both backends, so removing records
@@ -360,7 +377,8 @@ untouched with `storage: null`.
 
 ## Known limitations
 
-- Not published. No `mind --help`/`--version` yet.
+- Not published; the final registry names and repository metadata are still a
+  release decision.
 - OpenCode runs in `--pure` mode by default to avoid loading external plugins.
   A custom provider can still require its configured AI SDK runtime package.
 - Only one harness adapter exists (`opencode`); the interface is unexercised
@@ -373,10 +391,9 @@ untouched with `storage: null`.
   `mind spawn` bash invocation (bad quoting, or assuming it's blocked without
   trying) — not a permissions bug, a model-reliability one. Mitigated (not
   eliminated): the Alter's own `AGENTS.md` now bakes in the exact resolved
-  invocation instead of the bare `mind` form it can't actually run; see
-  TODO.md #1.
+  invocation instead of the bare `mind` form it can't actually run.
 
-See [TODO.md](TODO.md) for the fuller list and next steps.
+See [ROADMAP.md](ROADMAP.md) for the fuller list and next steps.
 
 ## Examples
 

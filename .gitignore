@@ -1,6 +1,7 @@
 node_modules/
 .npm-cache/
 packages/cli/dist/
+packages/core/dist/
 coverage/
 *.tgz
 .DS_Store
@@ -9,7 +10,7 @@ coverage/
 # A `.alters/` directory is a *project instance* that this package's own `mind init`
 # scaffolds — config, catalog, run artifacts, memory, trees. This repo holds one because
 # it dogfoods itself, but a package must not track the output of its own scaffolder: the
-# shipped defaults live in `packages/cli/profiles/default/`, and everything under
+# shipped defaults are authored in `packages/cli/profiles/default/`, and everything under
 # `.alters/` is local working state. Tests build their own `.alters/` inside a temp dir,
 # so nothing in the suite depends on this one existing.
 .alters/

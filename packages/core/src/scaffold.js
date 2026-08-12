@@ -5,6 +5,7 @@ import { runsDir } from "./config.js";
 import { ALTER_HOME_TEMPLATE_DIR } from "./paths.js";
 import { buildAgentsMd, buildBody, buildFrontmatter } from "./frontmatter.js";
 import { catalogDirPath } from "./catalog.js";
+import { inspectProjectTree } from "./alter-project.js";
 import { ALTER_SCHEMA_VERSION, writeJsonAtomic, writeTextAtomic } from "./persistence.js";
 import { resolveRuntime } from "./runtime.js";
 
@@ -59,6 +60,9 @@ const claimRunFolder = (root, id, runtime) => {
 // `needsAgentHome: false` reads none of it, so writing it would be pure latency.
 export const scaffold = (root, cfg, o, runtimeOverride, { agentFiles = true } = {}) => {
   const runtime = resolveRuntime(runtimeOverride);
+  if (agentFiles && o.catalogEntryDir && (o.catalogAgentsOverride || o.catalogSkillsDir)) {
+    inspectProjectTree(o.catalogEntryDir, { action: "scaffold catalog entry" });
+  }
   o.runFolder = claimRunFolder(root, o.id, runtime);
   const home = path.join(runsDir(root), o.runFolder);
   if (agentFiles) scaffoldAgentFiles(root, cfg, o, runtime, home);
@@ -81,7 +85,10 @@ const scaffoldAgentFiles = (root, cfg, o, runtime, home) => {
     if (existsSync(src)) {
       const dest = path.join(home, ".opencode", "skills");
       mkdirSync(dest, { recursive: true });
-      cpSync(src, dest, { recursive: true });
+      // .gitkeep exists so an empty skills/ survives a commit in the authored project.
+      // It has no meaning in a run home, where nothing is committed — copying it would
+      // just put a file in the Alter's sandbox that no part of the run can explain.
+      cpSync(src, dest, { recursive: true, filter: (from) => path.basename(from) !== ".gitkeep" });
     }
   }
   // opencode injects a home's AGENTS.md into the agent prompt *in addition to* the

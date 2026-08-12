@@ -5,6 +5,12 @@ import { kitDir } from "./config.js";
 import { validateOutputContract } from "./output-contract.js";
 import { writeJsonAtomic } from "./persistence.js";
 import { resolveRuntime } from "./runtime.js";
+import {
+  PROJECT_AGENTS_FILE,
+  PROJECT_SKILLS_DIR,
+  scaffoldAlterProject,
+  validateAlterProject,
+} from "./alter-project.js";
 
 export const catalogDirPath = (root, cfg) => path.join(kitDir(root), cfg.catalog_dir || "catalog");
 
@@ -57,6 +63,10 @@ export const validateManifest = (m, name) => {
       m.bash_allow?.length && "bash_allow",
       m.read_grants?.length && "read_grants",
       m.write_grants?.length && "write_grants",
+      // A text_only Alter has no skill tool and scaffold does not even copy the
+      // directory, so declaring skills here promises a capability that provably
+      // will not exist at run time.
+      m.skills_dir && "skills_dir",
     ].filter(Boolean);
     if (conflicts.length) {
       fail(`catalog entry "${name}": text_only cannot be combined with ${conflicts.join(", ")}.`);
@@ -73,6 +83,18 @@ export const validateManifest = (m, name) => {
       if (typeof allowed !== "string" || !allowed.trim()) {
         fail(`catalog entry "${name}": allowed_catalogs entries must be non-empty catalog names.`);
       }
+    }
+  }
+  // Both name a path inside the entry directory. Whether the path is actually there is
+  // settled by validateAlterProject once the directory is known; what is checkable from
+  // the manifest alone is that it is a relative path that stays inside the project.
+  for (const key of ["agents_md_override", "skills_dir"]) {
+    if (m[key] == null) continue;
+    if (typeof m[key] !== "string" || !m[key].trim()) {
+      fail(`catalog entry "${name}": ${key} must be a non-empty relative path or null.`);
+    }
+    if (path.isAbsolute(m[key]) || m[key].split(/[\\/]/).includes("..")) {
+      fail(`catalog entry "${name}": ${key} must stay inside the entry directory (got "${m[key]}").`);
     }
   }
   if (m.opencode_provider != null) {
@@ -105,6 +127,7 @@ export const resolveCatalogEntry = (root, cfg, name) => {
     fail(`catalog entry "${name}": manifest.json is not valid JSON (${e.message}).`);
   }
   validateManifest(m, name);
+  validateAlterProject(dir, m, name);
   if (m.source && m.source.type === "mcp") {
     fail(`catalog entry "${name}" is MCP-backed; MCP resolution is not yet implemented.`);
   }
@@ -152,13 +175,19 @@ export const listCatalogEntries = (root, cfg) => {
   const out = [];
   for (const name of names) {
     try {
-      out.push({ name, manifest: JSON.parse(readFileSync(path.join(dir, name, "manifest.json"), "utf8")) });
+      out.push({
+        name,
+        // Carried so a caller that wants to show the entry's files does not have to
+        // recompute the path from root+cfg and get the catalog_dir override wrong.
+        dir: path.join(dir, name),
+        manifest: JSON.parse(readFileSync(path.join(dir, name, "manifest.json"), "utf8")),
+      });
     } catch {}
   }
   return out;
 };
 
-const manifestFromOptions = (name, o, runtime) => ({
+const manifestFromOptions = (name, o, runtime, { project = false } = {}) => ({
   name,
   description: o.description || "Single-use sandboxed Alter.",
   model: o.model || null,
@@ -177,8 +206,11 @@ const manifestFromOptions = (name, o, runtime) => ({
   allowed_catalogs: o.allowedCatalogs ? [...o.allowedCatalogs] : null,
   prompt_prefix: o.promptPrefix ?? null,
   prompt_suffix: o.promptSuffix ?? null,
-  agents_md_override: null,
-  skills_dir: null,
+  // An explicit value always wins, so a caller re-saving an existing entry can carry
+  // the paths it already had — including ones that are not the defaults. Without that,
+  // any edit that rewrites the manifest would orphan the files it used to point at.
+  agents_md_override: o.agentsMdOverride ?? (project ? PROJECT_AGENTS_FILE : null),
+  skills_dir: o.skillsDir ?? (project && !o.textOnly ? PROJECT_SKILLS_DIR : null),
   opencode_provider: o.opencodeProvider || null,
   output_contract: o.outputContract || null,
   source: { type: "local", ref: null },
@@ -186,7 +218,39 @@ const manifestFromOptions = (name, o, runtime) => ({
   created_from: o.createdFrom ?? null,
 });
 
-export const saveCatalogEntry = (root, cfg, name, o, { force = false, runtime: runtimeOverride } = {}) => {
+// Turns an existing manifest-only entry into a project: seeds the files and records the
+// paths, touching nothing else. Deliberately not a `saveCatalogEntry` call — that rebuilds
+// the whole manifest from spawn options, and a conversion is the one edit where every
+// other field is already correct and must survive untouched.
+export const convertCatalogEntryToProject = (root, cfg, name) => {
+  const sanitized = sanitizeName(name);
+  const dir = path.join(catalogDirPath(root, cfg), sanitized);
+  const manifestPath = path.join(dir, "manifest.json");
+  if (!existsSync(manifestPath)) fail(`catalog entry not found: ${name}`);
+  let m;
+  try {
+    m = JSON.parse(readFileSync(manifestPath, "utf8"));
+  } catch (e) {
+    fail(`catalog entry "${sanitized}": manifest.json is not valid JSON (${e.message}).`);
+  }
+  scaffoldAlterProject(dir, { description: m.description || "", skills: !m.text_only });
+  const manifest = {
+    ...m,
+    agents_md_override: m.agents_md_override || PROJECT_AGENTS_FILE,
+    skills_dir: m.text_only ? null : m.skills_dir || PROJECT_SKILLS_DIR,
+  };
+  validateManifest(manifest, sanitized);
+  writeJsonAtomic(manifestPath, manifest);
+  return { dir, manifest };
+};
+
+export const saveCatalogEntry = (
+  root,
+  cfg,
+  name,
+  o,
+  { force = false, project = false, runtime: runtimeOverride } = {}
+) => {
   const runtime = resolveRuntime(runtimeOverride);
   const sanitized = sanitizeName(name);
   const dir = path.join(catalogDirPath(root, cfg), sanitized);
@@ -194,7 +258,11 @@ export const saveCatalogEntry = (root, cfg, name, o, { force = false, runtime: r
     fail(`catalog entry already exists: ${sanitized} (pass --force to overwrite)`);
   }
   mkdirSync(dir, { recursive: true });
-  const manifest = manifestFromOptions(sanitized, o, runtime);
+  // Seeded before the manifest is written, so the manifest never points at files that
+  // are not there yet — resolveCatalogEntry now treats a dangling reference as a hard
+  // error rather than falling back to the stock persona.
+  if (project) scaffoldAlterProject(dir, { description: o.description || "", skills: !o.textOnly });
+  const manifest = manifestFromOptions(sanitized, o, runtime, { project });
   writeJsonAtomic(path.join(dir, "manifest.json"), manifest);
   return dir;
 };

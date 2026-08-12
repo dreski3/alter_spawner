@@ -53,7 +53,8 @@ exits non-zero and memory is simply unavailable this run. Load the `alter` skill
 for the full reference.
 
 The `mind` CLI is provided by whoever started you; if it is missing, `node
-"$MIND_BIN"` is the same CLI. Never try to install it — nothing on npm is it.
+"$MIND_BIN"` is the same CLI. Do not modify the host or install dependencies
+during a task to repair a missing CLI; report the broken project setup instead.
 
 ## Operating conventions
 
