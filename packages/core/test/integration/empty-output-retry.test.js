@@ -1,7 +1,6 @@
-// Covers TODO.md #2 end-to-end through the real spawn path (scaffold -> attempt
+// Covers empty-output retry end-to-end through the real spawn path (scaffold -> attempt
 // plan -> result.json) with the harness faked via `registerHarness`, so it runs
-// offline with no model and no `opencode` binary. This is also the mocked-harness
-// integration test TODO.md #3 asks for.
+// offline with no model and no `opencode` binary.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -103,7 +102,7 @@ test("an always-empty run is recorded as a failure, not a silent success", async
   });
 
   assert.equal(calls.length, 3, "every tier should be spent before giving up");
-  assert.equal(result.ok, false, "this is the regression TODO #2 describes: it used to be ok:true");
+  assert.equal(result.ok, false, "empty output used to be recorded as ok:true");
   assert.equal(result.empty_output, true);
   assert.equal(result.exit_code, 0, "the underlying process really did exit cleanly");
   assert.equal(result.killed, false);

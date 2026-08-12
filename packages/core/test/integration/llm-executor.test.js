@@ -38,11 +38,23 @@ test.before(async () => {
       response.end(body);
     });
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise((resolve, reject) => {
+    const onError = (error) => reject(error);
+    server.once("error", onError);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", onError);
+      resolve();
+    });
+  });
   origin = `http://127.0.0.1:${server.address().port}/v1`;
 });
 
-test.after(() => server?.close());
+test.after(() => {
+  if (!server) return;
+  server.closeIdleConnections();
+  server.closeAllConnections();
+  server.close();
+});
 
 const makeEnvironment = (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), "mind-llm-"));

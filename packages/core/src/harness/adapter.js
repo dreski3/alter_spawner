@@ -1,6 +1,5 @@
 // A harness adapter runs a prompt for one Alter and reports back what happened.
-// `opencode.js` is the only implementation today; a future adapter just needs to
-// satisfy this same contract — nothing in scaffold/retry/catalog branches on which
+// New adapters only need to satisfy this contract — nothing in scaffold/retry/catalog branches on which
 // adapter is in use.
 //
 // An adapter is chosen per Alter, not per call site: a catalog manifest's

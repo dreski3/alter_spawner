@@ -2,7 +2,7 @@
 // spawn a real grandchild via its own scoped shell, then asserts the
 // grandchild's run folder exists with `result.json.ok === true`. This is the
 // one path most exercised by the actual vision (alters spawning alters) and,
-// per TODO.md #1, had zero automated coverage before this.
+// This command-composition path once had no automated coverage.
 //
 // It hits a real model through a real `opencode` process, so it is opt-in and
 // skipped by default: set MIND_LIVE_TESTS=1 to run it.

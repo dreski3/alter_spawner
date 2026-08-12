@@ -57,7 +57,7 @@ const systemPrompt = (description) =>
   `${description?.trim() || "Transform the text you are given."}\n\nYour entire reply is captured verbatim as the result. Return only the result — no preamble, no explanation.`;
 
 // Combines the caller's cancellation with this run's timeout. AbortSignal.any would do
-// it in one line but landed mid-20.x, and the engines field here allows any Node 20.
+// it in one line, but keeping this explicit also makes timeout attribution local.
 const abortPlan = (signal, timeout) => {
   const controller = new AbortController();
   let timedOut = false;

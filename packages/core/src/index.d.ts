@@ -1157,9 +1157,22 @@ export function putMemory(options: MemoryClientOptions & {
   confidence?: number | null;
   expiresAt?: string | null;
 }): Promise<CapabilityOutcome & { records: MemoryRecord[] }>;
+export function askMemoryAssistant(options: MemoryClientOptions & {
+  text: string;
+}): Promise<CapabilityOutcome & {
+  action: string | null;
+  detail: string | null;
+  text: string;
+}>;
 export function inspectMemoryStorage(options?: MemoryClientOptions): Promise<CapabilityOutcome & { stats: MemoryStorageStats | null }>;
 export function formatSearchOutcome(outcome: { decision: string; results: MemorySearchResult[] }): string;
 export function formatPutOutcome(outcome: { decision: string; records: MemoryRecord[] }): string;
+export function formatAssistantOutcome(outcome: {
+  decision: string;
+  action: string | null;
+  detail: string | null;
+  text: string;
+}): string;
 export function formatStorageOutcome(outcome: { decision: string; stats: MemoryStorageStats | null }): string;
 
 /**

@@ -1,5 +1,5 @@
-// The outcome table for a finished harness run, including the empty-output case
-// from TODO.md #2. Pure and offline — no `opencode` process, no model.
+// The outcome table for a finished harness run, including the empty-output case.
+// Pure and offline — no `opencode` process, no model.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
