@@ -220,11 +220,15 @@ const result = await execution;
 
 **Persistent memory** — `createProjectMemoryStore` provides interchangeable
 JSON and SQLite backends. JSON remains the compatibility default under
-`.alters/memory/store.json`; `{ backend: "sqlite" }` uses WAL and FTS5 under
+`.alters/memory/store.json`; `{ backend: "sqlite" }` uses WAL and, when available,
+FTS5 under
 `.alters/memory/store.sqlite`. Both enforce the same scopes, normalization,
 optimistic versions, active-record deduplication, atomic mutation batches,
 storage accounting, and store/namespace quotas. SQLite performs indexed scope
-reads and keeps its FTS rows in the same transactions as record changes.
+reads and keeps its FTS rows in the same transactions as record changes. Node
+builds without FTS5 fall back to the same lexical scoring over scope-indexed
+records; set `searchBackend: "fts5"` to require FTS5 or `searchBackend: "scan"`
+to select the portable path explicitly.
 `mind memory stats` requests the visible storage report through the host.
 
 `physicalBytes` counts live stored data in both backends, so removing records

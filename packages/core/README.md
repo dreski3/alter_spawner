@@ -27,5 +27,9 @@ contain a `.alters/config.json`; use the companion `mind` CLI's `mind init`
 command or call `initMind(projectRoot)` from this package. The default profile is
 included; pass `profileDir` to initialize from a host-specific profile.
 
+SQLite memory automatically uses FTS5 when the active Node build provides it and
+falls back to scope-indexed lexical scanning otherwise. Set `searchBackend` to
+`"fts5"` to require the extension or `"scan"` to force the portable path.
+
 See the repository README and `docs/embedding.md` for the host integration and
 capability-approval contracts.

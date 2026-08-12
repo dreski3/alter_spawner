@@ -63,6 +63,46 @@ test("FTS retrieval stays synchronized across writes, updates, and deletes", asy
   assert.deepEqual(await store.search("bridge", scope), []);
 });
 
+test("scan retrieval preserves lexical search when FTS5 is unavailable", async (t) => {
+  const { root, runtime } = fixture(t);
+  const store = createSqliteMemoryStore({
+    file: sqliteMemoryFilePath(root),
+    projectId: "naut",
+    runtime,
+    searchBackend: "scan",
+  });
+  t.after(() => store.close());
+  const scope = { project: "naut", namespace: "operations" };
+  const record = await store.put({ content: "The relay listens on port 8788.", tags: ["network"] }, scope);
+  assert.equal(store.searchBackend, "scan");
+  assert.equal((await store.search("relay port", scope))[0].record.id, record.id);
+  await store.update(record.id, { content: "The bridge listens on socket 9999." }, scope, { expectedVersion: 1 });
+  assert.deepEqual(await store.search("relay", scope), []);
+  assert.equal((await store.search("bridge socket", scope))[0].record.id, record.id);
+  await store.delete(record.id, scope, { expectedVersion: 2 });
+  assert.deepEqual(await store.search("bridge", scope), []);
+});
+
+test("enabling FTS5 after scan mode indexes existing records", async (t) => {
+  const { root, runtime } = fixture(t);
+  const file = sqliteMemoryFilePath(root);
+  const scope = { project: "naut" };
+  const scan = createSqliteMemoryStore({ file, projectId: "naut", runtime, searchBackend: "scan" });
+  const record = await scan.put({ content: "Existing portable memory.", tags: ["migration"] }, scope);
+  scan.close();
+  const indexed = createSqliteMemoryStore({ file, projectId: "naut", runtime, searchBackend: "auto" });
+  t.after(() => indexed.close());
+  assert.equal((await indexed.search("portable migration", scope))[0].record.id, record.id);
+});
+
+test("SQLite search backend selection validates explicit requirements", (t) => {
+  const { root, runtime } = fixture(t);
+  assert.throws(
+    () => createSqliteMemoryStore({ file: sqliteMemoryFilePath(root), projectId: "naut", runtime, searchBackend: "unknown" }),
+    /searchBackend must be auto, fts5, or scan/,
+  );
+});
+
 test("SQLite mutation batches and namespace quotas roll back records and FTS together", async (t) => {
   const { root, runtime } = fixture(t);
   const store = createSqliteMemoryStore({

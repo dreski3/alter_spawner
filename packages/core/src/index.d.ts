@@ -942,6 +942,7 @@ export function createProjectMemoryStore(root: string, options: {
   namespaceQuotaBytes?: Record<string, number>;
   busyTimeoutMs?: number;
   journalSizeLimitBytes?: number;
+  searchBackend?: "auto" | "fts5" | "scan";
 }): SqliteMemoryStore;
 export function createProjectMemoryStore(root: string, options?: {
   backend?: "json" | "sqlite";
@@ -954,6 +955,7 @@ export function createProjectMemoryStore(root: string, options?: {
   namespaceQuotaBytes?: Record<string, number>;
   busyTimeoutMs?: number;
   journalSizeLimitBytes?: number;
+  searchBackend?: "auto" | "fts5" | "scan";
 }): MemoryStore;
 
 export type MemoryCompactionResult = {
@@ -965,6 +967,7 @@ export type MemoryCompactionResult = {
 
 export type SqliteMemoryStore = MemoryStore & {
   backend: "sqlite";
+  searchBackend: "fts5" | "scan";
   importRecords(records: MemoryRecord[]): Promise<{ imported: number; skipped: number; total: number }>;
   close(): void;
 };
@@ -979,6 +982,7 @@ export function createSqliteMemoryStore(options: {
   namespaceQuotaBytes?: Record<string, number>;
   busyTimeoutMs?: number;
   journalSizeLimitBytes?: number;
+  searchBackend?: "auto" | "fts5" | "scan";
 }): SqliteMemoryStore;
 export function migrateFileMemoryStoreToSqlite(options: {
   sourceFile: string;
@@ -989,6 +993,7 @@ export function migrateFileMemoryStoreToSqlite(options: {
   namespaceQuotaBytes?: Record<string, number>;
   busyTimeoutMs?: number;
   journalSizeLimitBytes?: number;
+  searchBackend?: "auto" | "fts5" | "scan";
 }): Promise<{
   imported: number;
   skipped: number;

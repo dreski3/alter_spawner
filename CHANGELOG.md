@@ -15,3 +15,5 @@ Versioning once public releases begin.
   daemon execution.
 - Added self-contained CLI and standalone core package artifacts with external
   installation tests.
+- Made SQLite lexical retrieval portable across Node builds with and without the
+  optional FTS5 module.
