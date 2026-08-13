@@ -6,6 +6,7 @@ export const buildGraphSpawnOptions = (node, graphId, mindBinPath) => createSpaw
   description: node.description ?? null,
   model: node.model ?? null,
   prompt: node.prompt,
+  images: node.images || [],
   readGrants: node.readGrants || [],
   writeGrants: node.writeGrants || [],
   bashAllow: node.bashAllow || [],
@@ -71,6 +72,9 @@ export const validateGraph = (graph) => {
     if (!id || id !== node.id) fail(`invalid graph node id: ${node?.id ?? "(missing)"}`);
     if (nodes.has(id)) fail(`duplicate graph node id: ${id}`);
     if (typeof node.prompt !== "string" || !node.prompt.trim()) fail(`graph node "${id}" requires a prompt.`);
+    if (node.images != null && (!Array.isArray(node.images) || node.images.some((image) => typeof image !== "string" || !image.trim()))) {
+      fail(`graph node "${id}" images must be an array of non-empty file paths.`);
+    }
     nodes.set(id, { ...node, depends_on: node.depends_on || [], memory: normalizeGraphNodeMemory(node.memory, id) });
   }
   for (const node of nodes.values()) {

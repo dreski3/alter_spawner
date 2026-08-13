@@ -29,11 +29,19 @@ test("graph specs reject undeclared result references and cycles", () => {
 });
 
 test("graph nodes map to the canonical spawn contract", () => {
-  const options = buildGraphSpawnOptions({ id: "worker", prompt: "work", depends_on: ["source"] }, "g1", "/mind");
+  const options = buildGraphSpawnOptions({ id: "worker", prompt: "work", images: ["/scan.png"], depends_on: ["source"] }, "g1", "/mind");
   assert.equal(options.graphId, "g1");
   assert.deepEqual(options.dependsOn, ["source"]);
   assert.equal(options.spawned_by, "graph:g1");
   assert.equal(options.mindBinPath, "/mind");
+  assert.deepEqual(options.images, ["/scan.png"]);
+});
+
+test("graph image declarations must be file-path arrays", () => {
+  assert.throws(
+    () => validateGraph({ nodes: [{ id: "worker", prompt: "work", images: "scan.png" }] }),
+    /images must be an array/,
+  );
 });
 
 test("graph memory hooks normalize recall and curation declarations", () => {

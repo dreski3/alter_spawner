@@ -52,7 +52,7 @@
 // Declaring `needsAgentHome: false` also means the adapter has no generated agent
 // definition to rewrite, so `spawnAlter` stops retry.js from regenerating one on a
 // model swap.
-const ADAPTER_DEFAULTS = Object.freeze({ needsAgentHome: true });
+const ADAPTER_DEFAULTS = Object.freeze({ needsAgentHome: true, supportsImages: false });
 
 export const HARNESS_ADAPTERS = new Map();
 

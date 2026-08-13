@@ -3,11 +3,12 @@ export const DEFAULT_SPAWN_OPTIONS = Object.freeze({
   description: null,
   model: null,
   prompt: null,
+  images: [],
   readGrants: [],
   writeGrants: [],
   bashAllow: [],
   bashOnly: false,
-  // A pure text-in/text-out leaf: no tools at all, and none of the boilerplate
+  // A tool-less leaf with text output: no tools at all, and none of the boilerplate
   // that only makes sense to an agent that has some. See frontmatter.js.
   textOnly: false,
   nestable: false,
@@ -38,6 +39,7 @@ export const createSpawnOptions = (overrides = {}) => ({
   ...DEFAULT_SPAWN_OPTIONS,
   ...overrides,
   readGrants: [...(overrides.readGrants || [])],
+  images: [...(overrides.images || [])],
   writeGrants: [...(overrides.writeGrants || [])],
   bashAllow: [...(overrides.bashAllow || [])],
   allowedCatalogs: overrides.allowedCatalogs == null ? null : [...overrides.allowedCatalogs],

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import path from "node:path";
 import { DEFAULT_SPAWN_OPTIONS, createSpawnOptions } from "../../src/index.js";
 
 test("createSpawnOptions provides the canonical defaults", () => {
@@ -8,6 +9,7 @@ test("createSpawnOptions provides the canonical defaults", () => {
   assert.notStrictEqual(options.readGrants, DEFAULT_SPAWN_OPTIONS.readGrants);
   assert.notStrictEqual(options.writeGrants, DEFAULT_SPAWN_OPTIONS.writeGrants);
   assert.notStrictEqual(options.bashAllow, DEFAULT_SPAWN_OPTIONS.bashAllow);
+  assert.notStrictEqual(options.images, DEFAULT_SPAWN_OPTIONS.images);
 });
 
 test("createSpawnOptions preserves extensions without sharing grant arrays", () => {
@@ -29,4 +31,11 @@ test("spawn arguments expose tool-only and output-contract catalog definitions",
   assert.deepEqual(options.bashAllow, ["node /tools/decode.mjs **"]);
   assert.deepEqual(options.outputContract, { type: "prefix", value: "SECRET:" });
   assert.equal(options.prompt, "decode");
+});
+
+test("spawn arguments collect repeatable image files", async () => {
+  const { parseSpawnArgs } = await import("../../src/index.js");
+  const options = parseSpawnArgs(["--image", "./one.png", "--image", "./two.jpg", "inspect"]);
+  assert.deepEqual(options.images, [path.resolve("./one.png"), path.resolve("./two.jpg")]);
+  assert.equal(options.prompt, "inspect");
 });

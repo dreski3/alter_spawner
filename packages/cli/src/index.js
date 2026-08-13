@@ -13,7 +13,7 @@ const usage = (write = console.log) => {
   write("  init    [--source <path>] [--name <n>] [--force] [--new-identity]");
   write("                                          (scaffold this directory as a mind project)");
   write("  update  [--source <path>]              (re-apply profile-owned files + new catalog entries)");
-  write("  spawn   --name? --description? --model? --allow <p> --allow-write <p>");
+  write("  spawn   --name? --description? --model? --image <file>* --allow <p> --allow-write <p>");
   write("          --nestable? --web? --timeout? --rm? --verbose?");
   write("          --catalog <name>? --executor <name>? --max-tokens <n>? --fallback-model <m>?");
   write("          --allow-catalog <name>* | --allow-no-catalogs?");
@@ -22,7 +22,7 @@ const usage = (write = console.log) => {
   write("          --output-exact <s>? --output-prefix <s>? --output-regex <s>? --output-json?");
   write("          --opencode-provider-file <json>?  <prompt>");
   write("  create  (same flags as spawn; scaffolds a home without running)");
-  write("  run     <home-or-id> <prompt...>");
+  write("  run     <home-or-id> [--image <file>]* <prompt...>");
   write("  list    (list alter homes + status)");
   write("  tree    (nesting tree)");
   write("  show    <id>          (print result.json)");

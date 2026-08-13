@@ -7,6 +7,14 @@ export { MindError, fail, normPath, sanitizeName } from "./util.js";
 export { parseSpawnArgs } from "./parseArgs.js";
 export { DEFAULT_SPAWN_OPTIONS, createSpawnOptions } from "./spawn-spec.js";
 export {
+  MAX_IMAGE_FILES,
+  MAX_IMAGE_FILE_BYTES,
+  MAX_IMAGE_TOTAL_BYTES,
+  validateImageFiles,
+  modelImageSupport,
+  validateImageModels,
+} from "./image-input.js";
+export {
   ALTER_SCHEMA_VERSION,
   RESULT_SCHEMA_VERSION,
   GRAPH_RESULT_SCHEMA_VERSION,

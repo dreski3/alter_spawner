@@ -340,5 +340,5 @@ test("a text_only project uses its authored persona while keeping the fixed resu
 
   assert.match(body, /CUSTOM TEXT PERSONA/);
   assert.match(body, /## Your role\nA text specialist\./);
-  assert.match(body, /Return only the transformed\s+text/);
+  assert.match(body, /Return only the result/);
 });

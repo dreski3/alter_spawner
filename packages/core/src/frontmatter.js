@@ -184,8 +184,8 @@ export const buildFrontmatter = (o) => {
 // tools. A text_only leaf has none — so the advice is not merely wasted context,
 // it describes a situation the model is not in. It gets the role and the output
 // contract, and nothing else.
-const textOnlyResult = `Your entire reply is captured verbatim as the result. Return only the transformed
-text — no preamble, no explanation, no commentary on what you changed.`;
+const textOnlyResult = `Your entire reply is captured verbatim as the result. Return only the result — no
+preamble, no explanation, no commentary on your process.`;
 
 const textOnlyBody = (o) => {
   const role = o.description && o.description.trim()

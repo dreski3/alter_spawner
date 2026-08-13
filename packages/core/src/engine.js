@@ -4,13 +4,14 @@ import { fail } from "./util.js";
 import { readConfig, runsDir } from "./config.js";
 import { resolveCatalogEntry, applyCatalog } from "./catalog.js";
 import { resolveId, scaffold } from "./scaffold.js";
-import { runWithRetries } from "./retry.js";
+import { buildAttemptPlan, runWithRetries } from "./retry.js";
 import { writeResult, readAlterJson, resolveHome } from "./homes.js";
 import { createSpawnOptions } from "./spawn-spec.js";
 import { validateOutputContract } from "./output-contract.js";
 import { resolveRuntime } from "./runtime.js";
 import { withoutCapabilityGrant } from "./capability-client.js";
 import { getHarness } from "./harness/adapter.js";
+import { validateImageFiles, validateImageModels } from "./image-input.js";
 import {
   admitTreeNode,
   releaseTreeNode,
@@ -90,6 +91,24 @@ const prepareSpawn = (root, cfg, o, runtime) => {
   return o;
 };
 
+const prepareImages = (root, cfg, o, runtime, harnessName, adapter, { createOnly = false } = {}) => {
+  if (!o.images?.length) return;
+  if (createOnly) fail("images are invocation inputs and cannot be supplied to create-only Alters.");
+  if (!adapter.supportsImages) fail(`executor "${harnessName}" does not support image inputs.`);
+  const images = validateImageFiles(root, o.images, {
+    readGrants: [...o.readGrants, ...o.writeGrants],
+    environment: runtime.env,
+  });
+  o.images = images.map((image) => image.path);
+  o.imageMetadata = images.map((image) => image.metadata);
+  if (harnessName === "opencode" && !o.opencodeProvider) {
+    validateImageModels(
+      buildAttemptPlan(o, cfg, runtime, { allowRetries: adapter.supportsRetry !== false }).map((attempt) => attempt.model),
+      runtime.env,
+    );
+  }
+};
+
 // `o` carries the parsed spawn options (see cli's parseSpawnArgs) plus
 // `mindBinPath`: the absolute path to the running `mind` CLI entrypoint,
 // baked into a nestable Alter's scoped bash permission.
@@ -104,6 +123,7 @@ export const spawnAlter = async (
   // Resolved before scaffolding, because the adapter decides how much to scaffold —
   // and because an unknown executor should fail before anything is written to disk.
   const { name: harnessName, adapter } = resolveExecutor(o, harness);
+  prepareImages(root, cfg, o, runtime, harnessName, adapter, { createOnly });
   // Pin the resolved name onto the Alter so alter.json and result.json record what
   // actually ran rather than "unspecified", and so `mind run` on this home later
   // reaches for the same adapter.
@@ -208,7 +228,7 @@ export const runExistingAlter = async (
   root,
   homeArg,
   prompt,
-  { harness = null, mindBinPath = null, signal, onEvent, runtime: runtimeOverride } = {},
+  { harness = null, mindBinPath = null, images = [], signal, onEvent, runtime: runtimeOverride } = {},
 ) => {
   const runtime = sandboxRuntime(runtimeOverride);
   const home = resolveHome(root, homeArg);
@@ -222,6 +242,7 @@ export const runExistingAlter = async (
     id: aj.id || path.basename(home),
     name: aj.name || null,
     description: aj.description || null,
+    images,
     model: aj.model || cfg.default_model,
     readGrants: aj.read_grants || [],
     writeGrants: aj.write_grants || [],
@@ -236,6 +257,7 @@ export const runExistingAlter = async (
     webAccess: !!aj.web,
     maxTokens: aj.max_tokens ?? null,
     fallbackModel: aj.fallback_model || null,
+    opencodeProvider: aj.opencode_provider || null,
     opencodeVariant: aj.opencode_variant || null,
     outputContract: aj.output_contract || null,
     catalogName: aj.catalog || null,
@@ -245,6 +267,7 @@ export const runExistingAlter = async (
   });
   validateOutputContract(o.outputContract);
   const { name: harnessName, adapter } = resolveExecutor(o, harness);
+  prepareImages(root, cfg, o, runtime, harnessName, adapter);
   // A re-run is a real process and a real model call, so it draws on the tree budget
   // like any spawn. It matters that this is not skipped: `mind run` is inside a
   // nestable Alter's allowed command form, so it would otherwise be an unmetered way

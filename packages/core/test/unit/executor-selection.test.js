@@ -6,7 +6,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -16,6 +16,7 @@ import {
   HARNESS_ADAPTERS,
   parseSpawnArgs,
   registerHarness,
+  runExistingAlter,
   scaffold,
   spawnAlter,
   validateManifest,
@@ -130,6 +131,78 @@ test("an unknown executor fails before anything is written to disk", async (t) =
   const root = makeProject(t);
   await assert.rejects(() => spawnAlter(root, options({ executor: "nope" }), {}), /unknown executor: nope/);
   assert.ok(!existsSync(path.join(root, ".alters", "runs")), "no run folder should survive a failed resolution");
+});
+
+test("an image-capable adapter receives validated paths and run artifacts keep only metadata", async (t) => {
+  const root = makeProject(t);
+  const image = path.join(root, "sample.png");
+  writeFileSync(image, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]));
+  const { adapter, calls } = stubAdapter({ supportsImages: true });
+  withHarness(t, "vision-stub", adapter);
+  const { home, result } = await spawnAlter(root, options({ executor: "vision-stub", images: [image] }), {});
+  assert.deepEqual(calls[0].opts.images, [realpathSync(image)]);
+  assert.deepEqual(result.images.map(({ name, media_type, bytes }) => ({ name, media_type, bytes })), [
+    { name: "sample.png", media_type: "image/png", bytes: 12 },
+  ]);
+  assert.equal("path" in result.images[0], false);
+  assert.deepEqual(JSON.parse(readFileSync(path.join(home, "alter.json"), "utf8")).images, result.images);
+
+  calls.length = 0;
+  const rerun = await runExistingAlter(root, home, "inspect again", { images: [image] });
+  assert.deepEqual(calls[0].opts.images, [realpathSync(image)]);
+  assert.equal(rerun.result.images[0].sha256, result.images[0].sha256);
+});
+
+test("an executor without image support rejects attachments before creating a run", async (t) => {
+  const root = makeProject(t);
+  const image = path.join(root, "sample.png");
+  writeFileSync(image, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]));
+  const { adapter, calls } = stubAdapter();
+  withHarness(t, "text-stub", adapter);
+  await assert.rejects(
+    () => spawnAlter(root, options({ executor: "text-stub", images: [image] }), {}),
+    /does not support image inputs/,
+  );
+  assert.equal(calls.length, 0);
+  assert.ok(!existsSync(path.join(root, ".alters", "runs")));
+});
+
+test("a known text-only OpenCode model rejects images before creating a run", async (t) => {
+  const root = makeProject(t);
+  const image = path.join(root, "sample.png");
+  const models = path.join(root, "models.json");
+  writeFileSync(image, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]));
+  writeFileSync(models, JSON.stringify({
+    test: {
+      models: {
+        model: { modalities: { input: ["text"], output: ["text"] }, attachment: false },
+      },
+    },
+  }));
+  await assert.rejects(
+    () => spawnAlter(root, options({ images: [image] }), {
+      runtime: {
+        now: Date.now,
+        randomId: () => "abcdef",
+        env: { OPENCODE_MODELS_PATH: models },
+        pid: process.pid,
+        isProcessAlive: () => true,
+      },
+    }),
+    /does not support attached image input with text output/,
+  );
+  assert.ok(!existsSync(path.join(root, ".alters", "runs")));
+});
+
+test("create-only Alters reject invocation images before creating a run", async (t) => {
+  const root = makeProject(t);
+  const image = path.join(root, "sample.png");
+  writeFileSync(image, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]));
+  await assert.rejects(
+    () => spawnAlter(root, options({ images: [image] }), { createOnly: true }),
+    /cannot be supplied to create-only Alters/,
+  );
+  assert.ok(!existsSync(path.join(root, ".alters", "runs")));
 });
 
 // --- what the declaration buys --------------------------------------------------

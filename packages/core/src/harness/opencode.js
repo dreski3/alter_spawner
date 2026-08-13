@@ -29,7 +29,7 @@ export const classify = classifyOpenCodeResult;
 
 // Exported for the same reason as `classify`: the argument vector decides how much
 // this run costs, so it should be assertable without spawning a real `opencode`.
-export const buildRunArgs = ({ home, prompt, pure, agent, sessionId, title, alterId, model, variant }) => {
+export const buildRunArgs = ({ home, prompt, images = [], pure, agent, sessionId, title, alterId, model, variant }) => {
   const args = ["run"];
   if (pure) args.push("--pure");
   if (agent) args.push("--agent", agent);
@@ -43,6 +43,8 @@ export const buildRunArgs = ({ home, prompt, pure, agent, sessionId, title, alte
   else if (title || alterId) args.push("--title", title || alterId);
   if (model) args.push("--model", model);
   if (variant) args.push("--variant", variant);
+  for (const file of images) args.push("--file", file);
+  if (images.length) args.push("--");
   args.push(prompt);
   return args;
 };
@@ -63,6 +65,7 @@ const run = (
     maxTokens,
     model,
     variant,
+    images = [],
     pure,
     recordEvents,
     attempt,
@@ -78,7 +81,7 @@ const run = (
   }
 ) =>
   new Promise((resolve) => {
-    const args = buildRunArgs({ home, prompt, pure, agent, sessionId, title, alterId, model, variant });
+    const args = buildRunArgs({ home, prompt, images, pure, agent, sessionId, title, alterId, model, variant });
     const child = spawn(
       "opencode",
       args,
@@ -178,4 +181,4 @@ const run = (
     child.on("close", (code) => finish(code, budgetExceeded || aborted));
   });
 
-registerHarness("opencode", { run });
+registerHarness("opencode", { run, supportsImages: true });

@@ -198,6 +198,7 @@ const writeAlterJson = (root, cfg, o, runtime, home) => {
         opencode_provider: o.opencodeProvider || null,
         opencode_variant: o.opencodeVariant || null,
         output_contract: o.outputContract || null,
+        images: o.imageMetadata || [],
         created_at: iso(runtime.now()),
         home: path.relative(root, home),
       }
