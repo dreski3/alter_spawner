@@ -63,7 +63,14 @@ npm install -g ./mind-0.1.0.tgz
 mkdir myproject && cd myproject
 mind init                        # or: mind init --source <profile-dir>
 mind spawn --catalog researcher "what changed in opencode 2.0?"
+mind spawn --image ./diagram.png --model openai/gpt-4o "Explain this diagram."
 ```
+
+`--image <file>` is repeatable and attaches PNG, JPEG, GIF, or WebP files to an
+OpenCode-backed Alter. The selected model and every configured fallback must
+accept image input and return text. Images are bounded to 8 files, 20 MiB each,
+and 40 MiB total. Run records retain only filename, media type, size, and SHA-256;
+the image bytes and original paths are not copied into the Alter home.
 
 The adaptive-decoder limit test demonstrates a nestable principal creating a
 missing catalog definition during inference and immediately spawning it:

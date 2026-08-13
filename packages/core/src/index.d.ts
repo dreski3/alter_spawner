@@ -20,11 +20,13 @@ export type SpawnOptions = {
   description: string | null;
   model: string | null;
   prompt: string | null;
+  /** Image files attached to this invocation. Paths are validated and canonicalized before execution. */
+  images: string[];
   readGrants: string[];
   writeGrants: string[];
   bashAllow: string[];
   bashOnly?: boolean;
-  /** A pure text-in/text-out leaf: no tools, and none of the boilerplate that presumes some. */
+  /** A tool-less leaf with text output: no tools, and none of the boilerplate that presumes some. */
   textOnly?: boolean;
   /** Which registered harness adapter runs this Alter. Null means the caller's default. */
   executor?: string | null;
@@ -147,6 +149,7 @@ export type AlterResult = {
   graph_id: string | null;
   depends_on: string[];
   output_contract: OutputContract | null;
+  images: AlterImageMetadata[];
   started_at: string;
   ended_at: string;
   duration_ms: number;
@@ -156,6 +159,22 @@ export type AlterResult = {
 export function parseSpawnArgs(argv: string[]): SpawnOptions;
 export const DEFAULT_SPAWN_OPTIONS: Readonly<SpawnOptions>;
 export function createSpawnOptions(overrides?: Partial<SpawnOptions>): SpawnOptions;
+export type AlterImageMetadata = {
+  name: string;
+  media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  bytes: number;
+  sha256: string;
+};
+export const MAX_IMAGE_FILES: number;
+export const MAX_IMAGE_FILE_BYTES: number;
+export const MAX_IMAGE_TOTAL_BYTES: number;
+export function validateImageFiles(
+  root: string,
+  images: string[],
+  options?: { readGrants?: string[]; environment?: Record<string, string | undefined> },
+): { path: string; metadata: AlterImageMetadata }[];
+export function modelImageSupport(modelRef: string, catalog: Record<string, unknown>): boolean | null;
+export function validateImageModels(models: string[], environment?: Record<string, string | undefined>): void;
 export const ALTER_SCHEMA_VERSION: number;
 export const RESULT_SCHEMA_VERSION: number;
 export const GRAPH_RESULT_SCHEMA_VERSION: number;
@@ -423,6 +442,7 @@ export type AlterRecord = {
   depends_on: string[];
   opencode_provider: Record<string, unknown> | null;
   output_contract: OutputContract | null;
+  images: AlterImageMetadata[];
   created_at: string;
   home: string;
 };
@@ -487,6 +507,7 @@ export function runExistingAlter(
   options?: {
     harness?: string | null;
     mindBinPath?: string | null;
+    images?: string[];
     signal?: AbortSignal;
     onEvent?: (event: AlterRuntimeEvent) => void;
     runtime?: Runtime;
@@ -521,6 +542,7 @@ export function runPrincipalTurn(
   projectDir: string,
   options: {
     prompt: string;
+    images?: string[];
     sessionId?: string | null;
     model?: string | null;
     agent?: string | null;
@@ -544,6 +566,7 @@ export type HarnessRunOptions = {
   alterId: string;
   maxTokens: number | null;
   model: string;
+  images?: string[];
   pure: boolean;
   recordEvents: boolean;
   attempt: number;
@@ -566,6 +589,8 @@ export type HarnessAdapter = {
   needsAgentHome?: boolean;
   /** False for a deterministic executor: one attempt, and no fallback-model tier. */
   supportsRetry?: boolean;
+  /** True when the adapter can attach validated image files to a request. Default false. */
+  supportsImages?: boolean;
 };
 
 export function registerHarness(name: string, adapter: HarnessAdapter): void;
@@ -588,6 +613,7 @@ export function createCapabilityExecutor(options: {
 export type AlterGraphNode = {
   id: string;
   prompt: string;
+  images?: string[];
   depends_on?: string[];
   catalog?: string;
   description?: string;

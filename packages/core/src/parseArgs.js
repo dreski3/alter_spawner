@@ -9,6 +9,7 @@ export const parseSpawnArgs = (argv) => {
     if (a === "--name") o.name = argv[++i];
     else if (a === "--description") o.description = argv[++i];
     else if (a === "--model") o.model = argv[++i];
+    else if (a === "--image") o.images.push(normPath(argv[++i]));
     else if (a === "--allow") o.readGrants.push(normPath(argv[++i]));
     else if (a === "--allow-write") o.writeGrants.push(normPath(argv[++i]));
     else if (a === "--bash-allow") o.bashAllow.push(argv[++i]);

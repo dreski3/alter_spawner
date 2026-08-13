@@ -5,6 +5,8 @@ import { kitDir, readConfig } from "./config.js";
 import { runWithRetries } from "./retry.js";
 import { createSpawnOptions } from "./spawn-spec.js";
 import { resolveRuntime } from "./runtime.js";
+import { getHarness } from "./harness/adapter.js";
+import { validateImageFiles, validateImageModels } from "./image-input.js";
 
 // A principal is the opposite of an Alter in the two ways that matter here.
 //
@@ -36,6 +38,7 @@ export const requirePrincipalProject = (projectDir) => {
 
 export const runPrincipalTurn = async (projectDir, {
   prompt,
+  images = [],
   sessionId = null,
   model = null,
   agent = null,
@@ -65,12 +68,21 @@ export const runPrincipalTurn = async (projectDir, {
     model: model || runtime.env.ALTER_MODEL || cfg.default_model,
     maxTokens,
     description,
+    images,
     // No fallback tier: a principal turn is a conversation the user is watching,
     // so a silent model swap mid-turn would rewrite who they are talking to.
     fallbackModel: null,
     catalogName: null,
     outputContract: null,
   });
+  if (options.images.length) {
+    const adapter = getHarness(harness);
+    if (!adapter.supportsImages) fail(`executor "${harness}" does not support image inputs.`);
+    const prepared = validateImageFiles(projectDir, options.images, { environment: runtime.env });
+    options.images = prepared.map((image) => image.path);
+    options.imageMetadata = prepared.map((image) => image.metadata);
+    validateImageModels([options.model], runtime.env);
+  }
   const startedAt = runtime.now();
   const { res, attempts } = await runWithRetries({
     options,

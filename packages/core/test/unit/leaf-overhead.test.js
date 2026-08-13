@@ -69,6 +69,11 @@ test("the prompt stays last so no flag can swallow it", () => {
   assert.equal(args[args.length - 1], "do the thing");
 });
 
+test("image attachments are repeated before the final prompt", () => {
+  const args = buildRunArgs({ home: "/h", prompt: "inspect", images: ["/a.png", "/b.jpg"] });
+  assert.deepEqual(args.slice(-6), ["--file", "/a.png", "--file", "/b.jpg", "--", "inspect"]);
+});
+
 // --- tool definitions on the wire ----------------------------------------------
 
 test("a text_only leaf denies every tool with scalars, which is what prunes them", () => {

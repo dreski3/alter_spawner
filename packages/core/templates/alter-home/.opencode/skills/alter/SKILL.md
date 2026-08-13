@@ -34,6 +34,7 @@ answer) and also saved to `<home>/result.md` (+ `result.json` with stats).
 | `--description <text>` | persona/role, baked into the Alter's agent definition |
 | `--prompt <text>` (or positional) | the task instruction the Alter runs |
 | `--model <provider/model>` | override the inherited model |
+| `--image <file>` (repeat) | attach a PNG, JPEG, GIF, or WebP to an image-capable OpenCode model |
 | `--allow <abs-path>` (repeat) | grant external READ (read/glob/grep) to a file/dir |
 | `--allow-write <abs-path>` (repeat) | grant external READ+WRITE to a file/dir |
 | `--nestable` | allow this Alter to spawn its own children (scoped shell) |
@@ -98,6 +99,12 @@ Reach for `llm` for text-in/text-out work — rewriting, compressing, extracting
 classifying, translating, normalizing. Reach for `opencode` for anything else.
 A child that needs `--allow`, `--web`, `--bash-allow` or `--nestable` is not an
 `llm` node; those flags have nothing to act on there.
+
+Image input also requires `opencode`; the direct `llm` executor is text-only.
+Every selected and fallback model must accept images and return text. An image
+is an invocation input, so it cannot be saved into a catalog or supplied to
+`mind create`. A nested Alter may attach only an image inside its own home or an
+explicit `--allow` path.
 
 ## Tree budgets
 `--max-tokens` bounds one Alter. A whole *tree* — you, your children, and
@@ -234,7 +241,7 @@ to install it from a package registry — nothing published there is this CLI.
 ## Other commands
 ```bash
 mind create ...                  # scaffold a home without running it
-mind run <home-or-id> "<prompt>" # re-run a home you spawned (see below)
+mind run <home-or-id> [--image <file>] "<prompt>" # re-run a home you spawned (see below)
 mind list                        # list homes + status
 mind tree                        # nesting tree
 mind show <id>                   # print a home's result.json

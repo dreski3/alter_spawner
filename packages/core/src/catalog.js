@@ -50,7 +50,7 @@ export const validateManifest = (m, name) => {
       fail(`catalog entry "${name}": capability.input must be "text" or "json".`);
     }
   }
-  // text_only is a claim about the whole shape of the Alter — text in, text out,
+  // text_only is a claim about the whole shape of the Alter — model input, text out,
   // no capabilities of any kind — and its savings come precisely from dropping
   // everything a capability would need. Silently ignoring a contradictory grant
   // would hand back an Alter that cannot do what its manifest says it can, so

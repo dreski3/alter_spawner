@@ -49,6 +49,20 @@ and `onEvent` for streamed Alter events. Use an `AbortSignal` for request
 cancellation; cancellation propagates to active harness work and does not spend
 the retry policy.
 
+Image paths are invocation-only inputs for image-capable harnesses. The built-in
+`opencode` harness supports them; the direct `llm` harness remains text-only.
+Custom harnesses opt in with `supportsImages: true` and receive canonical paths
+as `options.images`. The runtime validates file signatures and size limits before
+creating a run folder.
+
+```js
+await spawnAlter(projectRoot, createSpawnOptions({
+  model: "openai/gpt-4o",
+  prompt: "Explain this architecture diagram.",
+  images: ["/srv/uploads/architecture.png"],
+}));
+```
+
 ## Register a harness
 
 ```js
@@ -57,8 +71,9 @@ import { registerHarness } from "@mind/core";
 registerHarness("service", {
   needsAgentHome: false,
   supportsRetry: true,
+  supportsImages: true,
   async run(home, prompt, options) {
-    return serviceAdapter.complete({ prompt, signal: options.signal });
+    return serviceAdapter.complete({ prompt, images: options.images, signal: options.signal });
   },
 });
 ```

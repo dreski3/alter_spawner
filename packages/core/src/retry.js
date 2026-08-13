@@ -97,6 +97,7 @@ export const runWithRetries = async ({
       capability: o.capability || null,
       catalogName: o.catalogName || null,
       description: o.description || null,
+      images: o.images || [],
     });
     if (res.ok && o.outputContract) {
       const contract = checkOutputContract(res.text, o.outputContract);
