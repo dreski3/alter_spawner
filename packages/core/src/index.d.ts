@@ -542,6 +542,7 @@ export function runPrincipalTurn(
   projectDir: string,
   options: {
     prompt: string;
+    images?: string[];
     sessionId?: string | null;
     model?: string | null;
     agent?: string | null;

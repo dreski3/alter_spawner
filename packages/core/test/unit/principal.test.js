@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PRINCIPAL_DEPTH, isPrincipalProject, registerHarness, runPrincipalTurn } from "../../src/index.js";
@@ -20,9 +20,10 @@ const makeProject = (t, config = {}) => {
   return dir;
 };
 
-const stubHarness = (name, responses) => {
+const stubHarness = (name, responses, options = {}) => {
   const calls = [];
   registerHarness(name, {
+    ...options,
     run: async (home, prompt, options) => {
       calls.push({ home, prompt, ...options });
       const response = responses[Math.min(calls.length - 1, responses.length - 1)];
@@ -103,4 +104,27 @@ test("an empty prompt is refused before the harness is touched", async (t) => {
   const calls = stubHarness("stub-empty", [{ sessionID: "ses" }]);
   await assert.rejects(() => runPrincipalTurn(dir, { prompt: "   ", harness: "stub-empty" }), /non-empty prompt/);
   assert.equal(calls.length, 0);
+});
+
+test("a principal turn validates and forwards image attachments", async (t) => {
+  const dir = makeProject(t);
+  const image = path.join(dir, "reference.png");
+  writeFileSync(image, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]));
+  const calls = stubHarness("stub-images", [{ sessionID: "ses_image" }], { supportsImages: true });
+
+  await runPrincipalTurn(dir, { prompt: "describe it", images: [image], harness: "stub-images" });
+
+  assert.deepEqual(calls[0].images, [realpathSync(image)]);
+});
+
+test("a principal turn rejects images for a text-only harness", async (t) => {
+  const dir = makeProject(t);
+  const image = path.join(dir, "reference.png");
+  writeFileSync(image, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]));
+  stubHarness("stub-no-images", [{ sessionID: "ses_text" }]);
+
+  await assert.rejects(
+    () => runPrincipalTurn(dir, { prompt: "describe it", images: [image], harness: "stub-no-images" }),
+    /does not support image inputs/,
+  );
 });
