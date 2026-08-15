@@ -1,0 +1,6 @@
+{
+  "description": "Conservatively plans cleanup of historical Alter runs from a bounded host-provided inventory.",
+  "max_tokens": 4000,
+  "nestable": false,
+  "web": false
+}

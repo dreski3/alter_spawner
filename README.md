@@ -191,6 +191,15 @@ any new catalog entries without touching existing ones.
 id to its most recent matching run, or accept the exact folder name for a
 specific past one.
 
+**Run maintenance** — hosts can bind `createRunCapabilityDefinitions({ root })`
+to a `run-manager` Alter. Its bounded inspection capability applies age and
+keep-newest retention rules while protecting incomplete, graph-owned, and (by
+default) failed runs. Deletion accepts only the exact inspected folder names,
+revalidates every target, and is approval-gated with `allow-once` or `deny`.
+`runRunMaintenanceGraph` connects that inspection to a `run-manager` planning
+Alter, validates that its output contains exact folder names, and writes an
+auditable `maintenance.json` beside the graph result after the decision.
+
 **Result** — an Alter's final assistant message *is* its result: printed to
 stdout, saved to `<home>/result.md`, with stats in `<home>/result.json` (tokens,
 steps, model, per-attempt history). A run that exits cleanly but returns no

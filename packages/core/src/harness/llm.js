@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { registerHarness } from "./adapter.js";
 import { MindError } from "../util.js";
 import { resolveLlmEndpointFromDisk } from "../providers.js";
@@ -56,6 +57,22 @@ const readUsage = (usage = {}) => {
 const systemPrompt = (description) =>
   `${description?.trim() || "Transform the text you are given."}\n\nYour entire reply is captured verbatim as the result. Return only the result — no preamble, no explanation.`;
 
+// OpenAI-compatible providers accept the same content-part shape for local image
+// attachments. Images have already been size/type/containment checked by engine.js;
+// the harness only turns those validated files into transport-safe data URLs.
+const userContent = (prompt, images = [], imageMetadata = []) => {
+  if (!images.length) return prompt;
+  return [
+    { type: "text", text: prompt },
+    ...images.map((file, index) => ({
+      type: "image_url",
+      image_url: {
+        url: `data:${imageMetadata[index]?.media_type || "image/png"};base64,${readFileSync(file).toString("base64")}`,
+      },
+    })),
+  ];
+};
+
 // Combines the caller's cancellation with this run's timeout. AbortSignal.any would do
 // it in one line, but keeping this explicit also makes timeout attribution local.
 const abortPlan = (signal, timeout) => {
@@ -82,7 +99,7 @@ const abortPlan = (signal, timeout) => {
 const run = async (
   home,
   prompt,
-  { timeout, maxTokens, model, signal, description, environment = process.env } = {},
+  { timeout, maxTokens, model, signal, description, images = [], imageMetadata = [], environment = process.env } = {},
 ) => {
   let endpoint;
   try {
@@ -114,7 +131,7 @@ const run = async (
         model: endpoint.modelId,
         messages: [
           { role: "system", content: systemPrompt(description) },
-          { role: "user", content: prompt },
+          { role: "user", content: userContent(prompt, images, imageMetadata) },
         ],
         ...(outputCap ? { max_tokens: outputCap } : {}),
         stream: false,
@@ -164,6 +181,6 @@ const run = async (
 // needsAgentHome: nothing here reads a directory. supportsRetry: unlike a deterministic
 // function, a model call genuinely can succeed on a second attempt or a different
 // model, so the full attempt plan applies.
-registerHarness("llm", { run, needsAgentHome: false, supportsRetry: true });
+registerHarness("llm", { run, needsAgentHome: false, supportsRetry: true, supportsImages: true });
 
-export const __test__ = { readUsage, systemPrompt };
+export const __test__ = { readUsage, systemPrompt, userContent };

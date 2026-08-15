@@ -140,6 +140,20 @@ test("one request, no tools, and a system prompt that is only the role", async (
   assert.equal(result.session_id, null);
 });
 
+test("validated images are sent as OpenAI-compatible data URL content parts", async (t) => {
+  const environment = makeEnvironment(t);
+  const { root } = makeProject(t, environment);
+  const image = path.join(root, "avatar.png");
+  writeFileSync(image, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
+  received.length = 0;
+  const { result } = await spawn(root, environment, { images: [image] });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(received[0].body.messages[1].content.map(({ type }) => type), ["text", "image_url"]);
+  assert.equal(received[0].body.messages[1].content[0].text, "the disastrous numbers");
+  assert.match(received[0].body.messages[1].content[1].image_url.url, /^data:image\/png;base64,/);
+});
+
 test("usage is reported from the provider, including reasoning and cache reads", async (t) => {
   const environment = makeEnvironment(t);
   const { root } = makeProject(t, environment);
@@ -241,6 +255,7 @@ test("a misconfigured model fails before any request is made", async (t) => {
 test("the executor declares no agent home and full retry support", () => {
   assert.equal(getHarness("llm").needsAgentHome, false);
   assert.equal(getHarness("llm").supportsRetry, true);
+  assert.equal(getHarness("llm").supportsImages, true);
 });
 
 test("a sandbox flag on a homeless executor is an error, not a silent no-op", async (t) => {
