@@ -72,6 +72,14 @@ export { resolveId, scaffold } from "./scaffold.js";
 export { buildFrontmatter, buildBody, buildAgentsMd } from "./frontmatter.js";
 export { buildAttemptPlan, runWithRetries } from "./retry.js";
 export { readAlterJson, resolveHome, listHomes, removeHome, writeResult } from "./homes.js";
+export { inspectRunCleanup, deleteRunCleanupCandidates } from "./run-maintenance.js";
+export {
+  RUN_MAINTENANCE_CAPABILITIES,
+  DEFAULT_RUN_CATALOG_CAPABILITIES,
+  createRunCapabilityDefinitions,
+  createRunCapabilityRegistry,
+} from "./run-capabilities.js";
+export { buildRunMaintenanceGraph, runRunMaintenanceGraph } from "./run-maintenance-workflow.js";
 export { spawnAlter, runExistingAlter, resolveEffectiveModel } from "./engine.js";
 export {
   PRINCIPAL_DEPTH,

@@ -98,6 +98,7 @@ export const runWithRetries = async ({
       catalogName: o.catalogName || null,
       description: o.description || null,
       images: o.images || [],
+      imageMetadata: o.imageMetadata || [],
     });
     if (res.ok && o.outputContract) {
       const contract = checkOutputContract(res.text, o.outputContract);

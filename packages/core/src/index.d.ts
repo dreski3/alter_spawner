@@ -1054,6 +1054,64 @@ export function createMemoryCapabilityRegistry(options: {
   grantable?: MemoryCapabilityGrantable;
 }): CapabilityRegistry;
 
+export type RunCleanupCandidate = {
+  folder: string;
+  id: string;
+  ok: boolean;
+  ended_at: string | null;
+  bytes: number;
+  files: number;
+};
+export type RunCleanupPolicy = {
+  olderThanDays?: number;
+  keepNewest?: number;
+  includeFailed?: boolean;
+  limit?: number;
+};
+export function inspectRunCleanup(root: string, options?: RunCleanupPolicy & { now?: number }): {
+  policy: Required<RunCleanupPolicy>;
+  totalRuns: number;
+  candidates: RunCleanupCandidate[];
+  reclaimableBytes: number;
+  reclaimableFiles: number;
+  protected: Record<string, number>;
+  truncated: boolean;
+};
+export function deleteRunCleanupCandidates(root: string, folders: string[]): {
+  removed: string[];
+  reclaimedBytes: number;
+  removedFiles: number;
+};
+export const RUN_MAINTENANCE_CAPABILITIES: readonly string[];
+export const DEFAULT_RUN_CATALOG_CAPABILITIES: Readonly<Record<string, readonly string[]>>;
+export function createRunCapabilityDefinitions(options: { root: string }): CapabilityDefinition[];
+export function createRunCapabilityRegistry(options: {
+  root: string;
+  catalogCapabilities?: Record<string, string[]>;
+}): CapabilityRegistry;
+export function buildRunMaintenanceGraph(options?: RunCleanupPolicy & {
+  id?: string;
+  catalog?: string;
+  model?: string | null;
+  maxTokens?: number;
+}): AlterGraph;
+export function runRunMaintenanceGraph(root: string, options: {
+  approvals: Pick<CapabilityApprovalSession, "execute">;
+  graph?: RunCleanupPolicy & { id?: string; catalog?: string; model?: string | null; maxTokens?: number };
+  harness?: string | null;
+  signal?: AbortSignal;
+  mindBinPath?: string | null;
+  runtime?: Runtime;
+  onProgress?: (result: Record<string, unknown>) => void;
+  onEvent?: (event: AlterRuntimeEvent) => void;
+}): Promise<{
+  home: string;
+  result: Record<string, unknown>;
+  plan: { folders: string[]; reason: string } | null;
+  committed: boolean;
+  cleanup: { removed: string[]; reclaimedBytes: number; removedFiles: number } | null;
+}>;
+
 export function formatMemoryContext(results: MemorySearchResult[]): string;
 export type MemoryRecallPlan = { query: string; limit?: number; kinds?: MemoryKind[]; tags?: string[] };
 
