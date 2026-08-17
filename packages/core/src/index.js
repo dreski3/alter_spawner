@@ -108,6 +108,21 @@ export {
   readCycleLog,
   runOscillation,
 } from "./oscillation.js";
+export {
+  NETWORK_SCHEMA_VERSION,
+  NETWORK_ROLES,
+  NETWORK_TRIGGER_TYPES,
+  validateNetworkDefinition,
+  networkDefinitionPath,
+  networkVersionsDir,
+  networkReleasesDir,
+  readNetworkDefinition,
+  listNetworkVersions,
+  listNetworkReleases,
+  readActiveNetworkRelease,
+  applyNetworkDefinition,
+  activateNetworkRelease,
+} from "./network-definition.js";
 export { isMindProject, initMind } from "./init.js";
 export {
   PROFILE_META_PATH,

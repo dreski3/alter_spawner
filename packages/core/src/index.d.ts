@@ -1577,6 +1577,91 @@ export function runOscillation(
   },
 ): Promise<{ ran: true; cycle: OscillationCycle } | { ran: false; skipped: RefractorySkipReason; cycle: null }>;
 
+export type NetworkRole = "sensory" | "internal" | "active";
+export type NetworkTrigger =
+  | { type: "event"; event: string }
+  | { type: "oscillation"; oscillation: string }
+  | { type: "manual" };
+export type NetworkInterface = {
+  id: string;
+  name: string;
+  description: string | null;
+  observations: string[];
+  actions: string[];
+};
+export type NetworkComponent = {
+  id: string;
+  role: NetworkRole;
+  description: string | null;
+  catalog?: string;
+  graph?: string;
+  capability?: string;
+  triggers: NetworkTrigger[];
+  emits: string[];
+  refractory: string | number | null;
+  budget: { max_tokens: number | null; timeout_ms: number | null; max_runs_per_hour: number | null } | null;
+  enabled: boolean;
+};
+export type NetworkDefinition = {
+  schema_version: 1;
+  id: string;
+  name: string;
+  description: string | null;
+  ego: { enabled: boolean; catalog: string | null; contextual: boolean; input_events: string[] } | null;
+  interfaces: NetworkInterface[];
+  components: NetworkComponent[];
+};
+export type StoredNetworkDefinition = NetworkDefinition & {
+  revision: number;
+  created_at: string;
+  updated_at: string;
+};
+export const NETWORK_SCHEMA_VERSION: 1;
+export const NETWORK_ROLES: readonly NetworkRole[];
+export const NETWORK_TRIGGER_TYPES: readonly NetworkTrigger["type"][];
+export function validateNetworkDefinition(
+  value: unknown,
+  options?: { source?: string; known?: { catalogs?: string[]; graphs?: string[]; oscillations?: string[]; capabilities?: string[] } },
+): NetworkDefinition;
+export function networkDefinitionPath(root: string): string;
+export function networkVersionsDir(root: string): string;
+export function networkReleasesDir(root: string): string;
+export function readNetworkDefinition(root: string): StoredNetworkDefinition | null;
+export function listNetworkVersions(root: string): StoredNetworkDefinition[];
+export type NetworkRelease = {
+  release_id: string;
+  revision: number;
+  activated_at: string;
+  network: StoredNetworkDefinition;
+  inventory: { catalogs: string[]; graphs: string[]; oscillations: string[]; capabilities: string[] };
+  reconciliation: unknown;
+  checks: unknown[];
+  resources: unknown;
+};
+export function listNetworkReleases(root: string): NetworkRelease[];
+export function readActiveNetworkRelease(root: string): NetworkRelease | null;
+export function applyNetworkDefinition(
+  root: string,
+  value: unknown,
+  options?: {
+    expectedRevision?: number | null;
+    known?: { catalogs?: string[]; graphs?: string[]; oscillations?: string[]; capabilities?: string[] };
+    runtime?: Runtime;
+  },
+): StoredNetworkDefinition;
+export function activateNetworkRelease(
+  root: string,
+  value: unknown,
+  options?: {
+    expectedRevision?: number | null;
+    known?: { catalogs?: string[]; graphs?: string[]; oscillations?: string[]; capabilities?: string[] };
+    reconciliation?: unknown;
+    checks?: unknown[];
+    resources?: unknown;
+    runtime?: Runtime;
+  },
+): NetworkRelease;
+
 /**
  * Grants that authorize *unattended* capability use, per mind. Deliberately not the host's
  * interactive policy file: approving a write once with a card in front of you is not the
