@@ -100,9 +100,8 @@ const normalizeComponent = (value, index) => {
   if (source.role === "active" && target !== "capability") {
     throw new Error(`active component "${componentId}" must target a host capability`);
   }
-  if (source.role !== "active" && target === "capability") {
-    throw new Error(`${source.role} component "${componentId}" cannot target an active capability`);
-  }
+  // Sensory and internal nodes may be model-free host capabilities (a Markov-blanket
+  // organelle). Only the active role is required to write through an interface action.
   const triggers = source.triggers == null ? [] : source.triggers;
   if (!Array.isArray(triggers) || triggers.length === 0 || triggers.length > 100) {
     throw new Error(`component "${componentId}" requires 1–100 triggers`);

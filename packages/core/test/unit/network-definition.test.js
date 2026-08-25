@@ -82,6 +82,45 @@ test("validates roles, targets, triggers, and known runtime references", () => {
   );
 });
 
+test("sensory and internal components may target host capabilities", () => {
+  const result = validateNetworkDefinition({
+    id: "organelle",
+    name: "Body organelle",
+    interfaces: [{
+      id: "world",
+      name: "World",
+      observations: ["world.observation"],
+      actions: ["world.act"],
+    }],
+    components: [
+      {
+        id: "sense",
+        role: "sensory",
+        capability: "organelle.sense",
+        triggers: [{ type: "event", event: "world.observation" }],
+        emits: ["organelle.sensation"],
+      },
+      {
+        id: "belief",
+        role: "internal",
+        capability: "organelle.belief",
+        triggers: [{ type: "event", event: "organelle.sensation" }],
+        emits: ["organelle.belief"],
+      },
+      {
+        id: "act",
+        role: "active",
+        capability: "world.act",
+        triggers: [{ type: "event", event: "organelle.belief" }],
+      },
+    ],
+  }, {
+    known: { capabilities: ["organelle.sense", "organelle.belief", "world.act"] },
+  });
+  assert.equal(result.components[0].capability, "organelle.sense");
+  assert.equal(result.components[1].capability, "organelle.belief");
+});
+
 test("applies immutable revisions and rejects stale writes", () => {
   const directory = root();
   const runtime = createRuntime({ now: () => Date.UTC(2026, 7, 15, 20, 0, 0) });
