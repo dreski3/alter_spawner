@@ -118,6 +118,8 @@ export const runWithRetries = async ({
       empty_output: res.empty_output || false,
       contract_failed: res.contract_failed || false,
       contract_error: res.contract_error || null,
+      llm_error: res.llm_error || null,
+      capability_error: res.capability_error || null,
       tokens: res.tokens,
       tools: res.tools ? { calls: res.tools.calls, errors: res.tools.errors, by_name: { ...res.tools.byName } } : null,
       started_at: startedAt,
