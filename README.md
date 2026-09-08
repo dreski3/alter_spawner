@@ -217,6 +217,50 @@ mind work opinion report 20260908T163219Z_opinion
 The command saves both `opinion.html` and a rate snapshot in
 `opinion-report.json` beside the graph result.
 
+**Implementation synthesis** — `mind work fuse` runs two to five distinct,
+isolated, tool-free analysts in parallel, followed by one explicitly selected
+writer. The writer receives the original task/context and labeled analyst
+outputs, resolves disagreements, and produces an implementation-oriented answer.
+It does not edit files or execute the proposed implementation.
+
+```bash
+mind work fuse \
+  --model provider-a/analyst \
+  --model provider-b/analyst \
+  --writer provider-c/writer \
+  --context packages/core/src/engine.js \
+  --max-tokens 1600 \
+  "Propose an implementation plan for deadline propagation with focused tests."
+```
+
+`--executor llm` uses direct tool-free chat completions for compatible API-key
+providers, including Mistral and xAI, without opening OpenCode sessions or its
+SQLite database. The default remains `opencode` for OAuth and other provider
+protocols. The executor applies to both analysts and writer unless `--writer-executor`
+overrides the writer (for example, `--executor llm --writer-executor opencode`
+for direct Mistral analysts and an OAuth writer). Unsupported direct
+providers fail explicitly without switching executors or models.
+
+Both the analyst panel and `--writer` are required; the writer may reuse an
+analyst model but runs in a separate Alter home. No default or fallback model is
+implicitly selected. Configured same-model retries still apply. Context file
+limits and `--concurrency` / `--json` controls match `opinion`; `--max-tokens`
+applies to every analyst and the writer and is the existing post-run token check,
+not a hard whole-workflow spending cap.
+
+The writer runs only if every analyst succeeds. A failure produces a nonzero
+CLI exit status and an inspectable failed/skipped graph, without a successful
+answer artifact. Each analyst-to-writer edge is bounded to 32,000 characters;
+truncation is marked in the prompt and recorded in the graph trace. Full analyst
+outputs remain in the trace. No recall, curation, tools, or nested workers are
+attached. Task, context, and outputs are retained as plaintext run artifacts.
+
+The terminal shows node status, models, attempts, tokens, elapsed time, and the
+synthesis. Under `.alters/graphs/`, `result.json` preserves the full graph,
+`implementation.md` holds the successful writer answer, and `fuse-report.json`
+snapshots node usage and local OpenCode catalog rates. Costs are API-equivalent
+estimates, not subscription invoices; missing pricing is reported as unknown.
+
 **Profile** — what `mind init` scaffolds at a project's root: `AGENTS.md`,
 `opencode.jsonc`, `.opencode/skills/alter/SKILL.md`, `.alters/config.json`,
 `.alters/catalog/*`. The default ships in `packages/cli/profiles/default/`;

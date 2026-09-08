@@ -1980,3 +1980,21 @@ export class CapabilityRequestError extends Error {
 }
 
 export class MindError extends Error {}
+
+export type FuseOptions = { task: string; models: string[]; writer: string; context?: string; maxTokens?: number | null; executor?: "llm" | "opencode" | null; writerExecutor?: "llm" | "opencode" | null };
+export type FuseEntry = Opinion & { id: string };
+export type FuseReport = Omit<OpinionReport, "workflow" | "opinions" | "totals"> & {
+  workflow: "fuse";
+  nodes: Array<OpinionReport["opinions"][number] & { role: "analyst" | "writer" }>;
+  totals: { nodes: number; analysts: number; succeeded: number; tokens: number; node_duration_ms: number; estimated_api_cost_usd: number | null };
+};
+export type FuseResult = {
+  home: string;
+  result: AlterGraphResult;
+  analysts: FuseEntry[];
+  writer: FuseEntry;
+  report: { report: FuseReport; json: string };
+  answer: string | null;
+};
+export function buildFuseGraph(options: FuseOptions): AlterGraph;
+export function runFuse(root: string, options: FuseOptions, runOptions?: NonNullable<Parameters<typeof runOpinion>[2]> & { env?: Record<string, string | undefined> }): Promise<FuseResult>;

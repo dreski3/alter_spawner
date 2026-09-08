@@ -272,3 +272,5 @@ export {
   formatAssistantOutcome,
   formatStorageOutcome,
 } from "./memory-client.js";
+
+export { buildFuseGraph, runFuse } from "./fuse.js";

@@ -2,9 +2,9 @@ import { runAlterGraph } from "./graph.js";
 import { writeOpinionReport } from "./opinion-report.js";
 import { fail } from "./util.js";
 
-const validateModels = (models) => {
+export const validateModels = (models, workflow = "opinion") => {
   if (!Array.isArray(models) || models.length < 2 || models.length > 5) {
-    fail("opinion requires between 2 and 5 models.");
+    fail(`${workflow} requires between 2 and 5 models.`);
   }
   if (models.some((model) => {
     if (typeof model !== "string") return true;
@@ -12,10 +12,10 @@ const validateModels = (models) => {
     const slash = normalized.indexOf("/");
     return !normalized || slash <= 0 || slash === normalized.length - 1;
   })) {
-    fail("opinion models must be non-empty provider/model strings.");
+    fail(`${workflow} models must be non-empty provider/model strings.`);
   }
   const normalized = models.map((model) => model.trim());
-  if (new Set(normalized).size !== normalized.length) fail("opinion models must be distinct.");
+  if (new Set(normalized).size !== normalized.length) fail(`${workflow} models must be distinct.`);
   return normalized;
 };
 

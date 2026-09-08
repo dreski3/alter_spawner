@@ -1,12 +1,13 @@
 import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
-import { fail, kitDir, requireProjectRoot, runOpinion, writeOpinionReport } from "@mind/core";
+import { fail, kitDir, requireProjectRoot, runOpinion, runFuse, writeOpinionReport } from "@mind/core";
 
 const MAX_CONTEXT_FILES = 8;
 const MAX_CONTEXT_FILE_BYTES = 32 * 1024;
 const MAX_CONTEXT_BYTES = 128 * 1024;
 
 const usage = () => {
+  console.error("usage: mind work fuse --model <provider/model> (2-5) --writer <provider/model> [--executor llm|opencode] [--writer-executor llm|opencode] [--context <file>]* [--max-tokens <n>] [--concurrency <n>] [--json] <task>");
   console.error("usage: mind work opinion --model <provider/model> --model <provider/model> [--model <provider/model> ...]");
   console.error("                         [--context <file>]* [--max-tokens <n>] [--concurrency <n>] [--json] <task>");
   console.error("");
@@ -22,7 +23,10 @@ const positiveInteger = (value, flag, { max = Infinity } = {}) => {
   return parsed;
 };
 
-export const parseOpinionArgs = (argv) => {
+const parseWorkArgs = (argv, workflow) => {
+  let writer;
+  let executor;
+  let writerExecutor;
   const models = [];
   const contextFiles = [];
   const task = [];
@@ -37,6 +41,16 @@ export const parseOpinionArgs = (argv) => {
     } else if (parseFlags && arg === "--model") {
       if (!argv[i + 1]) fail("--model requires a provider/model value.");
       models.push(argv[++i].trim());
+    } else if (parseFlags && arg === "--writer-executor" && workflow === "fuse") {
+      writerExecutor = argv[++i];
+      if (!["llm", "opencode"].includes(writerExecutor)) fail("--writer-executor must be llm or opencode.");
+    } else if (parseFlags && arg === "--executor" && workflow === "fuse") {
+      executor = argv[++i];
+      if (!["llm", "opencode"].includes(executor)) fail("--executor must be llm or opencode.");
+    } else if (parseFlags && arg === "--writer" && workflow === "fuse") {
+      if (writer !== undefined) fail("--writer must be specified exactly once.");
+      writer = argv[++i]?.trim();
+      if (!writer || !/^[^\s/]+\/\S+$/.test(writer)) fail("--writer requires a provider/model value.");
     } else if (parseFlags && arg === "--context") {
       if (!argv[i + 1]) fail("--context requires a file path.");
       contextFiles.push(argv[++i]);
@@ -55,16 +69,20 @@ export const parseOpinionArgs = (argv) => {
     }
   }
   const prompt = task.join(" ").trim();
-  if (!prompt) fail("opinion requires a task.");
-  if (models.length < 2 || models.length > 5) fail("opinion requires between 2 and 5 --model values.");
+  if (!prompt) fail(`${workflow} requires a task.`);
+  if (models.length < 2 || models.length > 5) fail(`${workflow} requires between 2 and 5 --model values.`);
   if (models.some((model) => {
     const slash = model.indexOf("/");
     return !model || slash <= 0 || slash === model.length - 1;
-  })) fail("opinion --model values must be non-empty provider/model strings.");
-  if (new Set(models).size !== models.length) fail("opinion --model values must be distinct.");
-  if (contextFiles.length > MAX_CONTEXT_FILES) fail(`opinion accepts at most ${MAX_CONTEXT_FILES} --context files.`);
-  return { help: false, task: prompt, models, contextFiles, maxTokens, concurrency, json };
+  })) fail(`${workflow} --model values must be non-empty provider/model strings.`);
+  if (new Set(models).size !== models.length) fail(`${workflow} --model values must be distinct.`);
+  if (contextFiles.length > MAX_CONTEXT_FILES) fail(`${workflow} accepts at most ${MAX_CONTEXT_FILES} --context files.`);
+  if (workflow === "fuse" && !writer) fail("fuse requires --writer <provider/model>.");
+  return { help: false, task: prompt, models, contextFiles, maxTokens, concurrency, json, ...(workflow === "fuse" ? { writer, ...(executor ? { executor } : {}), ...(writerExecutor ? { writerExecutor } : {}) } : {}) };
 };
+
+export const parseOpinionArgs = (argv) => parseWorkArgs(argv, "opinion");
+export const parseFuseArgs = (argv) => parseWorkArgs(argv, "fuse");
 
 const contains = (root, target) => target.startsWith(root + path.sep);
 
@@ -192,8 +210,36 @@ const runOpinionCommand = async (argv) => {
   if (!opinion.result.ok) process.exitCode = 1;
 };
 
+export const formatFuse = ({ home, result, analysts, writer, report, answer }) => {
+  const lines = [
+    `Fuse · ${result.ok ? result.state : "failed"} · ${result.node_counts.succeeded}/${result.node_counts.total} nodes succeeded`,
+    `Graph: ${home}`,
+    `Wall time: ${formatDuration(result.duration_ms)} · Tokens: ${formatNumber(result.tokens.total)}`,
+    `Est. cost: ${formatCost(report.report.totals.estimated_api_cost_usd)} API-equivalent (not a subscription invoice)`,
+    `Pricing snapshot: ${report.json}`,
+  ];
+  for (const entry of [...analysts, writer]) {
+    const detail = report.report.nodes.find((node) => node.id === entry.id);
+    lines.push(`${entry.id} · ${entry.model} · ${entry.state} · ${formatNumber(detail?.tokens.total)} tokens · ${formatDuration(detail?.duration_ms)} · ${detail?.attempts || 0} attempts${entry.error ? ` · ${entry.error}` : ""}`);
+  }
+  lines.push("", writer.state === "succeeded" ? writer.text : `Synthesis unavailable: ${writer.error || writer.state}`);
+  if (answer) lines.push("", `Answer: ${answer}`);
+  return lines.join("\n");
+};
+
+const runFuseCommand = async (argv) => {
+  const parsed = parseFuseArgs(argv);
+  if (parsed.help) return usage();
+  const root = requireProjectRoot();
+  const context = readOpinionContext(root, parsed.contextFiles);
+  const outcome = await runFuse(root, { ...parsed, context }, { concurrency: parsed.concurrency ?? parsed.models.length });
+  console.log(parsed.json ? JSON.stringify({ workflow: "fuse", task: parsed.task, models: parsed.models, ...outcome }, null, 2) : formatFuse(outcome));
+  if (!outcome.result.ok) process.exitCode = 1;
+};
+
 export const run = (argv) => {
+  if (argv[0] === "fuse") return runFuseCommand(argv.slice(1));
   if (argv[0] === "opinion" && argv[1] === "report") return runOpinionReportCommand(argv.slice(2));
   if (argv[0] === "opinion") return runOpinionCommand(argv.slice(1));
-  fail("usage: mind work opinion ...");
+  fail("usage: mind work <opinion|fuse> ...");
 };
