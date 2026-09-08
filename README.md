@@ -202,6 +202,21 @@ and is bounded to eight files, 32 KiB per file, and 128 KiB combined. Add
 `--json` for the complete graph result or `--concurrency <n>` to reduce the
 number of simultaneous reviewers.
 
+Each run also writes `<graph>/opinion.html`: a self-contained, side-by-side
+dashboard with the output, model, executor, retries, token split, elapsed time,
+and a current API-equivalent cost estimate. The estimate uses the local OpenCode
+model catalog's USD-per-million-token rates and is explicitly not an invoice for
+subscription, OAuth, bundled, or promotional use. Regenerate a dashboard for a
+past run (or the most recent opinion run) with:
+
+```bash
+mind work opinion report
+mind work opinion report 20260908T163219Z_opinion
+```
+
+The command saves both `opinion.html` and a rate snapshot in
+`opinion-report.json` beside the graph result.
+
 **Profile** — what `mind init` scaffolds at a project's root: `AGENTS.md`,
 `opencode.jsonc`, `.opencode/skills/alter/SKILL.md`, `.alters/config.json`,
 `.alters/catalog/*`. The default ships in `packages/cli/profiles/default/`;

@@ -1,4 +1,5 @@
 import { runAlterGraph } from "./graph.js";
+import { writeOpinionReport } from "./opinion-report.js";
 import { fail } from "./util.js";
 
 const validateModels = (models) => {
@@ -60,9 +61,11 @@ export const runOpinion = async (root, options, runOptions = {}) => {
     ...runOptions,
     concurrency: runOptions.concurrency ?? models.length,
   });
+  const report = writeOpinionReport(home, result, { env: runOptions.env });
   return {
     home,
     result,
+    report,
     opinions: models.map((model, index) => {
       const node = result.nodes[`opinion_${index + 1}`];
       return { model, state: node.state, text: node.result?.text || null, error: node.error || null };

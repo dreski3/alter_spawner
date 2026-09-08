@@ -1,6 +1,6 @@
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
-import { fail, requireProjectRoot, runOpinion } from "@mind/core";
+import { fail, kitDir, requireProjectRoot, runOpinion, writeOpinionReport } from "@mind/core";
 
 const MAX_CONTEXT_FILES = 8;
 const MAX_CONTEXT_FILE_BYTES = 32 * 1024;
@@ -11,6 +11,9 @@ const usage = () => {
   console.error("                         [--context <file>]* [--max-tokens <n>] [--concurrency <n>] [--json] <task>");
   console.error("");
   console.error("  Runs 2-5 isolated, tool-free reviewers in parallel. Context files must be regular files inside the mind project.");
+  console.error("");
+  console.error("usage: mind work opinion report [graph-folder]");
+  console.error("  Writes a side-by-side opinion.html dashboard and its pricing snapshot (opinion-report.json).");
 };
 
 const positiveInteger = (value, flag, { max = Infinity } = {}) => {
@@ -87,15 +90,90 @@ export const readOpinionContext = (root, files) => {
   }).join("\n\n");
 };
 
-export const formatOpinions = ({ home, result, opinions }) => {
+const formatNumber = (value) => new Intl.NumberFormat("en-US").format(value || 0);
+const formatCost = (value) => value == null ? "—" : `$${value.toFixed(6)}`;
+const formatDuration = (ms) => {
+  if (ms == null) return "—";
+  if (ms < 1_000) return `${ms} ms`;
+  return `${(ms / 1_000).toFixed(ms < 10_000 ? 2 : 1)} s`;
+};
+const boxedText = (text) => String(text || "No output.").split("\n").map((line) => `│ ${line}`).join("\n");
+
+export const formatOpinions = ({ home, result, report, opinions }) => {
+  const totals = report?.report?.totals;
+  const dashboard = report?.html || path.join(home, "opinion.html");
   const lines = [
-    `opinion graph: ${home}`,
-    `status: ${result.node_counts.succeeded}/${result.node_counts.total} completed; ${result.tokens.total} tokens`,
+    "╭─ Opinion panel ─────────────────────────────────────────────────────────",
+    `│ Graph       ${home}`,
+    `│ Completion  ${result.node_counts.succeeded}/${result.node_counts.total} reviewers · ${result.state}`,
+    `│ Wall time   ${formatDuration(result.duration_ms)}`,
+    `│ Tokens      ${formatNumber(result.tokens.total)}`,
+    `│ Est. cost   ${formatCost(totals?.estimated_api_cost_usd)} API-equivalent`,
+    `│ Dashboard   ${dashboard}`,
+    "╰─────────────────────────────────────────────────────────────────────────",
   ];
-  for (const opinion of opinions) {
-    lines.push("", `## ${opinion.model} (${opinion.state})`, opinion.text || `Error: ${opinion.error || "no output"}`);
+  for (const [index, opinion] of opinions.entries()) {
+    const detail = report?.report?.opinions.find((entry) => entry.model === opinion.model);
+    const tokens = detail?.tokens;
+    lines.push(
+      "",
+      `╭─ Reviewer ${index + 1} · ${opinion.state} ────────────────────────────────────────────`,
+      `│ Model      ${opinion.model}`,
+      `│ Executor   ${detail?.executor || "—"} · ${detail?.attempts || 0} attempt${detail?.attempts === 1 ? "" : "s"}`,
+      `│ Time       ${formatDuration(detail?.duration_ms)}`,
+      `│ Tokens     ${formatNumber(tokens?.total)} total · ${formatNumber(tokens?.input)} in · ${formatNumber(tokens?.output)} out · ${formatNumber(tokens?.reasoning)} reasoning · ${formatNumber(tokens?.cache_read)} cached`,
+      `│ Est. cost  ${formatCost(detail?.estimated_api_cost_usd)} API-equivalent`,
+      "├─ Opinion",
+      boxedText(opinion.text || `Error: ${opinion.error || "no output"}`),
+      "╰─────────────────────────────────────────────────────────────────────────",
+    );
   }
   return lines.join("\n");
+};
+
+const graphHomeForReport = (root, argument) => {
+  const graphs = path.join(kitDir(root), "graphs");
+  let candidate = argument ? path.resolve(root, argument) : null;
+  if (argument && !statSync(candidate, { throwIfNoEntry: false })?.isDirectory()) {
+    candidate = path.join(graphs, argument);
+  }
+  if (!candidate) {
+    const latest = readdirSync(graphs, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort()
+      .reverse()
+      .find((name) => statSync(path.join(graphs, name, "result.json"), { throwIfNoEntry: false })?.isFile());
+    if (!latest) fail("no completed opinion graph found.");
+    candidate = path.join(graphs, latest);
+  }
+  let home;
+  try {
+    home = realpathSync(candidate);
+  } catch {
+    fail(`opinion graph not found: ${argument}`);
+  }
+  const graphRoot = realpathSync(graphs);
+  if (!contains(graphRoot, home)) fail("opinion report graph must be inside this mind project's .alters/graphs directory.");
+  const resultFile = path.join(home, "result.json");
+  if (!statSync(resultFile, { throwIfNoEntry: false })?.isFile()) fail(`opinion graph has no result.json: ${home}`);
+  let result;
+  try {
+    result = JSON.parse(readFileSync(resultFile, "utf8"));
+  } catch {
+    fail(`opinion graph result is not valid JSON: ${home}`);
+  }
+  if (result.id !== "opinion") fail(`graph is not an opinion workflow: ${home}`);
+  return { home, result };
+};
+
+const runOpinionReportCommand = (argv) => {
+  if (argv.length > 1 || argv[0] === "--help" || argv[0] === "-h") return usage();
+  const root = requireProjectRoot();
+  const { home, result } = graphHomeForReport(root, argv[0]);
+  const report = writeOpinionReport(home, result);
+  console.log(`opinion dashboard: ${report.html}`);
+  console.log(`pricing snapshot: ${report.json}`);
 };
 
 const runOpinionCommand = async (argv) => {
@@ -115,6 +193,7 @@ const runOpinionCommand = async (argv) => {
 };
 
 export const run = (argv) => {
+  if (argv[0] === "opinion" && argv[1] === "report") return runOpinionReportCommand(argv.slice(2));
   if (argv[0] === "opinion") return runOpinionCommand(argv.slice(1));
   fail("usage: mind work opinion ...");
 };

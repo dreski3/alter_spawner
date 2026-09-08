@@ -564,7 +564,30 @@ export function runOpinion(
     onProgress?: (result: AlterGraphResult) => void;
     onEvent?: (event: AlterRuntimeEvent & { node: string }) => void;
   },
-): Promise<{ home: string; result: AlterGraphResult; opinions: Opinion[] }>;
+): Promise<{ home: string; result: AlterGraphResult; report: OpinionReportFiles; opinions: Opinion[] }>;
+
+export type OpinionPricing = {
+  source: "opencode-model-catalog";
+  rates_usd_per_million: { input: number | null; output: number | null; cache_read: number | null };
+};
+export type OpinionReport = {
+  schema_version: 1;
+  workflow: "opinion";
+  graph_home: string;
+  graph_id: string;
+  generated_at: string;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_ms: number | null;
+  status: string | null;
+  pricing: { source: "opencode-model-catalog" | "unavailable"; catalog_path: string | null; unit: "USD per million tokens"; note: string };
+  totals: { reviewers: number; succeeded: number; tokens: number; reviewer_duration_ms: number; estimated_api_cost_usd: number | null };
+  opinions: Array<Opinion & { id: string; executor: string | null; attempts: number; max_tokens: number | null; started_at: string | null; ended_at: string | null; duration_ms: number | null; tokens: AlterTokens; pricing: OpinionPricing | null; estimated_api_cost_usd: number | null }>;
+};
+export type OpinionReportFiles = { report: OpinionReport; html: string; json: string };
+export function createOpinionReport(options: { home: string; result: AlterGraphResult; env?: Record<string, string | undefined> }): OpinionReport;
+export function renderOpinionReport(report: OpinionReport): string;
+export function writeOpinionReport(home: string, result: AlterGraphResult, options?: { env?: Record<string, string | undefined> }): OpinionReportFiles;
 
 export const PRINCIPAL_DEPTH: -1;
 
