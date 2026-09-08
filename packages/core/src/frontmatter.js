@@ -9,13 +9,11 @@ import { TEMPLATE_AGENT, TEMPLATE_AGENTS_MD } from "./paths.js";
 // less boilerplate in its context, and no `alter` skill listed for it to be
 // tempted by.
 // The exact literal example below matters: the two failure modes seen in
-// practice are (1) a model assuming the bare `mind` command works and giving
-// up when it "seems blocked" (it isn't on PATH — only the explicit delegation
-// subcommands below are allowed bash patterns), and (2) a model quoting the whole invocation as
-// one shell string, so `process.argv[2]` is never literally `spawn`. Spelling
-// out the real, resolved path and warning about word-splitting directly
-// addresses both instead of leaving the model to reconstruct this from the
-// flag reference alone.
+// practice are (1) a model trying an administrative command it has not been
+// granted, and (2) a model quoting the whole invocation as one shell string,
+// so `process.argv[2]` is never literally `spawn`. Spelling out the permitted
+// command and warning about word-splitting directly addresses both instead of
+// leaving the model to reconstruct this from the flag reference alone.
 // A bounded search space is worth stating in context, not just enforcing on
 // disk: told exactly which catalog entries exist, a model delegates to one of
 // them instead of guessing names that were never copied into its home and
@@ -38,16 +36,16 @@ No other catalog entry exists in your home — \`--catalog\` with any other name
 will fail to resolve. Delegate within this set or solve the task yourself.`;
 };
 
-const nestingBlock = (mindBinPath) => `
+const nestingBlock = () => `
 
 ## Spawning child Alters
 You were spawned as **nestable**: you have a tightly scoped shell that allows
-only \`spawn\`, \`create\`, \`run\`, and \`catalog save\` through \`node ${mindBinPath}\`.
-The bare \`mind\` command is **not** on your PATH and administrative commands
-(including daemon, agents, and removal) are unavailable. A worked, copy-pasteable example:
+only \`spawn\`, \`create\`, \`run\`, and \`catalog save\` through the globally
+available \`mind\` command. Administrative commands (including daemon, agents,
+and removal) are unavailable. A worked, copy-pasteable example:
 
 \`\`\`bash
-node ${mindBinPath} spawn --name prefilter --description "cleans up the raw input" "<task prompt>"
+mind spawn --name prefilter --description "cleans up the raw input" "<task prompt>"
 \`\`\`
 
 Pass each flag and value as its own shell word. Do **not** wrap the whole
@@ -65,16 +63,16 @@ const applyPlaceholders = (tmpl, o) => {
   let out = tmpl.replace(/\{\{ROLE_BLOCK\}\}/g, role);
   out = out.replace(
     /\n?\{\{NESTING_BLOCK\}\}/g,
-    o.nestable ? nestingBlock(o.mindBinPath) + catalogScopeBlock(o.allowedCatalogs) : "",
+    o.nestable ? nestingBlock() + catalogScopeBlock(o.allowedCatalogs) : "",
   );
   return out;
 };
 
 // Bash access is deny-by-default and only ever opened by exact, explicit
 // patterns — never a blanket allow. Two independent sources can add patterns:
-//   - `nestable`: scoped to exactly the resolved, absolute path of the `mind`
-//     CLI entrypoint that spawned it (`o.mindBinPath`), so it can only ever
-//     spawn/manage Alters, never run arbitrary shell.
+//   - `nestable`: scoped to the installed `mind` command's four delegation
+//     subcommands, so it can only ever spawn/manage Alters, never run arbitrary
+//     shell.
 //   - `o.bashAllow`: catalog- or flag-declared literal command patterns
 //     (e.g. `"python3 /abs/path/cipher.py **"`), for Alters whose catalog
 //     entry needs to shell out to one specific deterministic script instead
@@ -84,10 +82,10 @@ const bashAllowRules = (o) => {
   const rules = [];
   if (o.textOnly) return rules;
   if (o.nestable) {
-    rules.push(`${yq(`node ${o.mindBinPath} spawn **`)}: allow`);
-    rules.push(`${yq(`node ${o.mindBinPath} create **`)}: allow`);
-    rules.push(`${yq(`node ${o.mindBinPath} run **`)}: allow`);
-    rules.push(`${yq(`node ${o.mindBinPath} catalog save **`)}: allow`);
+    rules.push(`${yq("mind spawn **")}: allow`);
+    rules.push(`${yq("mind create **")}: allow`);
+    rules.push(`${yq("mind run **")}: allow`);
+    rules.push(`${yq("mind catalog save **")}: allow`);
   }
   for (const pattern of o.bashAllow || []) {
     rules.push(`${yq(pattern)}: allow`);

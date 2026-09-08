@@ -47,9 +47,9 @@ Start with [the architecture](docs/architecture.md) for the framework model,
   project profile under `profiles/default/`.
 
 A project's own `.alters/` holds only *data* — `config.json` and `catalog/` —
-never a copy of the engine. Nestable Alters get the same treatment: their
-scoped bash permission targets the resolved, absolute path of the running
-`mind` CLI entrypoint rather than a vendored copy of it.
+never a copy of the engine. The installed `mind` command is globally available;
+nestable Alters receive narrowly scoped permission for its delegation
+subcommands rather than a vendored copy of the CLI.
 
 ## Quickstart (local, unpublished)
 
@@ -180,6 +180,27 @@ node --test packages/core/test/integration/provider-routing.live.test.js
 
 Each matrix entry may also contain an `opencode_provider` map for a custom
 provider; built-in providers can rely on the user's existing OpenCode auth.
+
+**Engineering opinions** — `mind work opinion` runs an explicit panel of two
+to five models independently. The reviewers are tool-free and receive only the
+task plus any selected context files; they cannot inspect or change the project.
+Every response is preserved in a graph trace under `.alters/graphs/`.
+
+```bash
+mind work opinion \
+  --model provider-a/reviewer \
+  --model provider-b/reviewer \
+  --context packages/core/src/engine.js \
+  --context packages/core/src/authority.js \
+  --max-tokens 1200 \
+  "Review whether nested authority can be widened through a retry path."
+```
+
+`--model` is required so the command never makes an unrequested provider call.
+`--context` is repeatable, accepts regular files inside the mind project only,
+and is bounded to eight files, 32 KiB per file, and 128 KiB combined. Add
+`--json` for the complete graph result or `--concurrency <n>` to reduce the
+number of simultaneous reviewers.
 
 **Profile** — what `mind init` scaffolds at a project's root: `AGENTS.md`,
 `opencode.jsonc`, `.opencode/skills/alter/SKILL.md`, `.alters/config.json`,

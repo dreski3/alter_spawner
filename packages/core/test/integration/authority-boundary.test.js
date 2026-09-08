@@ -128,10 +128,10 @@ test("a narrowed child becomes the ceiling for its own descendants", async (t) =
 
 test("nestable frontmatter exposes only delegation subcommands", () => {
   const frontmatter = buildFrontmatter(options({ nestable: true }));
-  assert.match(frontmatter, /node \/opt\/mind\.js spawn \*\*/);
-  assert.match(frontmatter, /node \/opt\/mind\.js create \*\*/);
-  assert.match(frontmatter, /node \/opt\/mind\.js run \*\*/);
-  assert.match(frontmatter, /node \/opt\/mind\.js catalog save \*\*/);
-  assert.doesNotMatch(frontmatter, /node \/opt\/mind\.js \*\*/);
-  assert.doesNotMatch(frontmatter, /node \/opt\/mind\.js rm/);
+  assert.match(frontmatter, /mind spawn \*\*/);
+  assert.match(frontmatter, /mind create \*\*/);
+  assert.match(frontmatter, /mind run \*\*/);
+  assert.match(frontmatter, /mind catalog save \*\*/);
+  assert.doesNotMatch(frontmatter, /mind \*\*/);
+  assert.doesNotMatch(frontmatter, /mind rm/);
 });

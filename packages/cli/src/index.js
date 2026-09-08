@@ -45,6 +45,7 @@ const usage = (write = console.log) => {
   write("  catalog save <name> --from <id> | ...spawn flags   (add/update a harness)");
   write("  catalog export <name> --to <dir>        (copy an alter project out, to version or share)");
   write("  catalog import <dir> [--as <name>] [--trust]       (copy one in; grants are dropped unless --trust)");
+  write("  work    opinion --model <provider/model> (2-5) <task> (parallel, tool-free engineering opinions)");
 };
 
 const COMMANDS = {
@@ -64,6 +65,7 @@ const COMMANDS = {
   usage: () => import("./commands/usage.js"),
   catalog: () => import("./commands/catalog.js"),
   memory: () => import("./commands/memory.js"),
+  work: () => import("./commands/work.js"),
 };
 
 const main = async () => {

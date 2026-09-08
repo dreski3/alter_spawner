@@ -540,6 +540,32 @@ export function runExistingAlter(
 
 export function resolveEffectiveModel(options: SpawnOptions, cfg: MindConfig, runtime?: Runtime): string;
 
+export type Opinion = {
+  model: string;
+  state: "pending" | "running" | "succeeded" | "failed" | "skipped";
+  text: string | null;
+  error: string | null;
+};
+export function buildOpinionGraph(options: {
+  task: string;
+  models: string[];
+  context?: string;
+  maxTokens?: number | null;
+}): AlterGraph;
+export function runOpinion(
+  root: string,
+  options: { task: string; models: string[]; context?: string; maxTokens?: number | null },
+  runOptions?: {
+    harness?: string | null;
+    signal?: AbortSignal;
+    concurrency?: number;
+    mindBinPath?: string | null;
+    runtime?: Runtime;
+    onProgress?: (result: AlterGraphResult) => void;
+    onEvent?: (event: AlterRuntimeEvent & { node: string }) => void;
+  },
+): Promise<{ home: string; result: AlterGraphResult; opinions: Opinion[] }>;
+
 export const PRINCIPAL_DEPTH: -1;
 
 export function isPrincipalProject(projectDir: string): boolean;
@@ -649,6 +675,7 @@ export type AlterGraphNode = {
   writeGrants?: string[];
   bashAllow?: string[];
   bashOnly?: boolean;
+  textOnly?: boolean;
   nestable?: boolean;
   allowedCatalogs?: string[] | null;
   webAccess?: boolean;

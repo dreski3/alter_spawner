@@ -88,6 +88,7 @@ export {
 } from "./run-capabilities.js";
 export { buildRunMaintenanceGraph, runRunMaintenanceGraph } from "./run-maintenance-workflow.js";
 export { spawnAlter, runExistingAlter, resolveEffectiveModel } from "./engine.js";
+export { buildOpinionGraph, runOpinion } from "./opinion.js";
 export {
   PRINCIPAL_DEPTH,
   isPrincipalProject,
