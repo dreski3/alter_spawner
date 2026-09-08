@@ -59,6 +59,9 @@ test("fuse isolates parallel analysts, then joins their outputs in the explicit 
   assert.equal(report.nodes[2].role, "writer");
   assert.equal(report.totals.nodes, 3);
   assert.match(formatFuse(outcome), /Implementation: propagate the deadline/);
+  assert.match(formatFuse(outcome), /3 in · 2 out · 0 reasoning · 0 cached/);
+  assert.match(formatFuse(outcome), /Dashboard.*fuse.html/);
+  assert.match(readFileSync(outcome.report.html, "utf8"), /Synthesized implementation answer/);
   assert.match(formatFuse(outcome), /not a subscription invoice/);
 });
 

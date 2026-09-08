@@ -1,8 +1,8 @@
 import path from "node:path";
 import { runAlterGraph } from "./graph.js";
 import { validateModels } from "./opinion.js";
-import { createOpinionReport } from "./opinion-report.js";
-import { writeJsonAtomic, writeTextAtomic } from "./persistence.js";
+import { writeFuseReport } from "./fuse-report.js";
+import { writeTextAtomic } from "./persistence.js";
 import { fail } from "./util.js";
 
 export const buildFuseGraph = ({ task, models, writer, context = "", maxTokens = null, executor = null, writerExecutor = executor } = {}) => {
@@ -59,29 +59,9 @@ export const runFuse = async (root, options, runOptions = {}) => {
     const node = result.nodes[id];
     return { id, model, state: node.state, text: node.result?.text || null, error: node.error || null };
   });
-  const pricing = createOpinionReport({ home, result, env: runOptions.env });
-  const { opinions, totals, ...metadata } = pricing;
-  const report = {
-    ...metadata,
-    workflow: "fuse",
-    totals: {
-      nodes: entries.length,
-      analysts: entries.length - 1,
-      succeeded: totals.succeeded,
-      tokens: totals.tokens,
-      node_duration_ms: totals.reviewer_duration_ms,
-      estimated_api_cost_usd: totals.estimated_api_cost_usd,
-    },
-    nodes: opinions.map((node, index) => ({
-      ...node,
-      model: entries[index].model,
-      role: node.id === "writer" ? "writer" : "analyst",
-    })),
-  };
-  const json = path.join(home, "fuse-report.json");
-  writeJsonAtomic(json, report);
+  const report = writeFuseReport(home, result, { env: runOptions.env, models: Object.fromEntries(entries.map((entry) => [entry.id, entry.model])) });
   const writer = entries.at(-1);
   const answer = writer.state === "succeeded" ? path.join(home, "implementation.md") : null;
   if (answer) writeTextAtomic(answer, writer.text + "\n");
-  return { home, result, analysts: entries.slice(0, -1), writer, report: { report, json }, answer };
+  return { home, result, analysts: entries.slice(0, -1), writer, report, answer };
 };

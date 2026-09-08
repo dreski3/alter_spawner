@@ -257,9 +257,25 @@ attached. Task, context, and outputs are retained as plaintext run artifacts.
 
 The terminal shows node status, models, attempts, tokens, elapsed time, and the
 synthesis. Under `.alters/graphs/`, `result.json` preserves the full graph,
-`implementation.md` holds the successful writer answer, and `fuse-report.json`
+`implementation.md` holds the successful writer answer, `fuse.html` presents the
+synthesis first with collapsible analyst outputs, and `fuse-report.json`
 snapshots node usage and local OpenCode catalog rates. Costs are API-equivalent
 estimates, not subscription invoices; missing pricing is reported as unknown.
+Both the terminal and HTML show each node's executor, attempts, elapsed time,
+input/output/reasoning/cache tokens, and estimated cost, including retry usage.
+The HTML is self-contained and renders Markdown headings, lists, tables, links,
+and fenced code blocks. Raw HTML is escaped, unsafe link schemes are removed,
+and image references display their alt text without loading remote content.
+
+Generate or refresh a dashboard for an existing run without calling any models:
+
+```bash
+mind work fuse report
+mind work fuse report 20260908T201426Z_fuse
+```
+
+With no folder, this selects the most recent Fuse graph. Regeneration snapshots
+the catalog rates available at that moment.
 
 **Profile** — what `mind init` scaffolds at a project's root: `AGENTS.md`,
 `opencode.jsonc`, `.opencode/skills/alter/SKILL.md`, `.alters/config.json`,

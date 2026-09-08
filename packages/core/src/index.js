@@ -274,3 +274,4 @@ export {
 } from "./memory-client.js";
 
 export { buildFuseGraph, runFuse } from "./fuse.js";
+export { createFuseReport, renderFuseReport, writeFuseReport } from "./fuse-report.js";

@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
-import { fail, kitDir, requireProjectRoot, runOpinion, runFuse, writeOpinionReport } from "@mind/core";
+import { fail, kitDir, requireProjectRoot, runOpinion, runFuse, writeFuseReport, writeOpinionReport } from "@mind/core";
 
 const MAX_CONTEXT_FILES = 8;
 const MAX_CONTEXT_FILE_BYTES = 32 * 1024;
@@ -13,6 +13,7 @@ const usage = () => {
   console.error("");
   console.error("  Runs 2-5 isolated, tool-free reviewers in parallel. Context files must be regular files inside the mind project.");
   console.error("");
+  console.error("usage: mind work fuse report [graph-folder]  (synthesis and usage dashboard; no model calls)");
   console.error("usage: mind work opinion report [graph-folder]");
   console.error("  Writes a side-by-side opinion.html dashboard and its pricing snapshot (opinion-report.json).");
 };
@@ -149,7 +150,7 @@ export const formatOpinions = ({ home, result, report, opinions }) => {
   return lines.join("\n");
 };
 
-const graphHomeForReport = (root, argument) => {
+export const graphHomeForReport = (root, argument, workflow = "opinion") => {
   const graphs = path.join(kitDir(root), "graphs");
   let candidate = argument ? path.resolve(root, argument) : null;
   if (argument && !statSync(candidate, { throwIfNoEntry: false })?.isDirectory()) {
@@ -161,36 +162,42 @@ const graphHomeForReport = (root, argument) => {
       .map((entry) => entry.name)
       .sort()
       .reverse()
-      .find((name) => statSync(path.join(graphs, name, "result.json"), { throwIfNoEntry: false })?.isFile());
-    if (!latest) fail("no completed opinion graph found.");
+      .find((name) => {
+        try {
+          return JSON.parse(readFileSync(path.join(graphs, name, "result.json"), "utf8")).id === workflow;
+        } catch {
+          return false;
+        }
+      });
+    if (!latest) fail(`no completed ${workflow} graph found.`);
     candidate = path.join(graphs, latest);
   }
   let home;
   try {
     home = realpathSync(candidate);
   } catch {
-    fail(`opinion graph not found: ${argument}`);
+    fail(`${workflow} graph not found: ${argument}`);
   }
   const graphRoot = realpathSync(graphs);
-  if (!contains(graphRoot, home)) fail("opinion report graph must be inside this mind project's .alters/graphs directory.");
+  if (!contains(graphRoot, home)) fail(`${workflow} report graph must be inside this mind project's .alters/graphs directory.`);
   const resultFile = path.join(home, "result.json");
-  if (!statSync(resultFile, { throwIfNoEntry: false })?.isFile()) fail(`opinion graph has no result.json: ${home}`);
+  if (!statSync(resultFile, { throwIfNoEntry: false })?.isFile()) fail(`${workflow} graph has no result.json: ${home}`);
   let result;
   try {
     result = JSON.parse(readFileSync(resultFile, "utf8"));
   } catch {
-    fail(`opinion graph result is not valid JSON: ${home}`);
+    fail(`${workflow} graph result is not valid JSON: ${home}`);
   }
-  if (result.id !== "opinion") fail(`graph is not an opinion workflow: ${home}`);
+  if (result.id !== workflow) fail(`graph is not a ${workflow} workflow: ${home}`);
   return { home, result };
 };
 
-const runOpinionReportCommand = (argv) => {
+const runReportCommand = (argv, workflow) => {
   if (argv.length > 1 || argv[0] === "--help" || argv[0] === "-h") return usage();
   const root = requireProjectRoot();
-  const { home, result } = graphHomeForReport(root, argv[0]);
-  const report = writeOpinionReport(home, result);
-  console.log(`opinion dashboard: ${report.html}`);
+  const { home, result } = graphHomeForReport(root, argv[0], workflow);
+  const report = workflow === "fuse" ? writeFuseReport(home, result) : writeOpinionReport(home, result);
+  console.log(`${workflow} dashboard: ${report.html}`);
   console.log(`pricing snapshot: ${report.json}`);
 };
 
@@ -212,17 +219,32 @@ const runOpinionCommand = async (argv) => {
 
 export const formatFuse = ({ home, result, analysts, writer, report, answer }) => {
   const lines = [
-    `Fuse · ${result.ok ? result.state : "failed"} · ${result.node_counts.succeeded}/${result.node_counts.total} nodes succeeded`,
-    `Graph: ${home}`,
-    `Wall time: ${formatDuration(result.duration_ms)} · Tokens: ${formatNumber(result.tokens.total)}`,
-    `Est. cost: ${formatCost(report.report.totals.estimated_api_cost_usd)} API-equivalent (not a subscription invoice)`,
-    `Pricing snapshot: ${report.json}`,
+    "╭─ Fuse summary ──────────────────────────────────────────────────────────",
+    `│ Graph       ${home}`,
+    `│ Completion  ${result.node_counts.succeeded}/${result.node_counts.total} nodes · ${result.ok ? result.state : "failed"}`,
+    `│ Wall time   ${formatDuration(result.duration_ms)}`,
+    `│ Tokens      ${formatNumber(result.tokens.total)} total · ${formatNumber(result.tokens.input)} in · ${formatNumber(result.tokens.output)} out · ${formatNumber(result.tokens.reasoning)} reasoning · ${formatNumber(result.tokens.cache_read)} cached`,
+    `│ Est. cost   ${formatCost(report.report.totals.estimated_api_cost_usd)} API-equivalent (not a subscription invoice)`,
+    `│ Dashboard   ${report.html}`,
+    `│ Pricing     ${report.json}`,
+    "╰─────────────────────────────────────────────────────────────────────────",
   ];
-  for (const entry of [...analysts, writer]) {
+  for (const entry of [writer, ...analysts]) {
     const detail = report.report.nodes.find((node) => node.id === entry.id);
-    lines.push(`${entry.id} · ${entry.model} · ${entry.state} · ${formatNumber(detail?.tokens.total)} tokens · ${formatDuration(detail?.duration_ms)} · ${detail?.attempts || 0} attempts${entry.error ? ` · ${entry.error}` : ""}`);
+    const tokens = detail?.tokens;
+    lines.push(
+      "",
+      `╭─ ${entry.id === "writer" ? "Writer · synthesis" : entry.id.replace("analyst_", "Analyst ")} · ${entry.state}`,
+      `│ Model      ${entry.model}`,
+      `│ Executor   ${detail?.executor || "—"} · ${detail?.attempts || 0} attempts`,
+      `│ Time       ${formatDuration(detail?.duration_ms)}`,
+      `│ Tokens     ${formatNumber(tokens?.total)} total · ${formatNumber(tokens?.input)} in · ${formatNumber(tokens?.output)} out · ${formatNumber(tokens?.reasoning)} reasoning · ${formatNumber(tokens?.cache_read)} cached`,
+      `│ Est. cost  ${formatCost(detail?.estimated_api_cost_usd)} API-equivalent`,
+    );
+    if (entry.id === "writer") lines.push("├─ Answer", boxedText(writer.state === "succeeded" ? writer.text : `Synthesis unavailable: ${writer.error || writer.state}`));
+    else if (entry.error) lines.push(boxedText(`Error: ${entry.error}`));
+    lines.push("╰─────────────────────────────────────────────────────────────────────────");
   }
-  lines.push("", writer.state === "succeeded" ? writer.text : `Synthesis unavailable: ${writer.error || writer.state}`);
   if (answer) lines.push("", `Answer: ${answer}`);
   return lines.join("\n");
 };
@@ -238,8 +260,9 @@ const runFuseCommand = async (argv) => {
 };
 
 export const run = (argv) => {
+  if (argv[0] === "fuse" && argv[1] === "report") return runReportCommand(argv.slice(2), "fuse");
   if (argv[0] === "fuse") return runFuseCommand(argv.slice(1));
-  if (argv[0] === "opinion" && argv[1] === "report") return runOpinionReportCommand(argv.slice(2));
+  if (argv[0] === "opinion" && argv[1] === "report") return runReportCommand(argv.slice(2), "opinion");
   if (argv[0] === "opinion") return runOpinionCommand(argv.slice(1));
   fail("usage: mind work <opinion|fuse> ...");
 };

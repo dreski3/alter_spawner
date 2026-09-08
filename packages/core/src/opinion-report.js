@@ -1,3 +1,4 @@
+import { renderReportMarkdown } from "./report-markdown.js";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { modelsCatalogPath, splitModelRef } from "./providers.js";
@@ -116,12 +117,14 @@ export const createOpinionReport = ({ home, result, env = process.env }) => {
 
 const metric = (label, value) => `<div class="metric"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`;
 
-const bar = (value, maximum, label, accent) => {
+const bar = (value, maximum, label, accent, display = value) => {
   const width = maximum > 0 ? Math.max(2, Math.round((value / maximum) * 100)) : 0;
-  return `<div class="bar-row"><span>${escapeHtml(label)}</span><div class="bar"><i style="width:${width}%;--accent:${accent}"></i></div><b>${escapeHtml(value)}</b></div>`;
+  return `<div class="bar-row"><span>${escapeHtml(label)}</span><div class="bar"><i style="width:${width}%;--accent:${accent}"></i></div><b>${escapeHtml(display)}</b></div>`;
 };
 
-export const renderOpinionReport = (report) => {
+export const renderWorkflowReport = (report) => {
+  const fuse = report.workflow === "fuse";
+  const title = fuse ? "Implementation synthesis" : "Opinion comparison";
   const maxTokens = Math.max(0, ...report.opinions.map((opinion) => opinion.tokens.total));
   const maxDuration = Math.max(0, ...report.opinions.map((opinion) => opinion.duration_ms || 0));
   const maxCost = Math.max(0, ...report.opinions.map((opinion) => opinion.estimated_api_cost_usd || 0));
@@ -132,8 +135,11 @@ export const renderOpinionReport = (report) => {
       ? `in ${rates.input ?? "—"} · out ${rates.output ?? "—"} · cache ${rates.cache_read ?? "—"}`
       : "unavailable";
     const status = opinion.state === "succeeded" ? "complete" : opinion.state;
-    return `<article class="opinion" style="--accent:${accent}">
-      <header><span class="ordinal">Reviewer ${index + 1}</span><span class="status ${escapeHtml(status)}">${escapeHtml(status)}</span><h2>${escapeHtml(opinion.model || "Unknown model")}</h2></header>
+    const writer = fuse && opinion.id === "writer";
+    const label = fuse ? (writer ? "Writer · synthesis" : opinion.id.replace("analyst_", "Analyst ")) : `Reviewer ${index + 1}`;
+    const output = renderReportMarkdown(opinion.state === "succeeded" ? (opinion.text || "No response recorded.") : (opinion.error || "No successful response recorded."));
+    return `<article class="opinion${writer ? " synthesis" : ""}" style="--accent:${accent}">
+      <header><span class="ordinal">${escapeHtml(label)}</span><span class="status ${escapeHtml(status)}">${escapeHtml(status)}</span><h2>${escapeHtml(opinion.model || "Unknown model")}</h2></header>
       <dl class="metrics">
         ${metric("Estimated API cost", formatUsd(opinion.estimated_api_cost_usd))}
         ${metric("Elapsed", formatDuration(opinion.duration_ms))}
@@ -148,43 +154,60 @@ export const renderOpinionReport = (report) => {
         <div><dt>Rates (USD / M tokens)</dt><dd>${escapeHtml(rateText)}</dd></div>
       </dl></section>
       <section class="comparison">
-        ${bar(formatNumber(opinion.tokens.total), maxTokens, "Tokens", accent)}
-        ${bar(formatDuration(opinion.duration_ms), maxDuration, "Time", accent)}
-        ${bar(formatUsd(opinion.estimated_api_cost_usd), maxCost, "Cost", accent)}
+        ${bar(opinion.tokens.total, maxTokens, "Tokens", accent, formatNumber(opinion.tokens.total))}
+        ${bar(opinion.duration_ms || 0, maxDuration, "Time", accent, formatDuration(opinion.duration_ms))}
+        ${bar(opinion.estimated_api_cost_usd || 0, maxCost, "Cost", accent, formatUsd(opinion.estimated_api_cost_usd))}
       </section>
-      <section class="response"><h3>Opinion</h3><pre>${escapeHtml(opinion.text || opinion.error || "No response recorded.")}</pre></section>
+      ${fuse && !writer ? `<details class="response"><summary>Analyst output</summary><div class="markdown">${output}</div></details>` : `<section class="response"><h3>${writer ? "Synthesized implementation answer" : "Opinion"}</h3><div class="markdown">${output}</div></section>`}
     </article>`;
   }).join("\n");
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Opinion comparison · ${escapeHtml(report.graph_id)}</title>
+<title>${title} · ${escapeHtml(report.graph_id)}</title>
 <style>
   :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; background:#0a0d14; color:#e8ecf5; }
   * { box-sizing:border-box; } body { max-width:1700px; margin:0 auto; padding:32px; background:radial-gradient(circle at 15% 0,#1d1741 0,transparent 32rem),#0a0d14; }
   h1,h2,h3,p { margin:0; } .eyebrow { color:#aeb9d3; font-size:.8rem; letter-spacing:.08em; text-transform:uppercase; } h1 { font-size:clamp(2rem,4vw,3.4rem); margin:6px 0 10px; } .subtitle { color:#bac4d8; max-width:900px; line-height:1.5; }
   .summary { display:grid; grid-template-columns:repeat(5,minmax(130px,1fr)); gap:10px; margin:24px 0; } .summary div,.opinion { background:#121827dd; border:1px solid #263148; border-radius:14px; } .summary div { padding:14px; } dt { color:#95a3c2; font-size:.76rem; text-transform:uppercase; letter-spacing:.06em; } dd { margin:5px 0 0; font-weight:650; }
   .notice { margin:0 0 24px; padding:12px 14px; border-radius:10px; color:#cbd5e1; border:1px solid #334155; background:#0f172a99; font-size:.88rem; line-height:1.45; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:16px; align-items:start; } .opinion { overflow:hidden; border-top:3px solid var(--accent); } .opinion header { padding:20px 20px 12px; } .ordinal { color:#9aa9ca; font-size:.8rem; text-transform:uppercase; letter-spacing:.06em; } h2 { margin-top:6px; font-size:1.2rem; overflow-wrap:anywhere; } .status { float:right; padding:4px 8px; border-radius:999px; font-size:.75rem; background:#334155; } .status.complete { background:#14532d; color:#bbf7d0; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr)); gap:16px; align-items:start; } .opinion { overflow:hidden; border-top:3px solid var(--accent); } .opinion header { padding:20px 20px 12px; } .ordinal { color:#9aa9ca; font-size:.8rem; text-transform:uppercase; letter-spacing:.06em; } h2 { margin-top:6px; font-size:1.2rem; overflow-wrap:anywhere; } .status { float:right; padding:4px 8px; border-radius:999px; font-size:.75rem; background:#334155; } .status.complete { background:#14532d; color:#bbf7d0; }
   .metrics { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:#263148; border-block:1px solid #263148; } .metric { padding:12px 20px; background:#121827; } .metric dd { font-size:1.08rem; }
   .details { padding:16px 20px 4px; } .details dl { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:0; } .details dd { overflow-wrap:anywhere; font-size:.88rem; }
   .comparison { padding:16px 20px; border-bottom:1px solid #263148; } .bar-row { display:grid; grid-template-columns:75px 1fr auto; align-items:center; gap:8px; margin:8px 0; font-size:.78rem; color:#aab6ce; } .bar-row b { color:#e8ecf5; font-weight:600; } .bar { overflow:hidden; height:7px; background:#263148; border-radius:99px; } .bar i { display:block; height:100%; border-radius:99px; background:var(--accent); }
   .response { padding:20px; } h3 { color:#aeb9d3; font-size:.78rem; text-transform:uppercase; letter-spacing:.08em; margin-bottom:9px; } pre { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font: .88rem/1.55 ui-monospace,SFMono-Regular,Menlo,monospace; color:#e4e8f3; }
+  .markdown { font-size:.95rem; line-height:1.65; overflow-wrap:anywhere; }
+  .markdown > :first-child { margin-top:0; } .markdown > :last-child { margin-bottom:0; }
+  .markdown p,.markdown ul,.markdown ol,.markdown blockquote,.markdown pre,.markdown table { margin:0 0 1rem; }
+  .markdown h1,.markdown h2,.markdown h3,.markdown h4,.markdown h5,.markdown h6 { color:#e8ecf5; text-transform:none; letter-spacing:normal; margin:1.4rem 0 .6rem; line-height:1.3; }
+  .markdown h1 { font-size:1.65rem; } .markdown h2 { font-size:1.35rem; } .markdown h3 { font-size:1.12rem; }
+  .markdown ul,.markdown ol { padding-left:1.6rem; } .markdown li { margin:.25rem 0; } .markdown li > ul,.markdown li > ol { margin-bottom:.4rem; }
+  .markdown a { color:#93c5fd; text-decoration:underline; }
+  .markdown code { font:.88em/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; background:#0a101e; border-radius:4px; padding:.15em .35em; }
+  .markdown pre { padding:16px; background:#080e19; border:1px solid #263148; border-radius:8px; overflow:auto; white-space:pre; }
+  .markdown pre code { padding:0; background:none; }
+  .markdown blockquote { border-left:3px solid #64748b; padding:.2rem 1rem; color:#b8c5de; }
+  .markdown table { display:block; width:100%; overflow:auto; border-collapse:collapse; font-size:.88rem; }
+  .markdown th,.markdown td { border:1px solid #334155; padding:8px 12px; text-align:left; }
+  .markdown th { background:#1d2940; } .markdown hr { border:0; border-top:1px solid #334155; margin:1.4rem 0; }
+  .synthesis { grid-column:1 / -1; } summary { cursor:pointer; color:#aeb9d3; margin-bottom:12px; } .grid > * { min-width:0; }
   footer { color:#8190ae; margin-top:24px; font-size:.78rem; } @media (max-width:700px) { body { padding:18px; } .summary { grid-template-columns:1fr 1fr; } .details dl { grid-template-columns:1fr; } }
 </style></head><body>
-<p class="eyebrow">Alter Spawner · opinion workflow</p><h1>Opinion comparison</h1>
-<p class="subtitle">Parallel reviewer outputs arranged side-by-side with the execution and usage evidence needed to compare them.</p>
+<p class="eyebrow">Alter Spawner · ${fuse ? "fuse" : "opinion"} workflow · ${escapeHtml(report.status)}</p><h1>${title}</h1>
+<p class="subtitle">${fuse ? "Independent analysts → one selected writer. The synthesis appears first; expand each analyst output to inspect its evidence." : "Parallel reviewer outputs arranged side-by-side with the execution and usage evidence needed to compare them."}</p>
 <section class="summary">
-  <div><dt>Reviewers</dt><dd>${report.totals.succeeded} / ${report.totals.reviewers} complete</dd></div>
+  <div><dt>${fuse ? "Nodes" : "Reviewers"}</dt><dd>${report.totals.succeeded} / ${report.totals.reviewers} complete</dd></div>
   <div><dt>Wall-clock time</dt><dd>${formatDuration(report.duration_ms)}</dd></div>
-  <div><dt>Reviewer time</dt><dd>${formatDuration(report.totals.reviewer_duration_ms)}</dd></div>
+  <div><dt>${fuse ? "Total node time" : "Reviewer time"}</dt><dd>${formatDuration(report.totals.reviewer_duration_ms)}</dd></div>
   <div><dt>Total tokens</dt><dd>${formatNumber(report.totals.tokens)}</dd></div>
   <div><dt>Estimated API cost</dt><dd>${formatUsd(report.totals.estimated_api_cost_usd)}</dd></div>
 </section>
-<p class="notice">${escapeHtml(report.pricing.note)} Rates are read when this dashboard is generated (${escapeHtml(report.pricing.catalog_path || "no catalog available")}); retain <code>opinion-report.json</code> with this HTML to preserve the rate snapshot.</p>
+<p class="notice">${escapeHtml(report.pricing.note)} Rates are read when this dashboard is generated (${escapeHtml(report.pricing.catalog_path || "no catalog available")}); retain <code>${fuse ? "fuse" : "opinion"}-report.json</code> with this HTML to preserve the rate snapshot.</p>
 <main class="grid">${cards}</main>
 <footer>Graph ${escapeHtml(report.graph_id)} · started ${escapeHtml(report.started_at || "—")} · dashboard generated ${escapeHtml(report.generated_at)}</footer>
 </body></html>`;
 };
+
+export const renderOpinionReport = (report) => renderWorkflowReport(report);
 
 export const writeOpinionReport = (home, result, options = {}) => {
   const report = createOpinionReport({ home, result, ...options });

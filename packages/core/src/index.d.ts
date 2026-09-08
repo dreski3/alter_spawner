@@ -758,6 +758,31 @@ export type GraphMemoryRuntime = {
 /** Why an Alter run failed, in one actionable sentence. Reports a token-budget overrun ahead of any contract failure it caused. */
 export function describeAlterFailure(result: AlterResult | AlterResponse): string;
 
+export type AlterGraphResult = {
+  schema_version: number;
+  id: string;
+  ok: boolean;
+  state: "running" | "completed";
+  output_node: string;
+  output: string | null;
+  tokens: AlterTokens;
+  node_counts: { total: number; succeeded: number; failed: number; skipped: number };
+  started_at: string;
+  ended_at: string | null;
+  duration_ms: number | null;
+  memory_cycle: Record<string, unknown> | null;
+  nodes: Record<string, {
+    id: string;
+    state: Opinion["state"];
+    depends_on: string[];
+    home: string | null;
+    result: AlterResult | null;
+    error: string | null;
+    truncated_edges: Array<{ from: string; to: string; kept: number; total: number }> | null;
+    memory: Record<string, unknown> | null;
+  }>;
+};
+
 export function runAlterGraph(
   root: string,
   graph: AlterGraph,
@@ -767,11 +792,11 @@ export function runAlterGraph(
     concurrency?: number;
     mindBinPath?: string;
     runtime?: Runtime;
-    onProgress?: (result: Record<string, unknown>) => void;
+    onProgress?: (result: AlterGraphResult) => void;
     onEvent?: (event: AlterRuntimeEvent & { node: string; memory?: "recall" | "curate" }) => void;
     memory?: GraphMemoryRuntime | null;
   },
-): Promise<{ home: string; result: Record<string, unknown> }>;
+): Promise<{ home: string; result: AlterGraphResult }>;
 
 export type ApprovalDecision = "allow-once" | "allow-run" | "always-catalog" | "deny";
 
@@ -1985,7 +2010,7 @@ export type FuseOptions = { task: string; models: string[]; writer: string; cont
 export type FuseEntry = Opinion & { id: string };
 export type FuseReport = Omit<OpinionReport, "workflow" | "opinions" | "totals"> & {
   workflow: "fuse";
-  nodes: Array<OpinionReport["opinions"][number] & { role: "analyst" | "writer" }>;
+  nodes: Array<Omit<OpinionReport["opinions"][number], "model"> & { model: string | null; role: "analyst" | "writer" }>;
   totals: { nodes: number; analysts: number; succeeded: number; tokens: number; node_duration_ms: number; estimated_api_cost_usd: number | null };
 };
 export type FuseResult = {
@@ -1993,8 +2018,13 @@ export type FuseResult = {
   result: AlterGraphResult;
   analysts: FuseEntry[];
   writer: FuseEntry;
-  report: { report: FuseReport; json: string };
+  report: FuseReportFiles;
   answer: string | null;
 };
 export function buildFuseGraph(options: FuseOptions): AlterGraph;
 export function runFuse(root: string, options: FuseOptions, runOptions?: NonNullable<Parameters<typeof runOpinion>[2]> & { env?: Record<string, string | undefined> }): Promise<FuseResult>;
+
+export type FuseReportFiles = { report: FuseReport; json: string; html: string };
+export function createFuseReport(options: { home: string; result: AlterGraphResult; env?: Record<string, string | undefined>; models?: Record<string, string> }): FuseReport;
+export function renderFuseReport(report: FuseReport): string;
+export function writeFuseReport(home: string, result: AlterGraphResult, options?: { env?: Record<string, string | undefined>; models?: Record<string, string> }): FuseReportFiles;
