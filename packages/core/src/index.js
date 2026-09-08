@@ -24,6 +24,13 @@ export {
 export { validateOutputContract, checkOutputContract } from "./output-contract.js";
 export { createRuntime, resolveRuntime } from "./runtime.js";
 export {
+  AUTHORITY_ENV,
+  AUTHORITY_SCHEMA_VERSION,
+  readInheritedAuthority,
+  delegateAuthority,
+  authorityMaxDepth,
+} from "./authority.js";
+export {
   DEFAULT_CONFIG,
   findProjectRoot,
   requireProjectRoot,
@@ -108,6 +115,21 @@ export {
   readCycleLog,
   runOscillation,
 } from "./oscillation.js";
+export {
+  NETWORK_SCHEMA_VERSION,
+  NETWORK_ROLES,
+  NETWORK_TRIGGER_TYPES,
+  validateNetworkDefinition,
+  networkDefinitionPath,
+  networkVersionsDir,
+  networkReleasesDir,
+  readNetworkDefinition,
+  listNetworkVersions,
+  listNetworkReleases,
+  readActiveNetworkRelease,
+  applyNetworkDefinition,
+  activateNetworkRelease,
+} from "./network-definition.js";
 export { isMindProject, initMind } from "./init.js";
 export {
   PROFILE_META_PATH,

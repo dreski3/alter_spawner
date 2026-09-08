@@ -97,7 +97,11 @@ relink needed either way; `npm link` is a symlink).
 throwaway home directory and returns one final answer. Default sandbox: read/
 write confined to its home, no bash, no web, no external directory access.
 Grants (`--allow`, `--allow-write`, `--web`, `--bash-allow`) open specific
-holes; `--nestable` lets it run `mind spawn` itself, scoped to nothing else.
+holes. `--nestable` lets it delegate with `mind spawn` (and author a private
+catalog entry), while an inherited authority ceiling prevents every descendant
+from adding filesystem, shell, web, model, executor, capability, catalog, or
+depth permission that its immediate parent lacks. Nested workers cannot invoke
+removal, daemon, registry, or other administrative commands.
 
 **Catalog** — `.alters/catalog/<name>/manifest.json` defines a reusable,
 named Alter type (model, description/instructions, grants, nestable, token
