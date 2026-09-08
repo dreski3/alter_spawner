@@ -37,7 +37,10 @@ memory stores.
 
 An Alter receives only the files, tools, catalogs, and host capabilities
 declared for it. A nestable Alter can create descendants, but tree-wide node,
-token, concurrency, and depth guards constrain recursive decomposition.
+token, concurrency, and depth guards constrain recursive decomposition. Its
+runtime authority ceiling is outside its writable home and each descendant is
+validated against the immediate parent's effective filesystem, shell, web,
+model, executor, capability, catalog, and depth permissions.
 Capability registrations remain in the host process and are never loaded from
 project-authored files.
 

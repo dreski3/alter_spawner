@@ -10,8 +10,8 @@ import { TEMPLATE_AGENT, TEMPLATE_AGENTS_MD } from "./paths.js";
 // tempted by.
 // The exact literal example below matters: the two failure modes seen in
 // practice are (1) a model assuming the bare `mind` command works and giving
-// up when it "seems blocked" (it isn't on PATH — only `node <mindBinPath>` is
-// an allowed bash pattern), and (2) a model quoting the whole invocation as
+// up when it "seems blocked" (it isn't on PATH — only the explicit delegation
+// subcommands below are allowed bash patterns), and (2) a model quoting the whole invocation as
 // one shell string, so `process.argv[2]` is never literally `spawn`. Spelling
 // out the real, resolved path and warning about word-splitting directly
 // addresses both instead of leaving the model to reconstruct this from the
@@ -42,9 +42,9 @@ const nestingBlock = (mindBinPath) => `
 
 ## Spawning child Alters
 You were spawned as **nestable**: you have a tightly scoped shell that allows
-exactly one command form — \`node ${mindBinPath} ...\`. The bare \`mind\` command
-is **not** on your PATH and is **not** what your permission rule allows; using
-it will be denied. A worked, copy-pasteable example:
+only \`spawn\`, \`create\`, \`run\`, and \`catalog save\` through \`node ${mindBinPath}\`.
+The bare \`mind\` command is **not** on your PATH and administrative commands
+(including daemon, agents, and removal) are unavailable. A worked, copy-pasteable example:
 
 \`\`\`bash
 node ${mindBinPath} spawn --name prefilter --description "cleans up the raw input" "<task prompt>"
@@ -84,8 +84,10 @@ const bashAllowRules = (o) => {
   const rules = [];
   if (o.textOnly) return rules;
   if (o.nestable) {
-    rules.push(`${yq(`node ${o.mindBinPath} **`)}: allow`);
-    rules.push(`${yq(`node ${o.mindBinPath}`)}: allow`);
+    rules.push(`${yq(`node ${o.mindBinPath} spawn **`)}: allow`);
+    rules.push(`${yq(`node ${o.mindBinPath} create **`)}: allow`);
+    rules.push(`${yq(`node ${o.mindBinPath} run **`)}: allow`);
+    rules.push(`${yq(`node ${o.mindBinPath} catalog save **`)}: allow`);
   }
   for (const pattern of o.bashAllow || []) {
     rules.push(`${yq(pattern)}: allow`);

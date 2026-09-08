@@ -183,6 +183,30 @@ export function writeJsonAtomic(file: string, value: unknown, options?: { mode?:
 export function createRuntime(overrides?: Partial<Runtime>): Runtime;
 export function resolveRuntime(runtime?: Runtime): Runtime;
 
+export const AUTHORITY_ENV: "ALTER_AUTHORITY";
+export const AUTHORITY_SCHEMA_VERSION: 1;
+export type AlterAuthority = {
+  schema_version: 1;
+  read_grants: string[];
+  write_grants: string[];
+  bash_allow: string[];
+  web: boolean;
+  nestable: boolean;
+  models: string[];
+  executors: string[];
+  capabilities: string[];
+  allowed_catalogs: string[] | null;
+  max_depth: number;
+};
+export function readInheritedAuthority(environment?: Record<string, string | undefined>): AlterAuthority | null;
+export function delegateAuthority(
+  spawnOptions: SpawnOptions,
+  config: MindConfig,
+  runtime: Runtime,
+  delegateOptions?: { attemptModels?: string[] | null },
+): Runtime;
+export function authorityMaxDepth(config: MindConfig, runtime: Runtime): number;
+
 /** Throws a `MindError` with this message. Declared as `never` so callers narrow after it. */
 export function fail(message: string): never;
 /** Resolves a path, expanding a leading `~`. Passes through anything falsy. */

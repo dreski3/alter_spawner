@@ -12,6 +12,7 @@ import { resolveRuntime } from "./runtime.js";
 import { withoutCapabilityGrant } from "./capability-client.js";
 import { getHarness } from "./harness/adapter.js";
 import { validateImageFiles, validateImageModels } from "./image-input.js";
+import { authorityMaxDepth, delegateAuthority } from "./authority.js";
 import {
   admitTreeNode,
   releaseTreeNode,
@@ -79,7 +80,7 @@ const prepareSpawn = (root, cfg, o, runtime) => {
   validateOutputContract(o.outputContract);
   const incoming = runtime.env.ALTER_DEPTH !== undefined ? Number(runtime.env.ALTER_DEPTH) : -1;
   const depth = incoming + 1;
-  const maxDepth = cfg.max_depth ?? 5;
+  const maxDepth = authorityMaxDepth(cfg, runtime);
   if (depth >= maxDepth) {
     fail(`max nesting depth (${maxDepth}) reached; refusing to spawn at depth ${depth}.`);
   }
@@ -128,16 +129,18 @@ export const spawnAlter = async (
   // actually ran rather than "unspecified", and so `mind run` on this home later
   // reaches for the same adapter.
   o.executor = harnessName;
+  const attemptModels = buildAttemptPlan(o, cfg, runtime, { allowRetries: adapter.supportsRetry !== false }).map((attempt) => attempt.model);
+  const authorityRuntime = delegateAuthority(o, cfg, runtime, { attemptModels });
   // `mind create` scaffolds a home without running anything, so it costs the tree no
   // node and holds no slot.
   if (createOnly) {
-    const home = scaffold(root, cfg, o, runtime, { agentFiles: adapter.needsAgentHome });
+    const home = scaffold(root, cfg, o, authorityRuntime, { agentFiles: adapter.needsAgentHome });
     return { home, created: true, depth: o.depth, model: o.model, executor: harnessName };
   }
   // Admission comes before scaffolding: a tree that has spent its budget should say so
   // instead of leaving an orphan home behind, and a tree at its concurrency ceiling
   // should wait here rather than after doing work.
-  const { handle: treeNode, runtime: treeRuntime } = await enterTree(root, cfg, o, runtime);
+  const { handle: treeNode, runtime: treeRuntime } = await enterTree(root, cfg, o, authorityRuntime);
   let res;
   try {
     const home = scaffold(root, cfg, o, treeRuntime, { agentFiles: adapter.needsAgentHome });
@@ -267,12 +270,15 @@ export const runExistingAlter = async (
   });
   validateOutputContract(o.outputContract);
   const { name: harnessName, adapter } = resolveExecutor(o, harness);
-  prepareImages(root, cfg, o, runtime, harnessName, adapter);
+  o.executor = harnessName;
+  const attemptModels = buildAttemptPlan(o, cfg, runtime, { allowRetries: adapter.supportsRetry !== false }).map((attempt) => attempt.model);
+  const authorityRuntime = delegateAuthority(o, cfg, runtime, { attemptModels });
+  prepareImages(root, cfg, o, authorityRuntime, harnessName, adapter);
   // A re-run is a real process and a real model call, so it draws on the tree budget
   // like any spawn. It matters that this is not skipped: `mind run` is inside a
   // nestable Alter's allowed command form, so it would otherwise be an unmetered way
   // to keep working after the node budget was exhausted.
-  const { handle: treeNode, runtime: treeRuntime } = await enterTree(root, cfg, { ...o, depth }, runtime);
+  const { handle: treeNode, runtime: treeRuntime } = await enterTree(root, cfg, { ...o, depth }, authorityRuntime);
   let res;
   try {
     let attempts;

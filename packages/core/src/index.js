@@ -24,6 +24,13 @@ export {
 export { validateOutputContract, checkOutputContract } from "./output-contract.js";
 export { createRuntime, resolveRuntime } from "./runtime.js";
 export {
+  AUTHORITY_ENV,
+  AUTHORITY_SCHEMA_VERSION,
+  readInheritedAuthority,
+  delegateAuthority,
+  authorityMaxDepth,
+} from "./authority.js";
+export {
   DEFAULT_CONFIG,
   findProjectRoot,
   requireProjectRoot,
