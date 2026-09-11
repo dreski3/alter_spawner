@@ -2112,21 +2112,50 @@ export type ValidationCommandResult = {
   stderr_truncated: boolean;
   ok?: boolean;
 };
+export type ValidateSourceSnapshot = { revision: string | null; changed_files: string[] };
+export type ValidateImplementerAttempt = {
+  attempt: number;
+  result_file: string;
+  patch_file: string | null;
+  changed_files: string[];
+  state: string;
+  ok: boolean;
+  error: string | null;
+  cost_usd: number | null;
+  tokens: AlterTokens;
+  duration_ms: number | null;
+  summary: string | null;
+  gate: ValidationCommandResult[];
+};
+export type ValidateApplication = {
+  status: "baseline_unrunnable" | "deadline_exceeded" | "implementation_failed" | "cost_exceeded" | "gate_unrunnable" | "passed_no_changes" | "applied" | "repair_exhausted" | "apply_rejected";
+  applied: boolean;
+  error?: string;
+  baselineGate: ValidationCommandResult[];
+  finalGate: ValidationCommandResult[];
+  attempts: ValidateImplementerAttempt[];
+  changedFiles: string[];
+  patch: string | null;
+  totalCost: number | null;
+};
 export type ValidateAudit = {
   schema_version: 1;
   workflow: "validate";
-  status: "designer_failed" | "contract_rejected" | "contract_ready" | "gate_failed" | "passed";
+  status: "designer_failed" | "contract_rejected" | "contract_ready" | "gate_failed" | "passed" | ValidateApplication["status"];
   dry_run: boolean;
+  apply: boolean;
   task: string;
   model: string;
   contract: AcceptanceContract | null;
   contract_error: string | null;
   gate: ValidationCommandResult[];
-  source_before: { revision: string | null; changed_files: string[] };
-  source_after: { revision: string | null; changed_files: string[] };
+  application: ValidateApplication | null;
+  source_before: ValidateSourceSnapshot;
+  source_after: ValidateSourceSnapshot;
   deadline_ms: number;
   command_timeout_ms: number;
   max_cost_usd: number | null;
+  duration_ms: number;
 };
 export type ValidateOptions = {
   task: string;
@@ -2140,6 +2169,11 @@ export type ValidateOptions = {
   deadlineMs?: number;
   maxCostUsd?: number | null;
   dryRun?: boolean;
+  apply?: boolean;
+  implementer?: string;
+  writePaths?: string[];
+  maxRepairs?: number;
+  implementerMaxTokens?: number;
 };
 export type ValidateReport = {
   schema_version: 1;
@@ -2153,6 +2187,7 @@ export type ValidateReport = {
   duration_ms: number | null;
   pricing: OpinionReport["pricing"];
   totals: { nodes: number; succeeded: number; tokens: number; node_duration_ms: number; estimated_api_cost_usd: number | null };
+  aggregate_tokens: AlterTokens;
   designer: OpinionReport["opinions"][number];
   audit: ValidateAudit | null;
 };
@@ -2162,7 +2197,7 @@ export function parseValidationCommand(value: string | string[], label?: string)
 export function validateAcceptanceContract(value: unknown, options: { root: string; allowedCommands: Array<string | string[]>; allowedFiles?: string[]; commandTimeoutMs: number; resolvePath?: (root: string, relative?: string) => string }): AcceptanceContract;
 export function runValidationCommand(root: string, argv: string[], options: { timeoutMs: number; signal?: AbortSignal; env?: Record<string, string | undefined>; maxOutputBytes?: number; now?: () => number }): Promise<ValidationCommandResult>;
 export function buildValidateGraph(options: ValidateOptions): AlterGraph;
-export function runValidate(root: string, options: ValidateOptions, runOptions?: NonNullable<Parameters<typeof runOpinion>[2]> & { env?: Record<string, string | undefined>; commandRunner?: typeof runValidationCommand }): Promise<ValidateResult>;
+export function runValidate(root: string, options: ValidateOptions, runOptions?: NonNullable<Parameters<typeof runOpinion>[2]> & { env?: Record<string, string | undefined>; commandRunner?: typeof runValidationCommand; implementerHarness?: string }): Promise<ValidateResult>;
 export function createValidateReport(options: { home: string; result: AlterGraphResult; env?: Record<string, string | undefined>; model?: string; audit?: ValidateAudit | null }): ValidateReport;
 export function renderValidateReport(report: ValidateReport): string;
 export function writeValidateReport(home: string, result: AlterGraphResult, options?: { env?: Record<string, string | undefined>; model?: string; audit?: ValidateAudit | null }): ValidateReportFiles;

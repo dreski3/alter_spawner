@@ -33,7 +33,7 @@ attempt/token/timing data, and API-equivalent pricing snapshot under
 | `debate` | Implemented | Read-only bounded critique rounds; no winner or writer. |
 | `fuse` | Partially implemented | Research and writer synthesis are implemented; applying a change is intentionally not. |
 | `collaborate` | Planned | Validated DAG planning followed by dependency-aware execution. |
-| `validate` | Partially implemented | Frozen acceptance-contract design and deterministic gate execution; code repair is not yet enabled. |
+| `validate` | Implemented | Frozen acceptance contract, isolated bounded repairs, deterministic gates, and passing-patch transfer. |
 | `review` | Planned | Structured, read-only architecture/security/test findings. |
 
 ## `mind work opinion <task>`
@@ -257,22 +257,25 @@ code, then use its results for a bounded repair loop.
 flowchart LR
   T[Task] --> D[Validator designer]
   D --> G[Deterministic gate validation]
-  G -->|valid| I[Single implementer]
+  G -->|valid and apply| I[Single implementer in detached worktree]
   I --> X[Run frozen acceptance gate]
-  X -->|pass| S[Recorded success]
+  X -->|pass| P[Validate bounded patch]
+  P --> S[Transfer patch under writer lock]
   X -->|fail and repairs remain| I
   G -->|invalid| F[Stop: no edit]
   X -->|repair limit reached| F
 ```
 
-**Implemented first phase:**
+**Implemented:**
 
 ```bash
 mind work validate \
   --model provider/validator \
   --command '["npm","run","check"]' \
   --command '["npm","test"]' \
-  [--dry-run] [--executor llm|opencode] \
+  [--dry-run | --apply --implementer provider/model --write path [--write path]*] \
+  [--max-repairs 0..3] [--implementer-max-tokens n] \
+  [--executor llm|opencode] \
   [--context file]* [--max-tokens n] \
   [--command-timeout-ms n] [--deadline-ms n] [--max-cost-usd n] [--json] \
   "<task>"
@@ -287,25 +290,25 @@ whole-workflow deadline, and optional API-equivalent cost ceiling. By default th
 frozen commands run sequentially and stop at the first failure; `--dry-run`
 validates and records the contract without executing them.
 
-Every run writes bounded per-command `gate-NN.json` artifacts,
+With `--apply`, the source checkout must be a clean Git repository. The host
+holds a project writer lock, creates a detached worktree at the exact source
+revision, checks that the gate is runnable, and lets one coding implementer edit
+only the explicit `--write` paths. The host—not the model—runs the frozen gate.
+A failed gate is normalized and supplied to at most `--max-repairs` additional
+attempts. A passing patch is rejected if it escapes the write boundary, deletes
+a file, creates a symlink, exceeds the size ceiling, or if the source revision or
+working tree changed during execution. After `git apply --check`, the validated
+patch is transferred to the source checkout without staging or committing it.
+An existing directory may be supplied as a write boundary when the task must
+create files beneath it. The implementer has an independent 16,000-token default;
+`--implementer-max-tokens` overrides it without changing the designer budget.
+
+Every run writes bounded per-command gate artifacts,
 `validation.json`, `validate-report.json`, and `validate.html`. `mind work
 validate report [graph-folder]` regenerates the reports without model or command
-execution. Source revision and before/after working-tree status are recorded.
-
-**Remaining application phase:**
-
-1. A tool-free validator designer emits a structured acceptance contract:
-   commands, expected exit/result conditions, relevant files, and negative
-   cases.
-2. A deterministic host validator checks command allowlists, path containment,
-   schema completeness, timeouts, and that the gate is runnable before edits.
-3. A single implementer works only against the approved contract.
-4. The host runs the gate and supplies normalized failures to the implementer
-   for a small, explicit number of repair attempts.
-
-Steps 1–2 and standalone gate execution are implemented. Steps 3–4 remain
-disabled until an isolated workspace, host-owned writer lease, immutable patch
-transfer, and bounded repair-attempt audit are in place.
+execution. Apply runs also retain each implementer result, baseline and attempt
+gate artifacts, changed files, and `validated.patch` after a successful transfer.
+Source revision and before/after working-tree status are recorded.
 
 **Required controls:** `--max-repairs`; hard whole-workflow deadline and cost
 ceiling; command allowlist; isolated workspace or worktree; immutable test

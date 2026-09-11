@@ -47,7 +47,7 @@ const usage = (write = console.log) => {
   write("  catalog import <dir> [--as <name>] [--trust]       (copy one in; grants are dropped unless --trust)");
   write("  work    opinion --model <provider/model> (2-5) <task> (parallel, tool-free engineering opinions)");
   write("  work    debate --model <provider/model> (2-5) [--rounds <1-3>] <task>");
-  write("  work    validate --model <provider/model> --command '<JSON argv>' [--dry-run] <task>");
+  write("  work    validate --model <provider/model> --command '<JSON argv>' [--dry-run|--apply] <task>");
   write("  work    fuse --model <provider/model> (2-5) --writer <provider/model> <task>");
   write("  work    fuse report [graph-folder]        (synthesis and usage dashboard)");
   write("  work    opinion report [graph-folder]     (side-by-side comparison dashboard)");

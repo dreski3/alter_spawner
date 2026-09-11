@@ -13,10 +13,13 @@ const usage = () => {
   console.error("usage: mind work debate --model <provider/model> (2-5) [--rounds <1-3>] [--executor llm|opencode]");
   console.error("                         [--context <file>]* [--max-tokens <n>] [--concurrency <n>] [--json] <task>");
   console.error("usage: mind work validate --model <provider/model> --command '[\"npm\",\"test\"]' [--command <JSON argv>]*");
-  console.error("                         [--dry-run] [--executor llm|opencode] [--context <file>]* [--max-tokens <n>]");
-  console.error("                         [--command-timeout-ms <n>] [--deadline-ms <n>] [--max-cost-usd <n>] [--json] <task>");
+  console.error("                         [--dry-run | --apply --implementer <provider/model> --write <path> [--write <path>]*]");
+  console.error("                         [--max-repairs <0-3>] [--implementer-max-tokens <n>] [--executor llm|opencode]");
+  console.error("                         [--context <file>]* [--max-tokens <n>] [--command-timeout-ms <n>]");
+  console.error("                         [--deadline-ms <n>] [--max-cost-usd <n>] [--json] <task>");
   console.error("");
-  console.error("  Runs 2-5 isolated, tool-free reviewers in parallel. Context files must be regular files inside the mind project.");
+  console.error("  Opinion, fuse, and debate run 2-5 isolated reviewers. Validate freezes operator-supplied commands before any gate or apply step.");
+  console.error("  Context files must be regular files inside the mind project; validate apply write paths must already exist.");
   console.error("  Omit --concurrency to run the maximum ready work; OAuth/OpenCode nodes share one local server automatically.");
   console.error("");
   console.error("usage: mind work fuse report [graph-folder]  (synthesis and usage dashboard; no model calls)");
@@ -115,15 +118,20 @@ const positiveNumber = (value, flag) => {
 
 export const parseValidateArgs = (argv) => {
   let model;
+  let implementer;
   let executor;
   const commands = [];
   const contextFiles = [];
+  const writePaths = [];
   const task = [];
   let maxTokens = 4000;
   let commandTimeoutMs = 300000;
   let deadlineMs = 900000;
   let maxCostUsd = null;
+  let maxRepairs = 1;
+  let implementerMaxTokens = 16000;
   let dryRun = false;
+  let apply = false;
   let json = false;
   let parseFlags = true;
   for (let i = 0; i < argv.length; i++) {
@@ -136,6 +144,13 @@ export const parseValidateArgs = (argv) => {
     } else if (parseFlags && arg === "--command") {
       if (!argv[i + 1]) fail("--command requires a JSON argv array.");
       commands.push(parseValidationCommand(argv[++i], `--command ${commands.length + 1}`));
+    } else if (parseFlags && arg === "--implementer") {
+      if (implementer !== undefined) fail("validate --implementer must be specified exactly once.");
+      implementer = argv[++i]?.trim();
+      if (!implementer || !/^[^\s/]+\/\S+$/.test(implementer)) fail("validate --implementer requires a provider/model value.");
+    } else if (parseFlags && arg === "--write") {
+      if (!argv[i + 1]) fail("--write requires a project-relative path.");
+      writePaths.push(argv[++i]);
     } else if (parseFlags && arg === "--executor") {
       executor = argv[++i];
       if (!["llm", "opencode"].includes(executor)) fail("--executor must be llm or opencode.");
@@ -143,10 +158,16 @@ export const parseValidateArgs = (argv) => {
       if (!argv[i + 1]) fail("--context requires a file path.");
       contextFiles.push(argv[++i]);
     } else if (parseFlags && arg === "--max-tokens") maxTokens = positiveInteger(argv[++i], "--max-tokens");
+    else if (parseFlags && arg === "--implementer-max-tokens") implementerMaxTokens = positiveInteger(argv[++i], "--implementer-max-tokens");
+    else if (parseFlags && arg === "--max-repairs") {
+      maxRepairs = Number(argv[++i]);
+      if (!Number.isInteger(maxRepairs) || maxRepairs < 0 || maxRepairs > 3) fail("--max-repairs requires an integer between 0 and 3.");
+    }
     else if (parseFlags && arg === "--command-timeout-ms") commandTimeoutMs = positiveInteger(argv[++i], "--command-timeout-ms", { max: 3_600_000 });
     else if (parseFlags && arg === "--deadline-ms") deadlineMs = positiveInteger(argv[++i], "--deadline-ms", { max: 3_600_000 });
     else if (parseFlags && arg === "--max-cost-usd") maxCostUsd = positiveNumber(argv[++i], "--max-cost-usd");
     else if (parseFlags && arg === "--dry-run") dryRun = true;
+    else if (parseFlags && arg === "--apply") apply = true;
     else if (parseFlags && arg === "--json") json = true;
     else if (parseFlags && (arg === "--help" || arg === "-h")) return { help: true };
     else if (parseFlags && arg.startsWith("--")) fail("unknown flag: " + arg);
@@ -155,9 +176,12 @@ export const parseValidateArgs = (argv) => {
   if (!model) fail("validate requires --model <provider/model>.");
   if (commands.length < 1 || commands.length > 8) fail("validate requires between 1 and 8 --command values.");
   if (contextFiles.length > MAX_CONTEXT_FILES) fail(`validate accepts at most ${MAX_CONTEXT_FILES} --context files.`);
+  if (dryRun && apply) fail("validate --dry-run and --apply are mutually exclusive.");
+  if (apply && !implementer) fail("validate --apply requires --implementer <provider/model>.");
+  if (apply && (writePaths.length < 1 || writePaths.length > 32)) fail("validate --apply requires between 1 and 32 --write paths.");
   const prompt = task.join(" ").trim();
   if (!prompt) fail("validate requires a task.");
-  return { help: false, task: prompt, model, commands, contextFiles, maxTokens, commandTimeoutMs, deadlineMs, maxCostUsd, dryRun, json, ...(executor ? { executor } : {}) };
+  return { help: false, task: prompt, model, commands, contextFiles, maxTokens, commandTimeoutMs, deadlineMs, maxCostUsd, dryRun, apply, maxRepairs, implementerMaxTokens, writePaths, json, ...(implementer ? { implementer } : {}), ...(executor ? { executor } : {}) };
 };
 
 const contains = (root, target) => target.startsWith(root + path.sep);
@@ -323,13 +347,15 @@ const runDebateCommand = async (argv) => {
 export const formatValidate = ({ home, result, audit, report, status }) => {
   const designer = report.report.designer;
   const gate = audit.gate || [];
+  const tokens = report.report.aggregate_tokens || result.tokens;
+  const application = audit.application;
   const lines = [
     "╭─ Validate summary ──────────────────────────────────────────────────────",
     `│ Graph       ${home}`,
     `│ Status      ${status}`,
     `│ Designer    ${result.node_counts.succeeded}/${result.node_counts.total} nodes · ${designer.model || "—"}`,
-    `│ Wall time   ${formatDuration(result.duration_ms)}`,
-    `│ Tokens      ${formatNumber(result.tokens.total)} total · ${formatNumber(result.tokens.input)} in · ${formatNumber(result.tokens.output)} out · ${formatNumber(result.tokens.reasoning)} reasoning · ${formatNumber(result.tokens.cache_read)} cached`,
+    `│ Wall time   ${formatDuration(report.report.duration_ms ?? result.duration_ms)}`,
+    `│ Tokens      ${formatNumber(tokens.total)} total · ${formatNumber(tokens.input)} in · ${formatNumber(tokens.output)} out · ${formatNumber(tokens.reasoning)} reasoning · ${formatNumber(tokens.cache_read)} cached`,
     `│ Est. cost   ${formatCost(report.report.totals.estimated_api_cost_usd)} API-equivalent (not a subscription invoice)`,
     `│ Gate        ${gate.filter((entry) => entry.ok).length}/${audit.contract?.commands.length || 0} commands passed${audit.dry_run ? " · dry run" : ""}`,
     `│ Dashboard   ${report.html}`,
@@ -337,6 +363,11 @@ export const formatValidate = ({ home, result, audit, report, status }) => {
     `│ Audit       ${path.join(home, "validation.json")}`,
     "╰─────────────────────────────────────────────────────────────────────────",
   ];
+  if (application) lines.splice(7, 0,
+    `│ Apply       ${application.applied ? `${application.changedFiles.length} files` : "no"} · ${application.attempts.length} implementer attempt${application.attempts.length === 1 ? "" : "s"}`,
+    `│ Baseline    ${application.baselineGate.filter((entry) => entry.ok).length}/${audit.contract?.commands.length || 0} commands passed`,
+    `│ Patch       ${application.patch || "—"}`,
+  );
   if (audit.contract_error) lines.push("", "╭─ Contract rejected", boxedText(audit.contract_error), "╰─────────────────────────────────────────────────────────────────────────");
   else if (audit.contract) {
     lines.push("", "╭─ Frozen acceptance contract", boxedText(audit.contract.summary));
@@ -345,6 +376,11 @@ export const formatValidate = ({ home, result, audit, report, status }) => {
       lines.push(`│ ${index + 1}. ${JSON.stringify(command.argv)} · ${outcome ? (outcome.ok ? "passed" : "failed") : "not run"}`);
     });
     lines.push("╰─────────────────────────────────────────────────────────────────────────");
+  }
+  if (application?.error) lines.push("", "╭─ Apply rejected", boxedText(application.error), "╰─────────────────────────────────────────────────────────────────────────");
+  else if (application?.status === "implementation_failed") {
+    const failed = application.attempts.at(-1);
+    lines.push("", "╭─ Implementer failed", boxedText(failed?.error || "implementer run failed"), "╰─────────────────────────────────────────────────────────────────────────");
   }
   return lines.join("\n");
 };

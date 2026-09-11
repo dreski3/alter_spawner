@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { runAlterGraph } from "./graph.js";
@@ -7,6 +6,7 @@ import { prepareWorkflowConcurrency, selectWorkflowExecutors } from "./workflow-
 import { parseValidationCommand, runValidationCommand, validateAcceptanceContract } from "./validation-gate.js";
 import { writeValidateReport } from "./validate-report.js";
 import { fail } from "./util.js";
+import { DEFAULT_VALIDATE_IMPLEMENTER_TOKENS, MAX_VALIDATE_REPAIRS, MAX_VALIDATE_WRITE_PATHS, runValidateApply, validationSourceSnapshot } from "./validate-apply.js";
 
 const modelRef = (model) => typeof model === "string" && /^[^\s/]+\/\S+$/.test(model.trim());
 const resolveRelevantPath = (root, relative) => {
@@ -14,16 +14,6 @@ const resolveRelevantPath = (root, relative) => {
   const candidate = path.resolve(root, relative);
   if (!existsSync(candidate) || !statSync(candidate).isFile()) fail(`acceptance contract relevant file does not exist or is not a regular file: ${relative}`);
   return realpathSync(candidate);
-};
-
-const sourceSnapshot = (root) => {
-  const git = (args) => spawnSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 1024 * 1024 });
-  const revision = git(["rev-parse", "HEAD"]);
-  const status = git(["status", "--porcelain=v1", "--untracked-files=all"]);
-  return {
-    revision: revision.status === 0 ? revision.stdout.trim() : null,
-    changed_files: status.status === 0 ? status.stdout.split(/\r?\n/).filter(Boolean) : [],
-  };
 };
 
 export const buildValidateGraph = ({
@@ -89,6 +79,14 @@ const controllerWithDeadline = (externalSignal, deadlineMs) => {
 
 export const runValidate = async (root, options = {}, runOptions = {}) => {
   const dryRun = options.dryRun === true;
+  const apply = options.apply === true;
+  if (dryRun && apply) fail("validate --dry-run and --apply are mutually exclusive.");
+  if (apply) {
+    if (!modelRef(options.implementer)) fail("validate --apply requires an explicit implementer provider/model.");
+    if (!Array.isArray(options.writePaths) || options.writePaths.length < 1 || options.writePaths.length > MAX_VALIDATE_WRITE_PATHS) fail(`validate --apply requires between 1 and ${MAX_VALIDATE_WRITE_PATHS} allowed write paths.`);
+    if (!Number.isInteger(options.maxRepairs ?? 1) || (options.maxRepairs ?? 1) < 0 || (options.maxRepairs ?? 1) > MAX_VALIDATE_REPAIRS) fail(`validate maxRepairs must be between 0 and ${MAX_VALIDATE_REPAIRS}.`);
+    if (!Number.isInteger(options.implementerMaxTokens ?? DEFAULT_VALIDATE_IMPLEMENTER_TOKENS) || (options.implementerMaxTokens ?? DEFAULT_VALIDATE_IMPLEMENTER_TOKENS) <= 0) fail("validate implementerMaxTokens must be a positive integer.");
+  }
   const deadlineMs = options.deadlineMs ?? 900000;
   if (!Number.isInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > 3_600_000) fail("validate deadlineMs must be between 1 and 3600000.");
   if (options.maxCostUsd != null && (!Number.isFinite(options.maxCostUsd) || options.maxCostUsd <= 0)) fail("validate maxCostUsd must be a positive number or null.");
@@ -97,7 +95,7 @@ export const runValidate = async (root, options = {}, runOptions = {}) => {
   const graph = runOptions.harness ? built : selectWorkflowExecutors(built, { env: runOptions.runtime?.env || runOptions.env || process.env });
   const deadline = controllerWithDeadline(runOptions.signal, deadlineMs);
   const started = Date.now();
-  const before = sourceSnapshot(root);
+  const before = validationSourceSnapshot(root);
   const execution = await prepareWorkflowConcurrency(graph, { ...runOptions, signal: deadline.signal, concurrency: 1 });
   let home;
   let result;
@@ -129,8 +127,29 @@ export const runValidate = async (root, options = {}, runOptions = {}) => {
   if (!contractError && options.maxCostUsd != null && designerCost == null) contractError = "API-equivalent cost is unavailable, so the configured cost ceiling cannot be verified.";
   if (!contractError && options.maxCostUsd != null && designerCost > options.maxCostUsd) contractError = `designer cost ${designerCost} USD exceeded the ${options.maxCostUsd} USD workflow ceiling.`;
 
-  const gate = [];
-  if (contract && !contractError && !dryRun) {
+  let gate = [];
+  let application = null;
+  if (contract && !contractError && apply) {
+    try {
+      application = await runValidateApply({
+        root,
+        home,
+        contract,
+        options,
+        runOptions: {
+          ...runOptions,
+          commandRunner: runOptions.commandRunner || runValidationCommand,
+          env: runOptions.runtime?.env || runOptions.env || process.env,
+        },
+        signal: deadline.signal,
+        remainingMs: () => deadlineMs - (Date.now() - started),
+        designerCost,
+      });
+      gate = application.finalGate;
+    } catch (error) {
+      application = { status: "apply_rejected", applied: false, error: error?.message || String(error), baselineGate: [], finalGate: [], attempts: [], changedFiles: [], patch: null, totalCost: designerCost };
+    }
+  } else if (contract && !contractError && !dryRun) {
     for (let index = 0; index < contract.commands.length; index++) {
       const command = contract.commands[index];
       const remaining = deadlineMs - (Date.now() - started);
@@ -150,25 +169,28 @@ export const runValidate = async (root, options = {}, runOptions = {}) => {
     }
   }
   const gatePassed = !dryRun && contract && !contractError && gate.length === contract.commands.length && gate.every((entry) => entry.ok);
-  const status = !result.ok ? "designer_failed" : contractError ? "contract_rejected" : dryRun ? "contract_ready" : gatePassed ? "passed" : "gate_failed";
+  const status = !result.ok ? "designer_failed" : contractError ? "contract_rejected" : dryRun ? "contract_ready" : apply ? application.status : gatePassed ? "passed" : "gate_failed";
   const audit = {
     schema_version: 1,
     workflow: "validate",
     status,
     dry_run: dryRun,
+    apply,
     task: options.task,
     model: options.model,
     contract,
     contract_error: contractError,
     gate,
+    application,
     source_before: before,
-    source_after: sourceSnapshot(root),
+    source_after: validationSourceSnapshot(root),
     deadline_ms: deadlineMs,
     command_timeout_ms: options.commandTimeoutMs ?? 300000,
     max_cost_usd: options.maxCostUsd ?? null,
+    duration_ms: Date.now() - started,
   };
   writeJsonAtomic(path.join(home, "validation.json"), audit);
   const report = writeValidateReport(home, result, { env: runOptions.env, model: options.model, audit });
   deadline.stop();
-  return { home, result, audit, report, ok: status === "passed" || status === "contract_ready", status };
+  return { home, result, audit, report, ok: ["passed", "contract_ready", "applied", "passed_no_changes"].includes(status), status };
 };

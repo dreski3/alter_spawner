@@ -256,10 +256,16 @@ mind work validate \
 ```
 
 Use `--dry-run` to freeze and inspect the contract without running commands.
-Completed runs retain bounded command artifacts, source state, tokens, estimated
-cost, `validation.json`, `validate-report.json`, and `validate.html`. This first
-phase does not edit or repair code; the isolated implementer loop remains an
-explicit later boundary.
+Add `--apply`, an explicit `--implementer provider/model`, and one or more
+existing project-relative `--write` paths to enable the bounded implementation
+loop. The implementer edits a detached temporary Git worktree; the host runs the
+unchanged gate there and transfers only a passing patch back to an unchanged,
+clean source checkout. `--max-repairs` defaults to one and is capped at three.
+The implementer has a separate 16,000-token default, configurable with
+`--implementer-max-tokens`.
+Completed runs retain bounded command artifacts, source state, changed files,
+tokens, estimated cost, `validation.json`, `validate-report.json`,
+`validate.html`, and, on success, `validated.patch`.
 
 **Implementation synthesis** — `mind work fuse` runs two to five distinct,
 isolated, tool-free analysts in parallel, followed by one explicitly selected
