@@ -28,6 +28,8 @@ for the remaining publication decisions.
 Start with [the architecture](docs/architecture.md) for the framework model,
 [the embedding guide](docs/embedding.md) for host integration, and
 [CONTRIBUTING.md](CONTRIBUTING.md) for the verification and release workflow.
+See [WORKFLOWS.md](WORKFLOWS.md) for the implemented and planned `mind work`
+workflow designs.
 
 ## Packages
 
