@@ -30,7 +30,7 @@ attempt/token/timing data, and API-equivalent pricing snapshot under
 | Workflow | Status | Current boundary |
 | --- | --- | --- |
 | `opinion` | Implemented | Independent read-only reviewers only. |
-| `debate` | Planned | Read-only bounded critique rounds. |
+| `debate` | Implemented | Read-only bounded critique rounds; no winner or writer. |
 | `fuse` | Partially implemented | Research and writer synthesis are implemented; applying a change is intentionally not. |
 | `collaborate` | Planned | Validated DAG planning followed by dependency-aware execution. |
 | `validate` | Planned | Reproducible acceptance gate and bounded repair loop. |
@@ -84,13 +84,29 @@ flowchart LR
   M -. evidence for .-> F[Optional later fuse run]
 ```
 
-**Proposed execution:**
+**Implemented interface:**
+
+```bash
+mind work debate \
+  --model provider-a/reviewer \
+  --model provider-b/reviewer \
+  [--rounds 1-3] [--executor llm|opencode] \
+  [--context file]* [--max-tokens n] [--concurrency n] [--json] \
+  "<task>"
+```
+
+`--rounds` is the number of critique rounds after the opening panel. It defaults
+to one and is capped at three.
+
+**Execution:**
 
 1. Run a two-to-five-model opening `opinion` panel.
 2. For each configured critique round, run one critique node per model with the
    original task/context and compact, labeled prior claims.
-3. Produce a terminal and HTML round matrix. Do not add a winner or writer by
-   default; the result is evidence for a human or a later `fuse` run.
+3. Produce a terminal round view, `debate-report.json`, and a self-contained
+   `debate.html` round matrix. `mind work debate report [graph-folder]`
+   regenerates both reports without model calls. No winner or writer is added;
+   the result is evidence for a human or a later `fuse` run.
 
 **Required controls:** explicit `--model` values; `--rounds` bounded to a small
 positive maximum; `--concurrency`; per-edge character bound; per-node token
@@ -307,13 +323,12 @@ Markdown/HTML; and no automatic fix is triggered.
 1. Finish the outstanding execution guarantees from the project review:
    constrained deletion, unified cancellation/deadlines, correct oscillation
    success semantics, retry-aware graph budgets, and fail-closed config.
-2. Build `debate`, since it is read-only and exercises bounded evidence flow.
-3. Add the deterministic plan/patch/validation boundary needed for `fuse --apply`.
-4. Build `validate`; reuse its acceptance-contract and repair primitives for
+2. Add the deterministic plan/patch/validation boundary needed for `fuse --apply`.
+3. Build `validate`; reuse its acceptance-contract and repair primitives for
    `collaborate`.
-5. Build `collaborate` on a work-conserving scheduler, immutable task records,
+4. Build `collaborate` on a work-conserving scheduler, immutable task records,
    graph-wide budgets, and a host-owned writer lease.
-6. Build `review` as a read-only structured-report workflow, then connect it to
+5. Build `review` as a read-only structured-report workflow, then connect it to
    `validate` only through an explicit human or host-approved handoff.
 
 The detailed foundation work remains in

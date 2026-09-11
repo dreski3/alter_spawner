@@ -90,6 +90,8 @@ export { buildRunMaintenanceGraph, runRunMaintenanceGraph } from "./run-maintena
 export { spawnAlter, runExistingAlter, resolveEffectiveModel } from "./engine.js";
 export { buildOpinionGraph, runOpinion } from "./opinion.js";
 export { createOpinionReport, renderOpinionReport, writeOpinionReport } from "./opinion-report.js";
+export { MAX_DEBATE_ROUNDS, DEBATE_EDGE_CHARS, buildDebateGraph, runDebate } from "./debate.js";
+export { createDebateReport, renderDebateReport, writeDebateReport } from "./debate-report.js";
 export {
   PRINCIPAL_DEPTH,
   isPrincipalProject,

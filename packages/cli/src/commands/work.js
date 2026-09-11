@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
-import { fail, kitDir, requireProjectRoot, runOpinion, runFuse, writeFuseReport, writeOpinionReport } from "@mind/core";
+import { fail, kitDir, requireProjectRoot, runDebate, runOpinion, runFuse, writeDebateReport, writeFuseReport, writeOpinionReport } from "@mind/core";
 
 const MAX_CONTEXT_FILES = 8;
 const MAX_CONTEXT_FILE_BYTES = 32 * 1024;
@@ -10,13 +10,16 @@ const usage = () => {
   console.error("usage: mind work fuse --model <provider/model> (2-5) --writer <provider/model> [--executor llm|opencode] [--writer-executor llm|opencode] [--context <file>]* [--max-tokens <n>] [--concurrency <n>] [--json] <task>");
   console.error("usage: mind work opinion --model <provider/model> --model <provider/model> [--model <provider/model> ...]");
   console.error("                         [--context <file>]* [--max-tokens <n>] [--concurrency <n>] [--json] <task>");
+  console.error("usage: mind work debate --model <provider/model> (2-5) [--rounds <1-3>] [--executor llm|opencode]");
+  console.error("                         [--context <file>]* [--max-tokens <n>] [--concurrency <n>] [--json] <task>");
   console.error("");
   console.error("  Runs 2-5 isolated, tool-free reviewers in parallel. Context files must be regular files inside the mind project.");
   console.error("  Omit --concurrency to run the maximum ready work; OAuth/OpenCode nodes share one local server automatically.");
   console.error("");
   console.error("usage: mind work fuse report [graph-folder]  (synthesis and usage dashboard; no model calls)");
   console.error("usage: mind work opinion report [graph-folder]");
-  console.error("  Writes a side-by-side opinion.html dashboard and its pricing snapshot (opinion-report.json).");
+  console.error("usage: mind work debate report [graph-folder]");
+  console.error("  Regenerates the workflow HTML dashboard and pricing snapshot without model calls.");
 };
 
 const positiveInteger = (value, flag, { max = Infinity } = {}) => {
@@ -34,6 +37,7 @@ const parseWorkArgs = (argv, workflow) => {
   const task = [];
   let maxTokens = null;
   let concurrency = null;
+  let rounds = null;
   let json = false;
   let parseFlags = true;
   for (let i = 0; i < argv.length; i++) {
@@ -46,9 +50,11 @@ const parseWorkArgs = (argv, workflow) => {
     } else if (parseFlags && arg === "--writer-executor" && workflow === "fuse") {
       writerExecutor = argv[++i];
       if (!["llm", "opencode"].includes(writerExecutor)) fail("--writer-executor must be llm or opencode.");
-    } else if (parseFlags && arg === "--executor" && workflow === "fuse") {
+    } else if (parseFlags && arg === "--executor" && ["fuse", "debate"].includes(workflow)) {
       executor = argv[++i];
       if (!["llm", "opencode"].includes(executor)) fail("--executor must be llm or opencode.");
+    } else if (parseFlags && arg === "--rounds" && workflow === "debate") {
+      rounds = positiveInteger(argv[++i], "--rounds", { max: 3 });
     } else if (parseFlags && arg === "--writer" && workflow === "fuse") {
       if (writer !== undefined) fail("--writer must be specified exactly once.");
       writer = argv[++i]?.trim();
@@ -80,11 +86,22 @@ const parseWorkArgs = (argv, workflow) => {
   if (new Set(models).size !== models.length) fail(`${workflow} --model values must be distinct.`);
   if (contextFiles.length > MAX_CONTEXT_FILES) fail(`${workflow} accepts at most ${MAX_CONTEXT_FILES} --context files.`);
   if (workflow === "fuse" && !writer) fail("fuse requires --writer <provider/model>.");
-  return { help: false, task: prompt, models, contextFiles, maxTokens, concurrency, json, ...(workflow === "fuse" ? { writer, ...(executor ? { executor } : {}), ...(writerExecutor ? { writerExecutor } : {}) } : {}) };
+  return {
+    help: false,
+    task: prompt,
+    models,
+    contextFiles,
+    maxTokens,
+    concurrency,
+    json,
+    ...(workflow === "fuse" ? { writer, ...(executor ? { executor } : {}), ...(writerExecutor ? { writerExecutor } : {}) } : {}),
+    ...(workflow === "debate" ? { rounds: rounds ?? 1, ...(executor ? { executor } : {}) } : {}),
+  };
 };
 
 export const parseOpinionArgs = (argv) => parseWorkArgs(argv, "opinion");
 export const parseFuseArgs = (argv) => parseWorkArgs(argv, "fuse");
+export const parseDebateArgs = (argv) => parseWorkArgs(argv, "debate");
 
 const contains = (root, target) => target.startsWith(root + path.sep);
 
@@ -197,9 +214,52 @@ const runReportCommand = (argv, workflow) => {
   if (argv.length > 1 || argv[0] === "--help" || argv[0] === "-h") return usage();
   const root = requireProjectRoot();
   const { home, result } = graphHomeForReport(root, argv[0], workflow);
-  const report = workflow === "fuse" ? writeFuseReport(home, result) : writeOpinionReport(home, result);
+  const report = workflow === "fuse"
+    ? writeFuseReport(home, result)
+    : workflow === "debate" ? writeDebateReport(home, result) : writeOpinionReport(home, result);
   console.log(`${workflow} dashboard: ${report.html}`);
   console.log(`pricing snapshot: ${report.json}`);
+};
+
+export const formatDebate = ({ home, result, report, rounds }) => {
+  const critiqueRounds = Math.max(0, rounds.length - 1);
+  const lines = [
+    "╭─ Debate summary ────────────────────────────────────────────────────────",
+    `│ Graph       ${home}`,
+    `│ Completion  ${result.node_counts.succeeded}/${result.node_counts.total} nodes · ${result.ok ? result.state : "failed"}`,
+    `│ Rounds      1 opening + ${critiqueRounds} critique round${critiqueRounds === 1 ? "" : "s"}`,
+    `│ Wall time   ${formatDuration(result.duration_ms)}`,
+    `│ Tokens      ${formatNumber(result.tokens.total)} total · ${formatNumber(result.tokens.input)} in · ${formatNumber(result.tokens.output)} out · ${formatNumber(result.tokens.reasoning)} reasoning · ${formatNumber(result.tokens.cache_read)} cached`,
+    `│ Est. cost   ${formatCost(report.report.totals.estimated_api_cost_usd)} API-equivalent (not a subscription invoice)`,
+    `│ Dashboard   ${report.html}`,
+    `│ Pricing     ${report.json}`,
+    "╰─────────────────────────────────────────────────────────────────────────",
+  ];
+  for (const round of rounds) {
+    lines.push("", `╭─ ${round.phase === "opening" ? "Opening positions" : `Critique round ${round.round}`} ─────────────────────────────────────────────`);
+    for (const entry of round.entries) {
+      const detail = report.report.nodes.find((node) => node.id === entry.id);
+      const tokens = detail?.tokens;
+      lines.push(
+        `│ Reviewer ${entry.reviewer} · ${entry.model} · ${entry.state}`,
+        `│ ${detail?.executor || "—"} · ${detail?.attempts || 0} attempt${detail?.attempts === 1 ? "" : "s"} · ${formatDuration(detail?.duration_ms)} · ${formatNumber(tokens?.total)} tokens · ${formatCost(detail?.estimated_api_cost_usd)}`,
+        "├─ Response",
+        boxedText(entry.text || `Error: ${entry.error || "no output"}`),
+      );
+    }
+    lines.push("╰─────────────────────────────────────────────────────────────────────────");
+  }
+  return lines.join("\n");
+};
+
+const runDebateCommand = async (argv) => {
+  const parsed = parseDebateArgs(argv);
+  if (parsed.help) return usage();
+  const root = requireProjectRoot();
+  const context = readOpinionContext(root, parsed.contextFiles);
+  const outcome = await runDebate(root, { ...parsed, context }, { concurrency: parsed.concurrency ?? parsed.models.length });
+  console.log(parsed.json ? JSON.stringify({ workflow: "debate", task: parsed.task, models: parsed.models, ...outcome }, null, 2) : formatDebate(outcome));
+  if (!outcome.result.ok) process.exitCode = 1;
 };
 
 const runOpinionCommand = async (argv) => {
@@ -261,9 +321,11 @@ const runFuseCommand = async (argv) => {
 };
 
 export const run = (argv) => {
+  if (argv[0] === "debate" && argv[1] === "report") return runReportCommand(argv.slice(2), "debate");
+  if (argv[0] === "debate") return runDebateCommand(argv.slice(1));
   if (argv[0] === "fuse" && argv[1] === "report") return runReportCommand(argv.slice(2), "fuse");
   if (argv[0] === "fuse") return runFuseCommand(argv.slice(1));
   if (argv[0] === "opinion" && argv[1] === "report") return runReportCommand(argv.slice(2), "opinion");
   if (argv[0] === "opinion") return runOpinionCommand(argv.slice(1));
-  fail("usage: mind work <opinion|fuse> ...");
+  fail("usage: mind work <opinion|debate|fuse> ...");
 };

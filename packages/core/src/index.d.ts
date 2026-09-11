@@ -691,6 +691,7 @@ export type AlterGraphNode = {
   catalog?: string;
   description?: string;
   model?: string;
+  executor?: string | null;
   fallbackModel?: string;
   maxTokens?: number;
   timeout?: number;
@@ -707,6 +708,8 @@ export type AlterGraphNode = {
   opencodeProvider?: Record<string, unknown>;
   opencodeVariant?: string;
   outputContract?: OutputContract;
+  /** Continue after terminal failed dependencies; their prompt placeholders become labeled unavailable evidence. */
+  allow_failed_dependencies?: boolean;
   memory?: {
     recall?: boolean | { namespace?: string; query?: string };
     curate?: boolean | { namespace?: string };
@@ -740,7 +743,7 @@ export function validateGraph(graph: AlterGraph): {
 export const DEFAULT_MAX_EDGE_CHARS: number;
 export function renderGraphPrompt(
   node: AlterGraphNode,
-  records: Record<string, { result: { text: string } }>,
+  records: Record<string, { state?: Opinion["state"]; result: { text: string } | null; error?: string | null }>,
   options?: {
     maxEdgeChars?: number | null;
     onTruncate?: (event: { from: string; to: string; kept: number; total: number }) => void;
@@ -2044,3 +2047,39 @@ export type FuseReportFiles = { report: FuseReport; json: string; html: string }
 export function createFuseReport(options: { home: string; result: AlterGraphResult; env?: Record<string, string | undefined>; models?: Record<string, string> }): FuseReport;
 export function renderFuseReport(report: FuseReport): string;
 export function writeFuseReport(home: string, result: AlterGraphResult, options?: { env?: Record<string, string | undefined>; models?: Record<string, string> }): FuseReportFiles;
+
+export const MAX_DEBATE_ROUNDS: 3;
+export const DEBATE_EDGE_CHARS: number;
+export type DebateOptions = {
+  task: string;
+  models: string[];
+  context?: string;
+  rounds?: number;
+  maxTokens?: number | null;
+  executor?: "llm" | "opencode" | null;
+};
+export type DebateEntry = Opinion & {
+  id: string;
+  round: number;
+  reviewer: number;
+  phase: "opening" | "critique";
+};
+export type DebateReport = Omit<OpinionReport, "workflow" | "opinions" | "totals"> & {
+  workflow: "debate";
+  critique_rounds: number;
+  nodes: Array<OpinionReport["opinions"][number] & { round: number | null; reviewer: number | null; phase: "opening" | "critique" | "unknown" }>;
+  totals: { nodes: number; reviewers: number; succeeded: number; tokens: number; node_duration_ms: number; estimated_api_cost_usd: number | null };
+};
+export type DebateReportFiles = { report: DebateReport; json: string; html: string };
+export type DebateResult = {
+  home: string;
+  result: AlterGraphResult;
+  critiqueRounds: number;
+  rounds: Array<{ round: number; phase: "opening" | "critique"; entries: DebateEntry[] }>;
+  report: DebateReportFiles;
+};
+export function buildDebateGraph(options: DebateOptions): AlterGraph;
+export function runDebate(root: string, options: DebateOptions, runOptions?: NonNullable<Parameters<typeof runOpinion>[2]> & { env?: Record<string, string | undefined> }): Promise<DebateResult>;
+export function createDebateReport(options: { home: string; result: AlterGraphResult; env?: Record<string, string | undefined> }): DebateReport;
+export function renderDebateReport(report: DebateReport): string;
+export function writeDebateReport(home: string, result: AlterGraphResult, options?: { env?: Record<string, string | undefined> }): DebateReportFiles;

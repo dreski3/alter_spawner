@@ -199,7 +199,9 @@ export const runAlterGraph = async (
           persist();
           return;
         }
-        const failedDependency = node.depends_on.find((dependency) => records[dependency].state !== "succeeded");
+        const failedDependency = node.allow_failed_dependencies
+          ? null
+          : node.depends_on.find((dependency) => records[dependency].state !== "succeeded");
         if (failedDependency) {
           record.state = "skipped";
           record.error = `dependency "${failedDependency}" did not succeed`;

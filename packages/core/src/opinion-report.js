@@ -124,11 +124,12 @@ const bar = (value, maximum, label, accent, display = value) => {
 
 export const renderWorkflowReport = (report) => {
   const fuse = report.workflow === "fuse";
-  const title = fuse ? "Implementation synthesis" : "Opinion comparison";
+  const debate = report.workflow === "debate";
+  const title = fuse ? "Implementation synthesis" : debate ? "Debate rounds" : "Opinion comparison";
   const maxTokens = Math.max(0, ...report.opinions.map((opinion) => opinion.tokens.total));
   const maxDuration = Math.max(0, ...report.opinions.map((opinion) => opinion.duration_ms || 0));
   const maxCost = Math.max(0, ...report.opinions.map((opinion) => opinion.estimated_api_cost_usd || 0));
-  const cards = report.opinions.map((opinion, index) => {
+  const card = (opinion, index) => {
     const accent = ["#7c3aed", "#0891b2", "#d97706", "#be123c", "#4f46e5"][index % 5];
     const rates = opinion.pricing?.rates_usd_per_million;
     const rateText = rates
@@ -136,7 +137,9 @@ export const renderWorkflowReport = (report) => {
       : "unavailable";
     const status = opinion.state === "succeeded" ? "complete" : opinion.state;
     const writer = fuse && opinion.id === "writer";
-    const label = fuse ? (writer ? "Writer · synthesis" : opinion.id.replace("analyst_", "Analyst ")) : `Reviewer ${index + 1}`;
+    const label = fuse
+      ? (writer ? "Writer · synthesis" : opinion.id.replace("analyst_", "Analyst "))
+      : debate ? `Reviewer ${opinion.reviewer}` : `Reviewer ${index + 1}`;
     const output = renderReportMarkdown(opinion.state === "succeeded" ? (opinion.text || "No response recorded.") : (opinion.error || "No successful response recorded."));
     return `<article class="opinion${writer ? " synthesis" : ""}" style="--accent:${accent}">
       <header><span class="ordinal">${escapeHtml(label)}</span><span class="status ${escapeHtml(status)}">${escapeHtml(status)}</span><h2>${escapeHtml(opinion.model || "Unknown model")}</h2></header>
@@ -158,9 +161,16 @@ export const renderWorkflowReport = (report) => {
         ${bar(opinion.duration_ms || 0, maxDuration, "Time", accent, formatDuration(opinion.duration_ms))}
         ${bar(opinion.estimated_api_cost_usd || 0, maxCost, "Cost", accent, formatUsd(opinion.estimated_api_cost_usd))}
       </section>
-      ${fuse && !writer ? `<details class="response"><summary>Analyst output</summary><div class="markdown">${output}</div></details>` : `<section class="response"><h3>${writer ? "Synthesized implementation answer" : "Opinion"}</h3><div class="markdown">${output}</div></section>`}
+      ${fuse && !writer ? `<details class="response"><summary>Analyst output</summary><div class="markdown">${output}</div></details>` : `<section class="response"><h3>${writer ? "Synthesized implementation answer" : debate ? (opinion.phase === "opening" ? "Opening position" : "Critique and revision") : "Opinion"}</h3><div class="markdown">${output}</div></section>`}
     </article>`;
-  }).join("\n");
+  };
+  const cards = debate
+    ? [...new Set(report.opinions.map((opinion) => opinion.round))].sort((a, b) => a - b).map((round) => {
+      const entries = report.opinions.filter((opinion) => opinion.round === round);
+      const heading = round === 0 ? "Opening positions" : `Critique round ${round}`;
+      return `<section class="round"><h2 class="round-title">${heading}</h2><div class="grid">${entries.map((opinion) => card(opinion, opinion.reviewer - 1)).join("\n")}</div></section>`;
+    }).join("\n")
+    : `<main class="grid">${report.opinions.map(card).join("\n")}</main>`;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title} · ${escapeHtml(report.graph_id)}</title>
@@ -190,19 +200,20 @@ export const renderWorkflowReport = (report) => {
   .markdown th,.markdown td { border:1px solid #334155; padding:8px 12px; text-align:left; }
   .markdown th { background:#1d2940; } .markdown hr { border:0; border-top:1px solid #334155; margin:1.4rem 0; }
   .synthesis { grid-column:1 / -1; } summary { cursor:pointer; color:#aeb9d3; margin-bottom:12px; } .grid > * { min-width:0; }
+  .round { margin-top:28px; } .round-title { margin:0 0 12px; font-size:1.35rem; }
   footer { color:#8190ae; margin-top:24px; font-size:.78rem; } @media (max-width:700px) { body { padding:18px; } .summary { grid-template-columns:1fr 1fr; } .details dl { grid-template-columns:1fr; } }
 </style></head><body>
-<p class="eyebrow">Alter Spawner · ${fuse ? "fuse" : "opinion"} workflow · ${escapeHtml(report.status)}</p><h1>${title}</h1>
-<p class="subtitle">${fuse ? "Independent analysts → one selected writer. The synthesis appears first; expand each analyst output to inspect its evidence." : "Parallel reviewer outputs arranged side-by-side with the execution and usage evidence needed to compare them."}</p>
+<p class="eyebrow">Alter Spawner · ${escapeHtml(report.workflow)} workflow · ${escapeHtml(report.status)}</p><h1>${title}</h1>
+<p class="subtitle">${fuse ? "Independent analysts → one selected writer. The synthesis appears first; expand each analyst output to inspect its evidence." : debate ? "Independent opening positions followed by bounded critique rounds. No winner or synthesis is selected." : "Parallel reviewer outputs arranged side-by-side with the execution and usage evidence needed to compare them."}</p>
 <section class="summary">
-  <div><dt>${fuse ? "Nodes" : "Reviewers"}</dt><dd>${report.totals.succeeded} / ${report.totals.reviewers} complete</dd></div>
+  <div><dt>${fuse || debate ? "Nodes" : "Reviewers"}</dt><dd>${report.totals.succeeded} / ${report.totals.reviewers} complete</dd></div>
   <div><dt>Wall-clock time</dt><dd>${formatDuration(report.duration_ms)}</dd></div>
-  <div><dt>${fuse ? "Total node time" : "Reviewer time"}</dt><dd>${formatDuration(report.totals.reviewer_duration_ms)}</dd></div>
+  <div><dt>${fuse || debate ? "Total node time" : "Reviewer time"}</dt><dd>${formatDuration(report.totals.reviewer_duration_ms)}</dd></div>
   <div><dt>Total tokens</dt><dd>${formatNumber(report.totals.tokens)}</dd></div>
   <div><dt>Estimated API cost</dt><dd>${formatUsd(report.totals.estimated_api_cost_usd)}</dd></div>
 </section>
-<p class="notice">${escapeHtml(report.pricing.note)} Rates are read when this dashboard is generated (${escapeHtml(report.pricing.catalog_path || "no catalog available")}); retain <code>${fuse ? "fuse" : "opinion"}-report.json</code> with this HTML to preserve the rate snapshot.</p>
-<main class="grid">${cards}</main>
+<p class="notice">${escapeHtml(report.pricing.note)} Rates are read when this dashboard is generated (${escapeHtml(report.pricing.catalog_path || "no catalog available")}); retain <code>${escapeHtml(report.workflow)}-report.json</code> with this HTML to preserve the rate snapshot.</p>
+${cards}
 <footer>Graph ${escapeHtml(report.graph_id)} · started ${escapeHtml(report.started_at || "—")} · dashboard generated ${escapeHtml(report.generated_at)}</footer>
 </body></html>`;
 };

@@ -219,6 +219,28 @@ mind work opinion report 20260908T163219Z_opinion
 The command saves both `opinion.html` and a rate snapshot in
 `opinion-report.json` beside the graph result.
 
+**Bounded debate** — `mind work debate` starts with the same independent panel,
+then runs one to three critique rounds. Each reviewer sees only the immediately
+preceding round as bounded, labeled, untrusted evidence and returns a revised
+position rather than voting for a winner.
+
+```bash
+mind work debate \
+  --model provider-a/reviewer \
+  --model provider-b/reviewer \
+  --rounds 2 \
+  --context packages/core/src/graph.js \
+  --max-tokens 1200 \
+  "Debate whether failed graph dependencies should stop every downstream reviewer."
+```
+
+`--rounds` counts critique rounds after the opening panel, defaults to one, and
+is capped at three. Reviewers within a round use the same automatic maximum-safe
+concurrency as other workflows. Failed evidence is labeled and does not prevent
+the remaining reviewers from continuing. Every run writes `debate.html` and
+`debate-report.json`; regenerate them without model calls with `mind work debate
+report [graph-folder]`.
+
 **Implementation synthesis** — `mind work fuse` runs two to five distinct,
 isolated, tool-free analysts in parallel, followed by one explicitly selected
 writer. The writer receives the original task/context and labeled analyst

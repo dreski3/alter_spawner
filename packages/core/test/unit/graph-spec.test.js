@@ -28,6 +28,15 @@ test("graph specs reject undeclared result references and cycles", () => {
   );
 });
 
+test("failed-dependency continuation is an explicit boolean graph policy", () => {
+  assert.throws(() => validateGraph({
+    nodes: [{ id: "bad", prompt: "x", allow_failed_dependencies: "yes" }],
+  }), /allow_failed_dependencies must be a boolean/);
+  assert.equal(validateGraph({
+    nodes: [{ id: "ok", prompt: "x", allow_failed_dependencies: true }],
+  }).nodes.get("ok").allow_failed_dependencies, true);
+});
+
 test("graph nodes map to the canonical spawn contract", () => {
   const options = buildGraphSpawnOptions({ id: "worker", prompt: "work", images: ["/scan.png"], depends_on: ["source"] }, "g1", "/mind");
   assert.equal(options.graphId, "g1");

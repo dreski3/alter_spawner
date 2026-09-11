@@ -46,9 +46,11 @@ const usage = (write = console.log) => {
   write("  catalog export <name> --to <dir>        (copy an alter project out, to version or share)");
   write("  catalog import <dir> [--as <name>] [--trust]       (copy one in; grants are dropped unless --trust)");
   write("  work    opinion --model <provider/model> (2-5) <task> (parallel, tool-free engineering opinions)");
+  write("  work    debate --model <provider/model> (2-5) [--rounds <1-3>] <task>");
   write("  work    fuse --model <provider/model> (2-5) --writer <provider/model> <task>");
   write("  work    fuse report [graph-folder]        (synthesis and usage dashboard)");
   write("  work    opinion report [graph-folder]     (side-by-side comparison dashboard)");
+  write("  work    debate report [graph-folder]      (round-by-round critique dashboard)");
 };
 
 const COMMANDS = {
