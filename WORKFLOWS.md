@@ -33,7 +33,7 @@ attempt/token/timing data, and API-equivalent pricing snapshot under
 | `debate` | Implemented | Read-only bounded critique rounds; no winner or writer. |
 | `fuse` | Partially implemented | Research and writer synthesis are implemented; applying a change is intentionally not. |
 | `collaborate` | Planned | Validated DAG planning followed by dependency-aware execution. |
-| `validate` | Planned | Reproducible acceptance gate and bounded repair loop. |
+| `validate` | Partially implemented | Frozen acceptance-contract design and deterministic gate execution; code repair is not yet enabled. |
 | `review` | Planned | Structured, read-only architecture/security/test findings. |
 
 ## `mind work opinion <task>`
@@ -265,7 +265,34 @@ flowchart LR
   X -->|repair limit reached| F
 ```
 
-**Proposed execution:**
+**Implemented first phase:**
+
+```bash
+mind work validate \
+  --model provider/validator \
+  --command '["npm","run","check"]' \
+  --command '["npm","test"]' \
+  [--dry-run] [--executor llm|opencode] \
+  [--context file]* [--max-tokens n] \
+  [--command-timeout-ms n] [--deadline-ms n] [--max-cost-usd n] [--json] \
+  "<task>"
+```
+
+The operator supplies commands as JSON argument arrays, so they execute directly
+without a shell. The tool-free designer may explain purposes, relevant supplied
+files, and negative cases, but the deterministic validator rejects any changed,
+added, reordered, or omitted command. It also checks the schema, existing
+project-contained file references, zero-exit expectations, timeout ceilings,
+whole-workflow deadline, and optional API-equivalent cost ceiling. By default the
+frozen commands run sequentially and stop at the first failure; `--dry-run`
+validates and records the contract without executing them.
+
+Every run writes bounded per-command `gate-NN.json` artifacts,
+`validation.json`, `validate-report.json`, and `validate.html`. `mind work
+validate report [graph-folder]` regenerates the reports without model or command
+execution. Source revision and before/after working-tree status are recorded.
+
+**Remaining application phase:**
 
 1. A tool-free validator designer emits a structured acceptance contract:
    commands, expected exit/result conditions, relevant files, and negative
@@ -275,6 +302,10 @@ flowchart LR
 3. A single implementer works only against the approved contract.
 4. The host runs the gate and supplies normalized failures to the implementer
    for a small, explicit number of repair attempts.
+
+Steps 1–2 and standalone gate execution are implemented. Steps 3–4 remain
+disabled until an isolated workspace, host-owned writer lease, immutable patch
+transfer, and bounded repair-attempt audit are in place.
 
 **Required controls:** `--max-repairs`; hard whole-workflow deadline and cost
 ceiling; command allowlist; isolated workspace or worktree; immutable test

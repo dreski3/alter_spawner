@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
-import { fail, kitDir, requireProjectRoot, runDebate, runOpinion, runFuse, writeDebateReport, writeFuseReport, writeOpinionReport } from "@mind/core";
+import { fail, kitDir, parseValidationCommand, requireProjectRoot, runDebate, runOpinion, runFuse, runValidate, writeDebateReport, writeFuseReport, writeOpinionReport, writeValidateReport } from "@mind/core";
 
 const MAX_CONTEXT_FILES = 8;
 const MAX_CONTEXT_FILE_BYTES = 32 * 1024;
@@ -12,6 +12,9 @@ const usage = () => {
   console.error("                         [--context <file>]* [--max-tokens <n>] [--concurrency <n>] [--json] <task>");
   console.error("usage: mind work debate --model <provider/model> (2-5) [--rounds <1-3>] [--executor llm|opencode]");
   console.error("                         [--context <file>]* [--max-tokens <n>] [--concurrency <n>] [--json] <task>");
+  console.error("usage: mind work validate --model <provider/model> --command '[\"npm\",\"test\"]' [--command <JSON argv>]*");
+  console.error("                         [--dry-run] [--executor llm|opencode] [--context <file>]* [--max-tokens <n>]");
+  console.error("                         [--command-timeout-ms <n>] [--deadline-ms <n>] [--max-cost-usd <n>] [--json] <task>");
   console.error("");
   console.error("  Runs 2-5 isolated, tool-free reviewers in parallel. Context files must be regular files inside the mind project.");
   console.error("  Omit --concurrency to run the maximum ready work; OAuth/OpenCode nodes share one local server automatically.");
@@ -19,6 +22,7 @@ const usage = () => {
   console.error("usage: mind work fuse report [graph-folder]  (synthesis and usage dashboard; no model calls)");
   console.error("usage: mind work opinion report [graph-folder]");
   console.error("usage: mind work debate report [graph-folder]");
+  console.error("usage: mind work validate report [graph-folder]");
   console.error("  Regenerates the workflow HTML dashboard and pricing snapshot without model calls.");
 };
 
@@ -103,6 +107,59 @@ export const parseOpinionArgs = (argv) => parseWorkArgs(argv, "opinion");
 export const parseFuseArgs = (argv) => parseWorkArgs(argv, "fuse");
 export const parseDebateArgs = (argv) => parseWorkArgs(argv, "debate");
 
+const positiveNumber = (value, flag) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) fail(`${flag} requires a positive number.`);
+  return parsed;
+};
+
+export const parseValidateArgs = (argv) => {
+  let model;
+  let executor;
+  const commands = [];
+  const contextFiles = [];
+  const task = [];
+  let maxTokens = 4000;
+  let commandTimeoutMs = 300000;
+  let deadlineMs = 900000;
+  let maxCostUsd = null;
+  let dryRun = false;
+  let json = false;
+  let parseFlags = true;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (parseFlags && arg === "--") parseFlags = false;
+    else if (parseFlags && arg === "--model") {
+      if (model !== undefined) fail("validate --model must be specified exactly once.");
+      model = argv[++i]?.trim();
+      if (!model || !/^[^\s/]+\/\S+$/.test(model)) fail("validate --model requires a provider/model value.");
+    } else if (parseFlags && arg === "--command") {
+      if (!argv[i + 1]) fail("--command requires a JSON argv array.");
+      commands.push(parseValidationCommand(argv[++i], `--command ${commands.length + 1}`));
+    } else if (parseFlags && arg === "--executor") {
+      executor = argv[++i];
+      if (!["llm", "opencode"].includes(executor)) fail("--executor must be llm or opencode.");
+    } else if (parseFlags && arg === "--context") {
+      if (!argv[i + 1]) fail("--context requires a file path.");
+      contextFiles.push(argv[++i]);
+    } else if (parseFlags && arg === "--max-tokens") maxTokens = positiveInteger(argv[++i], "--max-tokens");
+    else if (parseFlags && arg === "--command-timeout-ms") commandTimeoutMs = positiveInteger(argv[++i], "--command-timeout-ms", { max: 3_600_000 });
+    else if (parseFlags && arg === "--deadline-ms") deadlineMs = positiveInteger(argv[++i], "--deadline-ms", { max: 3_600_000 });
+    else if (parseFlags && arg === "--max-cost-usd") maxCostUsd = positiveNumber(argv[++i], "--max-cost-usd");
+    else if (parseFlags && arg === "--dry-run") dryRun = true;
+    else if (parseFlags && arg === "--json") json = true;
+    else if (parseFlags && (arg === "--help" || arg === "-h")) return { help: true };
+    else if (parseFlags && arg.startsWith("--")) fail("unknown flag: " + arg);
+    else task.push(arg);
+  }
+  if (!model) fail("validate requires --model <provider/model>.");
+  if (commands.length < 1 || commands.length > 8) fail("validate requires between 1 and 8 --command values.");
+  if (contextFiles.length > MAX_CONTEXT_FILES) fail(`validate accepts at most ${MAX_CONTEXT_FILES} --context files.`);
+  const prompt = task.join(" ").trim();
+  if (!prompt) fail("validate requires a task.");
+  return { help: false, task: prompt, model, commands, contextFiles, maxTokens, commandTimeoutMs, deadlineMs, maxCostUsd, dryRun, json, ...(executor ? { executor } : {}) };
+};
+
 const contains = (root, target) => target.startsWith(root + path.sep);
 
 export const readOpinionContext = (root, files) => {
@@ -114,7 +171,7 @@ export const readOpinionContext = (root, files) => {
     try {
       target = realpathSync(requested);
     } catch {
-      fail(`context file not found: ${file}`);
+      fail(`context file not found inside mind project ${projectRoot}: ${file}`);
     }
     if (!contains(projectRoot, target)) fail(`context file is outside the mind project: ${file}`);
     if (!statSync(target).isFile()) fail(`context path is not a regular file: ${file}`);
@@ -216,7 +273,8 @@ const runReportCommand = (argv, workflow) => {
   const { home, result } = graphHomeForReport(root, argv[0], workflow);
   const report = workflow === "fuse"
     ? writeFuseReport(home, result)
-    : workflow === "debate" ? writeDebateReport(home, result) : writeOpinionReport(home, result);
+    : workflow === "debate" ? writeDebateReport(home, result)
+      : workflow === "validate" ? writeValidateReport(home, result) : writeOpinionReport(home, result);
   console.log(`${workflow} dashboard: ${report.html}`);
   console.log(`pricing snapshot: ${report.json}`);
 };
@@ -260,6 +318,45 @@ const runDebateCommand = async (argv) => {
   const outcome = await runDebate(root, { ...parsed, context }, { concurrency: parsed.concurrency ?? parsed.models.length });
   console.log(parsed.json ? JSON.stringify({ workflow: "debate", task: parsed.task, models: parsed.models, ...outcome }, null, 2) : formatDebate(outcome));
   if (!outcome.result.ok) process.exitCode = 1;
+};
+
+export const formatValidate = ({ home, result, audit, report, status }) => {
+  const designer = report.report.designer;
+  const gate = audit.gate || [];
+  const lines = [
+    "╭─ Validate summary ──────────────────────────────────────────────────────",
+    `│ Graph       ${home}`,
+    `│ Status      ${status}`,
+    `│ Designer    ${result.node_counts.succeeded}/${result.node_counts.total} nodes · ${designer.model || "—"}`,
+    `│ Wall time   ${formatDuration(result.duration_ms)}`,
+    `│ Tokens      ${formatNumber(result.tokens.total)} total · ${formatNumber(result.tokens.input)} in · ${formatNumber(result.tokens.output)} out · ${formatNumber(result.tokens.reasoning)} reasoning · ${formatNumber(result.tokens.cache_read)} cached`,
+    `│ Est. cost   ${formatCost(report.report.totals.estimated_api_cost_usd)} API-equivalent (not a subscription invoice)`,
+    `│ Gate        ${gate.filter((entry) => entry.ok).length}/${audit.contract?.commands.length || 0} commands passed${audit.dry_run ? " · dry run" : ""}`,
+    `│ Dashboard   ${report.html}`,
+    `│ Pricing     ${report.json}`,
+    `│ Audit       ${path.join(home, "validation.json")}`,
+    "╰─────────────────────────────────────────────────────────────────────────",
+  ];
+  if (audit.contract_error) lines.push("", "╭─ Contract rejected", boxedText(audit.contract_error), "╰─────────────────────────────────────────────────────────────────────────");
+  else if (audit.contract) {
+    lines.push("", "╭─ Frozen acceptance contract", boxedText(audit.contract.summary));
+    audit.contract.commands.forEach((command, index) => {
+      const outcome = gate[index];
+      lines.push(`│ ${index + 1}. ${JSON.stringify(command.argv)} · ${outcome ? (outcome.ok ? "passed" : "failed") : "not run"}`);
+    });
+    lines.push("╰─────────────────────────────────────────────────────────────────────────");
+  }
+  return lines.join("\n");
+};
+
+const runValidateCommand = async (argv) => {
+  const parsed = parseValidateArgs(argv);
+  if (parsed.help) return usage();
+  const root = requireProjectRoot();
+  const context = readOpinionContext(root, parsed.contextFiles);
+  const outcome = await runValidate(root, { ...parsed, context });
+  console.log(parsed.json ? JSON.stringify({ workflow: "validate", task: parsed.task, ...outcome }, null, 2) : formatValidate(outcome));
+  if (!outcome.ok) process.exitCode = 1;
 };
 
 const runOpinionCommand = async (argv) => {
@@ -321,11 +418,13 @@ const runFuseCommand = async (argv) => {
 };
 
 export const run = (argv) => {
+  if (argv[0] === "validate" && argv[1] === "report") return runReportCommand(argv.slice(2), "validate");
+  if (argv[0] === "validate") return runValidateCommand(argv.slice(1));
   if (argv[0] === "debate" && argv[1] === "report") return runReportCommand(argv.slice(2), "debate");
   if (argv[0] === "debate") return runDebateCommand(argv.slice(1));
   if (argv[0] === "fuse" && argv[1] === "report") return runReportCommand(argv.slice(2), "fuse");
   if (argv[0] === "fuse") return runFuseCommand(argv.slice(1));
   if (argv[0] === "opinion" && argv[1] === "report") return runReportCommand(argv.slice(2), "opinion");
   if (argv[0] === "opinion") return runOpinionCommand(argv.slice(1));
-  fail("usage: mind work <opinion|debate|fuse> ...");
+  fail("usage: mind work <opinion|debate|fuse|validate> ...");
 };

@@ -241,6 +241,26 @@ the remaining reviewers from continuing. Every run writes `debate.html` and
 `debate-report.json`; regenerate them without model calls with `mind work debate
 report [graph-folder]`.
 
+**Frozen validation gate** — `mind work validate` lets a tool-free designer
+describe an acceptance contract while the host retains control of what can run.
+Commands are operator-supplied JSON argv arrays; a model cannot add or rewrite
+them, and no shell interprets them.
+
+```bash
+mind work validate \
+  --model openai/gpt-5.6-luna \
+  --command '["npm","run","check"]' \
+  --command '["npm","test"]' \
+  --context packages/core/src/graph.js \
+  "Validate the graph scheduler changes."
+```
+
+Use `--dry-run` to freeze and inspect the contract without running commands.
+Completed runs retain bounded command artifacts, source state, tokens, estimated
+cost, `validation.json`, `validate-report.json`, and `validate.html`. This first
+phase does not edit or repair code; the isolated implementer loop remains an
+explicit later boundary.
+
 **Implementation synthesis** — `mind work fuse` runs two to five distinct,
 isolated, tool-free analysts in parallel, followed by one explicitly selected
 writer. The writer receives the original task/context and labeled analyst

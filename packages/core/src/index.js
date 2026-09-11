@@ -92,6 +92,9 @@ export { buildOpinionGraph, runOpinion } from "./opinion.js";
 export { createOpinionReport, renderOpinionReport, writeOpinionReport } from "./opinion-report.js";
 export { MAX_DEBATE_ROUNDS, DEBATE_EDGE_CHARS, buildDebateGraph, runDebate } from "./debate.js";
 export { createDebateReport, renderDebateReport, writeDebateReport } from "./debate-report.js";
+export { buildValidateGraph, runValidate } from "./validate.js";
+export { createValidateReport, renderValidateReport, writeValidateReport } from "./validate-report.js";
+export { MAX_VALIDATION_COMMANDS, MAX_VALIDATION_OUTPUT_BYTES, parseValidationCommand, validateAcceptanceContract, runValidationCommand } from "./validation-gate.js";
 export {
   PRINCIPAL_DEPTH,
   isPrincipalProject,

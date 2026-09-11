@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { formatOpinions, parseOpinionArgs, readOpinionContext } from "../../../cli/src/commands/work.js";
@@ -47,6 +47,7 @@ test("opinion context is regular, bounded, and contained in the mind project", (
   writeFileSync(path.join(outside, "secret.md"), "outside");
 
   assert.match(readOpinionContext(root, ["docs/brief.md"]), /### docs\/brief\.md/);
+  assert.throws(() => readOpinionContext(root, ["missing.md"]), new RegExp(`context file not found inside mind project ${realpathSync(root).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
   assert.throws(() => readOpinionContext(root, [path.join(outside, "secret.md")]), /outside the mind project/);
   assert.throws(() => readOpinionContext(root, ["docs"]), /not a regular file/);
 });

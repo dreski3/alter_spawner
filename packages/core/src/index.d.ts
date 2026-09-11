@@ -2083,3 +2083,86 @@ export function runDebate(root: string, options: DebateOptions, runOptions?: Non
 export function createDebateReport(options: { home: string; result: AlterGraphResult; env?: Record<string, string | undefined> }): DebateReport;
 export function renderDebateReport(report: DebateReport): string;
 export function writeDebateReport(home: string, result: AlterGraphResult, options?: { env?: Record<string, string | undefined> }): DebateReportFiles;
+
+export const MAX_VALIDATION_COMMANDS: 8;
+export const MAX_VALIDATION_OUTPUT_BYTES: number;
+export type ValidationCommand = {
+  argv: string[];
+  purpose: string;
+  expected_exit_code: number;
+  timeout_ms: number;
+};
+export type AcceptanceContract = {
+  summary: string;
+  commands: ValidationCommand[];
+  relevant_files: string[];
+  negative_cases: Array<{ case: string; expected: string }>;
+};
+export type ValidationCommandResult = {
+  argv: string[];
+  exit_code: number | null;
+  signal: string | null;
+  timed_out: boolean;
+  aborted: boolean;
+  error: string | null;
+  duration_ms: number;
+  stdout: string;
+  stderr: string;
+  stdout_truncated: boolean;
+  stderr_truncated: boolean;
+  ok?: boolean;
+};
+export type ValidateAudit = {
+  schema_version: 1;
+  workflow: "validate";
+  status: "designer_failed" | "contract_rejected" | "contract_ready" | "gate_failed" | "passed";
+  dry_run: boolean;
+  task: string;
+  model: string;
+  contract: AcceptanceContract | null;
+  contract_error: string | null;
+  gate: ValidationCommandResult[];
+  source_before: { revision: string | null; changed_files: string[] };
+  source_after: { revision: string | null; changed_files: string[] };
+  deadline_ms: number;
+  command_timeout_ms: number;
+  max_cost_usd: number | null;
+};
+export type ValidateOptions = {
+  task: string;
+  model: string;
+  commands: Array<string | string[]>;
+  context?: string;
+  contextFiles?: string[];
+  maxTokens?: number;
+  executor?: "llm" | "opencode" | null;
+  commandTimeoutMs?: number;
+  deadlineMs?: number;
+  maxCostUsd?: number | null;
+  dryRun?: boolean;
+};
+export type ValidateReport = {
+  schema_version: 1;
+  workflow: "validate";
+  graph_home: string;
+  graph_id: string;
+  generated_at: string;
+  status: string;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_ms: number | null;
+  pricing: OpinionReport["pricing"];
+  totals: { nodes: number; succeeded: number; tokens: number; node_duration_ms: number; estimated_api_cost_usd: number | null };
+  designer: OpinionReport["opinions"][number];
+  audit: ValidateAudit | null;
+};
+export type ValidateReportFiles = { report: ValidateReport; json: string; html: string };
+export type ValidateResult = { home: string; result: AlterGraphResult; audit: ValidateAudit; report: ValidateReportFiles; ok: boolean; status: ValidateAudit["status"] };
+export function parseValidationCommand(value: string | string[], label?: string): readonly string[];
+export function validateAcceptanceContract(value: unknown, options: { root: string; allowedCommands: Array<string | string[]>; allowedFiles?: string[]; commandTimeoutMs: number; resolvePath?: (root: string, relative?: string) => string }): AcceptanceContract;
+export function runValidationCommand(root: string, argv: string[], options: { timeoutMs: number; signal?: AbortSignal; env?: Record<string, string | undefined>; maxOutputBytes?: number; now?: () => number }): Promise<ValidationCommandResult>;
+export function buildValidateGraph(options: ValidateOptions): AlterGraph;
+export function runValidate(root: string, options: ValidateOptions, runOptions?: NonNullable<Parameters<typeof runOpinion>[2]> & { env?: Record<string, string | undefined>; commandRunner?: typeof runValidationCommand }): Promise<ValidateResult>;
+export function createValidateReport(options: { home: string; result: AlterGraphResult; env?: Record<string, string | undefined>; model?: string; audit?: ValidateAudit | null }): ValidateReport;
+export function renderValidateReport(report: ValidateReport): string;
+export function writeValidateReport(home: string, result: AlterGraphResult, options?: { env?: Record<string, string | undefined>; model?: string; audit?: ValidateAudit | null }): ValidateReportFiles;
