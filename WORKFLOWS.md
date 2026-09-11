@@ -135,6 +135,15 @@ task/context plus bounded, labeled analyst outputs. The current implementation
 creates `implementation.md`, `fuse-report.json`, and `fuse.html`; it does
 **not** apply code changes.
 
+When no executor override is supplied, tool-free workflow nodes automatically
+prefer the direct `llm` executor for compatible API-key models and otherwise
+use `opencode`. The workflow queues the full ready frontier at its natural
+maximum concurrency. Multiple OpenCode nodes attach to one workflow-owned,
+password-protected loopback server so one process owns the shared SQLite store;
+if that server is unavailable, an executor-specific lane safely serializes
+those nodes. Direct calls remain parallel. Explicit executor flags continue to
+override automatic selection.
+
 **CLI output:** The default human-readable output should follow the same
 summary-first structure as `opinion`. It must begin with one compact Fuse run
 summary containing:

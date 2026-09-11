@@ -69,6 +69,11 @@ test("the prompt stays last so no flag can swallow it", () => {
   assert.equal(args[args.length - 1], "do the thing");
 });
 
+test("a workflow node can attach to a shared OpenCode server", () => {
+  const args = buildRunArgs({ home: "/h", prompt: "inspect", model: "p/m", serverUrl: "http://127.0.0.1:4567" });
+  assert.deepEqual(args.slice(0, 4), ["run", "--attach", "http://127.0.0.1:4567", "--dir"]);
+});
+
 test("image attachments are repeated before the final prompt", () => {
   const args = buildRunArgs({ home: "/h", prompt: "inspect", images: ["/a.png", "/b.jpg"] });
   assert.deepEqual(args.slice(-6), ["--file", "/a.png", "--file", "/b.jpg", "--", "inspect"]);

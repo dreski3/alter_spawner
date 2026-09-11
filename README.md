@@ -235,13 +235,21 @@ mind work fuse \
   "Propose an implementation plan for deadline propagation with focused tests."
 ```
 
-`--executor llm` uses direct tool-free chat completions for compatible API-key
-providers, including Mistral and xAI, without opening OpenCode sessions or its
-SQLite database. The default remains `opencode` for OAuth and other provider
-protocols. The executor applies to both analysts and writer unless `--writer-executor`
-overrides the writer (for example, `--executor llm --writer-executor opencode`
-for direct Mistral analysts and an OAuth writer). Unsupported direct
-providers fail explicitly without switching executors or models.
+When `--executor` is omitted, Fuse automatically uses direct tool-free chat
+completions for compatible API-key models, including Mistral and xAI, while
+keeping OAuth and unsupported provider protocols on OpenCode. Direct requests
+run concurrently. When several nodes require OpenCode, the workflow starts one
+password-protected loopback OpenCode server and attaches every node to it, so a
+single process owns the shared SQLite database while model requests overlap. If
+the server cannot start, OpenCode nodes fall back to safe serial execution. This
+maximizes safe concurrency without a manual `--concurrency` value. The writer is
+selected independently by the same rule.
+
+`--executor llm` or `--executor opencode` remains an explicit override for all
+analysts. `--writer-executor` overrides the writer separately (for example,
+`--executor llm --writer-executor opencode` for direct Mistral analysts and an
+OAuth writer). Unsupported explicitly requested direct providers fail without
+switching executors or models.
 
 Both the analyst panel and `--writer` are required; the writer may reuse an
 analyst model but runs in a separate Alter home. No default or fallback model is

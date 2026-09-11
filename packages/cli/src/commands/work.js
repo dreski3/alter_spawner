@@ -12,6 +12,7 @@ const usage = () => {
   console.error("                         [--context <file>]* [--max-tokens <n>] [--concurrency <n>] [--json] <task>");
   console.error("");
   console.error("  Runs 2-5 isolated, tool-free reviewers in parallel. Context files must be regular files inside the mind project.");
+  console.error("  Omit --concurrency to run the maximum ready work; OAuth/OpenCode nodes share one local server automatically.");
   console.error("");
   console.error("usage: mind work fuse report [graph-folder]  (synthesis and usage dashboard; no model calls)");
   console.error("usage: mind work opinion report [graph-folder]");

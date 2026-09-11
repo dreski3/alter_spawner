@@ -275,3 +275,5 @@ export {
 
 export { buildFuseGraph, runFuse } from "./fuse.js";
 export { createFuseReport, renderFuseReport, writeFuseReport } from "./fuse-report.js";
+export { prepareWorkflowConcurrency, selectWorkflowExecutors, WORKFLOW_EXECUTOR_CONCURRENCY } from "./workflow-execution.js";
+export { startWorkflowOpenCodeServer } from "./opencode-server.js";

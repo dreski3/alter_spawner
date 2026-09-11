@@ -795,8 +795,24 @@ export function runAlterGraph(
     onProgress?: (result: AlterGraphResult) => void;
     onEvent?: (event: AlterRuntimeEvent & { node: string; memory?: "recall" | "curate" }) => void;
     memory?: GraphMemoryRuntime | null;
+    executorConcurrency?: Record<string, number> | null;
   },
 ): Promise<{ home: string; result: AlterGraphResult }>;
+
+export function selectWorkflowExecutors(
+  graph: AlterGraph,
+  options?: { env?: NodeJS.ProcessEnv; resolveDirect?: (model: string, env?: NodeJS.ProcessEnv) => unknown },
+): AlterGraph;
+export const WORKFLOW_EXECUTOR_CONCURRENCY: Readonly<{ opencode: 1 }>;
+export function prepareWorkflowConcurrency(
+  graph: AlterGraph,
+  runOptions?: Record<string, unknown> & { runtime?: Runtime; executorConcurrency?: Record<string, number> | null },
+  dependencies?: { startServer?: typeof startWorkflowOpenCodeServer },
+): Promise<{ options: Record<string, unknown>; stop: () => Promise<void> }>;
+export function startWorkflowOpenCodeServer(options?: {
+  environment?: NodeJS.ProcessEnv;
+  startupTimeoutMs?: number;
+}): Promise<{ url: string; environment: NodeJS.ProcessEnv; stop: () => Promise<void> }>;
 
 export type ApprovalDecision = "allow-once" | "allow-run" | "always-catalog" | "deny";
 

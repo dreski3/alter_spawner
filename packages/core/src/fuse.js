@@ -3,6 +3,7 @@ import { runAlterGraph } from "./graph.js";
 import { validateModels } from "./opinion.js";
 import { writeFuseReport } from "./fuse-report.js";
 import { writeTextAtomic } from "./persistence.js";
+import { prepareWorkflowConcurrency, selectWorkflowExecutors } from "./workflow-execution.js";
 import { fail } from "./util.js";
 
 export const buildFuseGraph = ({ task, models, writer, context = "", maxTokens = null, executor = null, writerExecutor = executor } = {}) => {
@@ -51,10 +52,23 @@ export const buildFuseGraph = ({ task, models, writer, context = "", maxTokens =
 };
 
 export const runFuse = async (root, options, runOptions = {}) => {
-  const graph = buildFuseGraph(options);
+  const built = buildFuseGraph(options);
+  const graph = runOptions.harness
+    ? built
+    : selectWorkflowExecutors(built, { env: runOptions.runtime?.env || runOptions.env || process.env });
   const concurrency = runOptions.concurrency ?? graph.nodes.length - 1;
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 5) fail("fuse concurrency must be an integer between 1 and 5.");
-  const { home, result } = await runAlterGraph(root, graph, { ...runOptions, concurrency });
+  const execution = await prepareWorkflowConcurrency(graph, {
+    ...runOptions,
+    concurrency,
+  });
+  let home;
+  let result;
+  try {
+    ({ home, result } = await runAlterGraph(root, graph, execution.options));
+  } finally {
+    await execution.stop();
+  }
   const entries = graph.nodes.map(({ id, model }) => {
     const node = result.nodes[id];
     return { id, model, state: node.state, text: node.result?.text || null, error: node.error || null };

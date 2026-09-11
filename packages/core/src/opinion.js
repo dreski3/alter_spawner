@@ -1,5 +1,6 @@
 import { runAlterGraph } from "./graph.js";
 import { writeOpinionReport } from "./opinion-report.js";
+import { prepareWorkflowConcurrency, selectWorkflowExecutors } from "./workflow-execution.js";
 import { fail } from "./util.js";
 
 export const validateModels = (models, workflow = "opinion") => {
@@ -56,11 +57,21 @@ export const buildOpinionGraph = ({ task, models, context = "", maxTokens = null
 
 export const runOpinion = async (root, options, runOptions = {}) => {
   const models = validateModels(options?.models);
-  const graph = buildOpinionGraph({ ...options, models });
-  const { home, result } = await runAlterGraph(root, graph, {
+  const built = buildOpinionGraph({ ...options, models });
+  const graph = runOptions.harness
+    ? built
+    : selectWorkflowExecutors(built, { env: runOptions.runtime?.env || runOptions.env || process.env });
+  const execution = await prepareWorkflowConcurrency(graph, {
     ...runOptions,
     concurrency: runOptions.concurrency ?? models.length,
   });
+  let home;
+  let result;
+  try {
+    ({ home, result } = await runAlterGraph(root, graph, execution.options));
+  } finally {
+    await execution.stop();
+  }
   const report = writeOpinionReport(home, result, { env: runOptions.env });
   return {
     home,
