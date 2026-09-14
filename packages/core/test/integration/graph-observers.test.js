@@ -96,6 +96,7 @@ test("onProgress sees a failed dependency skip its dependents rather than run th
       ok: false,
       budget_exceeded: false,
       empty_output: false,
+      llm_error: "upstream exploded",
     }),
   });
 
@@ -112,6 +113,8 @@ test("onProgress sees a failed dependency skip its dependents rather than run th
   assert.equal(result.ok, false);
   assert.equal(result.nodes.upstream.state, "failed");
   assert.equal(result.nodes.downstream.state, "skipped");
+  assert.match(result.nodes.downstream.error, /dependency "upstream" did not succeed/);
+  assert.match(result.nodes.downstream.error, /upstream exploded/);
   // Never ran, so it was never observed running — the distinction the trace depends on
   // to avoid reporting one failure as two.
   assert.ok(!seen.includes("running"), "a dependent of a failed node was observed running");
