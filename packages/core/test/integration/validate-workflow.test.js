@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { registerHarness, runValidate, writeValidateReport } from "@mind/core";
+import { createWorktree } from "../../src/validate-apply.js";
 
 const fixture = (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "mind-validate-"));
@@ -262,4 +263,23 @@ test("validate apply excludes gate-generated files from the transferred candidat
   assert.deepEqual(outcome.audit.application.changedFiles, ["editable/target.js"]);
   assert.equal(existsSync(path.join(root, "editable/generated.txt")), false);
   assert.doesNotMatch(readFileSync(outcome.audit.application.patch, "utf8"), /generated\.txt/);
+});
+
+test("isolated worktrees project installed dependencies onto worktree-local workspace packages", (t) => {
+  const root = fixture(t);
+  initializeGit(root, {
+    ".gitignore": "node_modules/\n",
+    "packages/core/index.js": "export const core = true;\n",
+  });
+  mkdirSync(path.join(root, "node_modules/@mind"), { recursive: true });
+  mkdirSync(path.join(root, "node_modules/external-package"), { recursive: true });
+  symlinkSync("../../packages/core", path.join(root, "node_modules/@mind/core"));
+  const revision = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).stdout.trim();
+  const isolated = createWorktree(root, revision);
+  try {
+    assert.equal(realpathSync(path.join(isolated.worktree, "node_modules/@mind/core")), path.join(isolated.worktree, "packages/core"));
+    assert.equal(realpathSync(path.join(isolated.worktree, "node_modules/external-package")), realpathSync(path.join(root, "node_modules/external-package")));
+  } finally {
+    isolated.cleanup();
+  }
 });

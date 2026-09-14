@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { kitDir } from "./config.js";
@@ -105,6 +105,33 @@ export const mapWritePaths = (worktree, paths) => paths.map((entry) => ({
 
 const allowedChange = (file, paths) => paths.some((entry) => file === entry.relative || file.startsWith(entry.relative + "/"));
 
+const projectWorktreeTarget = (root, worktree, source) => {
+  const canonicalRoot = realpathSync(root);
+  const resolved = realpathSync(source);
+  const relative = path.relative(canonicalRoot, resolved);
+  const contained = relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+  const dependency = relative === "node_modules" || relative.startsWith(`node_modules${path.sep}`);
+  return contained && !dependency ? path.join(worktree, relative) : resolved;
+};
+
+const projectDependencies = (root, worktree) => {
+  const sourceModules = path.join(root, "node_modules");
+  if (!existsSync(sourceModules) || !lstatSync(sourceModules).isDirectory()) return;
+  const targetModules = path.join(worktree, "node_modules");
+  mkdirSync(targetModules, { recursive: true });
+  const link = (source, target) => symlinkSync(projectWorktreeTarget(root, worktree, source), target);
+  for (const entry of readdirSync(sourceModules, { withFileTypes: true })) {
+    const source = path.join(sourceModules, entry.name);
+    const target = path.join(targetModules, entry.name);
+    if (entry.isDirectory() && entry.name.startsWith("@")) {
+      mkdirSync(target);
+      for (const child of readdirSync(source, { withFileTypes: true })) link(path.join(source, child.name), path.join(target, child.name));
+    } else {
+      link(source, target);
+    }
+  }
+};
+
 export const createWorktree = (root, revision) => {
   const top = git(root, ["rev-parse", "--show-toplevel"]).stdout.trim();
   if (realpathSync(top) !== realpathSync(root)) fail("validate --apply must run from the Git repository root.");
@@ -118,6 +145,7 @@ export const createWorktree = (root, revision) => {
     git(root, ["worktree", "add", "--detach", worktree, revision]);
     mkdirSync(path.join(worktree, ".alters"), { recursive: true });
     cpSync(path.join(root, ".alters", "config.json"), path.join(worktree, ".alters", "config.json"));
+    projectDependencies(root, worktree);
     return { worktree: realpathSync(worktree), cleanup };
   } catch (error) {
     cleanup();
