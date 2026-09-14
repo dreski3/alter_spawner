@@ -95,6 +95,9 @@ export { createDebateReport, renderDebateReport, writeDebateReport } from "./deb
 export { buildValidateGraph, runValidate } from "./validate.js";
 export { createValidateReport, renderValidateReport, writeValidateReport } from "./validate-report.js";
 export { MAX_VALIDATION_COMMANDS, MAX_VALIDATION_OUTPUT_BYTES, parseValidationCommand, validateAcceptanceContract, runValidationCommand } from "./validation-gate.js";
+export { MAX_COLLABORATE_TASKS, validateCollaboratePlan, selectCollaboratePlan } from "./collaborate-plan.js";
+export { buildCollaboratePlannerGraph, buildCollaborateTaskGraph, runCollaborate } from "./collaborate.js";
+export { createCollaborateReport, renderCollaborateReport, writeCollaborateReport } from "./collaborate-report.js";
 export {
   PRINCIPAL_DEPTH,
   isPrincipalProject,

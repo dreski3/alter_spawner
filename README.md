@@ -267,6 +267,37 @@ Completed runs retain bounded command artifacts, source state, changed files,
 tokens, estimated cost, `validation.json`, `validate-report.json`,
 `validate.html`, and, on success, `validated.patch`.
 
+**Validated collaboration** — `mind work collaborate` asks two to five
+tool-free planners for strict task DAGs, deterministically selects the smallest
+valid plan, and schedules dependency-ready work without a batch barrier.
+Read-only tasks may overlap; writer tasks are ordered and share one isolated Git
+worktree. The host transfers a patch only after the unchanged operator gate
+passes.
+
+```bash
+mind work collaborate \
+  --planner openai/gpt-5.6-luna \
+  --planner xai/grok-4.5 \
+  --worker openai/gpt-5.6-luna \
+  --write packages/core/src \
+  --write packages/core/test \
+  --command '["npm","run","check"]' \
+  --command '["npm","test"]' \
+  --dry-run \
+  --context packages/core/src/graph.js \
+  "Plan the graph scheduler change and its focused tests."
+```
+
+Use `--dry-run` to inspect the selected plan without invoking workers. Replace
+it with `--apply` to execute the plan in a detached worktree. Planner and worker
+models are explicit; `--max-tasks`, `--concurrency`, per-node token limits, the
+whole-run token reservation, command timeouts, and the workflow deadline are
+bounded. Every invocation creates new immutable artifacts:
+`collaboration-plans.json`, `collaboration.json`, `collaborate-report.json`, and
+`collaborate.html`, plus execution, gate, and patch artifacts when applicable.
+Regenerate the report without model calls with `mind work collaborate report
+[graph-folder]`.
+
 **Implementation synthesis** — `mind work fuse` runs two to five distinct,
 isolated, tool-free analysts in parallel, followed by one explicitly selected
 writer. The writer receives the original task/context and labeled analyst

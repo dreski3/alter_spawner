@@ -20,7 +20,7 @@ const alive = (pid) => {
 };
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const withWriterLock = async (root, operation, signal) => {
+export const withWriterLock = async (root, operation, signal) => {
   const lockFile = path.join(kitDir(root), "state", "validate-writer.lock");
   const deadline = Date.now() + 5000;
   let descriptor = null;
@@ -50,7 +50,7 @@ export const validationSourceSnapshot = (root) => {
   };
 };
 
-const canonicalWritePaths = (root, entries) => {
+export const canonicalWritePaths = (root, entries) => {
   if (!Array.isArray(entries) || entries.length < 1 || entries.length > MAX_VALIDATE_WRITE_PATHS) {
     fail(`validate --apply requires between 1 and ${MAX_VALIDATE_WRITE_PATHS} allowed write paths.`);
   }
@@ -98,14 +98,14 @@ const canonicalWritePaths = (root, entries) => {
   });
 };
 
-const mapWritePaths = (worktree, paths) => paths.map((entry) => ({
+export const mapWritePaths = (worktree, paths) => paths.map((entry) => ({
   ...entry,
   worktree: path.join(worktree, entry.relative),
 }));
 
 const allowedChange = (file, paths) => paths.some((entry) => file === entry.relative || file.startsWith(entry.relative + "/"));
 
-const createWorktree = (root, revision) => {
+export const createWorktree = (root, revision) => {
   const top = git(root, ["rev-parse", "--show-toplevel"]).stdout.trim();
   if (realpathSync(top) !== realpathSync(root)) fail("validate --apply must run from the Git repository root.");
   const temporary = mkdtempSync(path.join(tmpdir(), "mind-validate-apply-"));
@@ -166,7 +166,7 @@ const implementerGraph = ({ task, context, contract, model, maxTokens, worktree,
   }],
 });
 
-const runGate = async (workspace, contract, { runner, signal, env, remainingMs, home, prefix }) => {
+export const runFrozenGate = async (workspace, contract, { runner, signal, env, remainingMs, home, prefix }) => {
   const results = [];
   for (let index = 0; index < contract.commands.length; index++) {
     const command = contract.commands[index];
@@ -184,10 +184,10 @@ const runGate = async (workspace, contract, { runner, signal, env, remainingMs, 
   return results;
 };
 
-const gateRunnable = (gate) => gate.every((entry) => !entry.error && !entry.timed_out && !entry.aborted);
-const gatePassed = (gate, contract) => gate.length === contract.commands.length && gate.every((entry) => entry.ok);
+export const gateRunnable = (gate) => gate.every((entry) => !entry.error && !entry.timed_out && !entry.aborted);
+export const gatePassed = (gate, contract) => gate.length === contract.commands.length && gate.every((entry) => entry.ok);
 
-const stagedPatch = (worktree, writePaths) => {
+export const stagedPatch = (worktree, writePaths) => {
   const tracked = git(worktree, ["diff", "--name-only", "-z", "HEAD"]).stdout.split("\0").filter(Boolean);
   const untracked = git(worktree, ["ls-files", "--others", "--exclude-standard", "-z"]).stdout.split("\0").filter((file) => file && file !== ".alters" && !file.startsWith(".alters/"));
   const observed = [...new Set([...tracked, ...untracked])];
@@ -206,10 +206,10 @@ const stagedPatch = (worktree, writePaths) => {
   return { files, patch };
 };
 
-const checkPatch = (root, patch) => git(root, ["apply", "--check", "--whitespace=nowarn", "-"], { input: patch });
-const applyPatch = (root, patch) => git(root, ["apply", "--whitespace=nowarn", "-"], { input: patch });
+export const checkPatch = (root, patch) => git(root, ["apply", "--check", "--whitespace=nowarn", "-"], { input: patch });
+export const applyPatch = (root, patch) => git(root, ["apply", "--whitespace=nowarn", "-"], { input: patch });
 
-const restoreCandidate = (worktree, revision, patch) => {
+export const restoreCandidate = (worktree, revision, patch) => {
   git(worktree, ["reset", "--hard", revision]);
   const untracked = git(worktree, ["ls-files", "--others", "--exclude-standard", "-z"]).stdout.split("\0").filter((file) => file && file !== ".alters" && !file.startsWith(".alters/"));
   for (const file of untracked) rmSync(path.join(worktree, file), { recursive: true, force: true });
@@ -232,7 +232,7 @@ export const runValidateApply = async ({ root, home, contract, options, runOptio
   let finalGate = [];
   let totalCost = designerCost;
   try {
-    baselineGate = await runGate(isolated.worktree, contract, { runner, signal, env: runOptions.env, remainingMs, home, prefix: "baseline" });
+    baselineGate = await runFrozenGate(isolated.worktree, contract, { runner, signal, env: runOptions.env, remainingMs, home, prefix: "baseline" });
     restoreCandidate(isolated.worktree, source.revision, "");
     if (!gateRunnable(baselineGate)) return { status: "baseline_unrunnable", applied: false, baselineGate, finalGate, attempts, changedFiles: [], patch: null, totalCost };
     for (let attempt = 1; attempt <= maxRepairs + 1; attempt++) {
@@ -264,7 +264,7 @@ export const runValidateApply = async ({ root, home, contract, options, runOptio
       record.patch_file = path.join(home, `implementer-attempt-${String(attempt).padStart(2, "0")}.patch`);
       record.changed_files = candidate.files;
       writeTextAtomic(record.patch_file, candidate.patch);
-      finalGate = await runGate(isolated.worktree, contract, { runner, signal, env: runOptions.env, remainingMs, home, prefix: `attempt-${String(attempt).padStart(2, "0")}` });
+      finalGate = await runFrozenGate(isolated.worktree, contract, { runner, signal, env: runOptions.env, remainingMs, home, prefix: `attempt-${String(attempt).padStart(2, "0")}` });
       record.gate = finalGate;
       const gateRevision = git(isolated.worktree, ["rev-parse", "HEAD"]).stdout.trim();
       if (gateRevision !== source.revision) return { status: "gate_unrunnable", applied: false, baselineGate, finalGate, attempts, changedFiles: [], patch: null, totalCost };

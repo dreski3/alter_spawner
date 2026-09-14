@@ -32,7 +32,7 @@ attempt/token/timing data, and API-equivalent pricing snapshot under
 | `opinion` | Implemented | Independent read-only reviewers only. |
 | `debate` | Implemented | Read-only bounded critique rounds; no winner or writer. |
 | `fuse` | Partially implemented | Research and writer synthesis are implemented; applying a change is intentionally not. |
-| `collaborate` | Planned | Validated DAG planning followed by dependency-aware execution. |
+| `collaborate` | Implemented | Validated DAG planning, concurrent readers, serialized isolated writers, and passing-patch transfer. |
 | `validate` | Implemented | Frozen acceptance contract, isolated bounded repairs, deterministic gates, and passing-patch transfer. |
 | `review` | Planned | Structured, read-only architecture/security/test findings. |
 
@@ -225,23 +225,51 @@ flowchart LR
   H --> O[Completed graph trace]
 ```
 
-**Proposed execution:**
+**Implemented interface:**
 
-1. Two or more tool-free planners emit a strict JSON task graph: task IDs,
-   dependencies, role, allowed paths, expected outputs, and validation command.
+```bash
+mind work collaborate \
+  --planner provider-a/planner \
+  --planner provider-b/planner \
+  --worker provider-c/worker \
+  --write packages/core/src \
+  --write packages/core/test \
+  --command '["npm","run","check"]' \
+  --command '["npm","test"]' \
+  [--dry-run | --apply] \
+  [--context file]* [--max-tasks 1-16] [--concurrency 1-16] \
+  [--planner-max-tokens n] [--task-max-tokens n] [--max-total-tokens n] \
+  [--command-timeout-ms n] [--deadline-ms n] [--json] \
+  "<task>"
+```
+
+**Execution:**
+
+1. Two to five tool-free planners emit a strict JSON task graph: task IDs,
+   dependencies, role, approved worker model, allowed paths, expected outputs,
+   and per-task token reservations. Validation commands remain exclusively
+   operator-supplied.
 2. A deterministic validator rejects cycles, unknown dependencies, duplicate
    IDs, invalid paths, missing acceptance checks, and plans whose estimated
    resources exceed the supplied ceiling.
 3. The host selects a valid plan by transparent deterministic rules, persists
    it, and schedules ready tasks with a work-conserving queue.
-4. Read-only tasks may run in parallel. A writer lease serializes every task
-   that can mutate the project. Downstream tasks receive validated artifacts,
-   not ambient working-tree state.
+4. Read-only tasks may run in parallel as soon as their dependencies clear.
+   Writer tasks are transitively ordered and the OpenCode writer lane has
+   concurrency one. In `--apply` mode all writers operate in one detached
+   worktree; only a bounded patch that passes the frozen gate is transferred
+   to an unchanged, clean source checkout under the host writer lock.
 
-**Required controls:** explicit planner/task models or catalog roles;
-`--max-tasks`; graph-wide token/time/concurrency ceilings; task output schemas;
-allowed write paths; one-writer lease; `--dry-run`; and a resume policy based on
-immutable task attempts rather than overwriting old records.
+Each invocation creates a new immutable planner graph and, when applicable, a
+separate persisted execution result. Runs are not resumed or overwritten; a
+retry is a new auditable invocation. The token ceiling is a reservation limit:
+planner reservations plus the selected plan's task reservations must fit
+`--max-total-tokens`.
+
+**Required controls:** explicit planner and worker models; `--max-tasks`;
+whole-workflow token reservation, deadline, and concurrency ceilings; task
+output schemas; allowed write paths; serialized writers; frozen operator gates;
+and exactly one of `--dry-run` or `--apply`.
 
 **Acceptance criteria:** malformed plans never execute; dependency-ready work
 starts without an artificial batch barrier; independent readers may overlap;
@@ -360,8 +388,8 @@ Markdown/HTML; and no automatic fix is triggered.
 2. Add the deterministic plan/patch/validation boundary needed for `fuse --apply`.
 3. Build `validate`; reuse its acceptance-contract and repair primitives for
    `collaborate`.
-4. Build `collaborate` on a work-conserving scheduler, immutable task records,
-   graph-wide budgets, and a host-owned writer lease.
+4. `collaborate` is implemented on a work-conserving scheduler with immutable
+   task records, bounded reservations, and a host-owned writer lease.
 5. Build `review` as a read-only structured-report workflow, then connect it to
    `validate` only through an explicit human or host-approved handoff.
 

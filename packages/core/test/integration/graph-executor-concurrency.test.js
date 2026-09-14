@@ -63,3 +63,32 @@ test("executor lanes serialize SQLite-backed work without reducing direct concur
   assert.equal(directPeak, 2, "independent direct requests should overlap");
   assert.equal(totalPeak, 3, "waiting locked work must not occupy a global slot");
 });
+
+test("the graph scheduler admits newly unblocked work without a ready-batch barrier", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "mind-work-conserving-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(path.join(root, ".alters"));
+  writeFileSync(path.join(root, ".alters/config.json"), JSON.stringify({ default_model: "test/model", retry: { same_harness_retries: 0, fallback_retries: 0 } }));
+  let slowActive = false;
+  let dependentOverlappedSlow = false;
+  registerHarness("work-conserving", {
+    needsAgentHome: false,
+    async run(_home, _prompt, options) {
+      if (options.alterId === "slow") slowActive = true;
+      if (options.alterId === "dependent") dependentOverlappedSlow = slowActive;
+      await new Promise((resolve) => setTimeout(resolve, options.alterId === "slow" ? 80 : 10));
+      if (options.alterId === "slow") slowActive = false;
+      return response(options.alterId);
+    },
+  });
+  const { result } = await runAlterGraph(root, {
+    id: "work-conserving",
+    nodes: [
+      { id: "fast", prompt: "fast", executor: "work-conserving", textOnly: true },
+      { id: "slow", prompt: "slow", executor: "work-conserving", textOnly: true },
+      { id: "dependent", prompt: "{{result:fast}}", depends_on: ["fast"], executor: "work-conserving", textOnly: true },
+    ],
+  }, { concurrency: 2 });
+  assert.equal(result.ok, true);
+  assert.equal(dependentOverlappedSlow, true, "the dependent should start as soon as its own dependency completes");
+});
