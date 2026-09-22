@@ -18,10 +18,8 @@ processes that perform and maintain its work.
 - **Oscillation**: a recurring schedule of spikes grouped into phases. Spikes
   in one phase run concurrently; later phases can be gated by earlier outcomes.
 - **Metabolic layer**: the oscillations and graphs that regulate memory,
-  resource budgets, goal recovery, reward signals, and maintenance. It is
-  analogous to consolidation during sleep: it changes what will be available
-  to future work without pretending that maintenance is the user's current
-  conversation.
+  resource budgets, goal recovery, reward signals, and maintenance. See
+  [Metabolism](metabolism.md) for its execution model and guarantees.
 - **Harness**: the execution adapter behind an Alter. The built-ins cover
   OpenCode sessions and direct tool-free LLM calls; hosts can register others.
 - **Capability**: a fixed operation supplied by the host. Trusted deterministic
@@ -58,17 +56,8 @@ project-authored files.
 
 ## Metabolic execution
 
-Oscillation definitions are versionable configuration. Their last-run state,
-cycle logs, skip reasons, and unattended grants are runtime state. A refractory
-lock prevents concurrent or too-frequent cycles. No unattended capability is
-granted by default: daemon policy is deliberately separate from an interactive
-approval made during chat.
-
-The first built-in maintenance graph inspects a bounded memory snapshot, asks a
-`memory-manager` Alter for an exact operation plan, validates it, and applies it
-atomically through the capability system. This establishes the pattern for
-future reward, goal-finding, tool-improvement, and consolidation processes:
-planning is isolated, effects are explicit, and every cycle is auditable.
+See [Metabolism](metabolism.md) for the execution model, runtime guarantees,
+and maintenance pattern.
 
 ## Design invariants
 

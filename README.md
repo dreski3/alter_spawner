@@ -1,13 +1,19 @@
 # Alter Spawner (`mind`)
 
-Alter Spawner is a framework for building user-facing AI agents whose work is
-performed by isolated processing instances called **Alters**. One execution of
-an Alter is a **spike**. Recurring, phased groups of spikes are
-**oscillations**. Together, graphs, oscillations, memory, capability policies,
-and reward or maintenance tasks form the agent's metabolic layer: background
-work can consolidate memory, revisit unfinished goals, inspect resource use,
-and improve future execution without making every internal process part of the
-agent's conversational context.
+Alter Spawner lets a user-facing parent agent delegate bounded work without
+giving every worker its conversation or authority. The parent receives a
+request, chooses an **Alter** from a catalog, sends it a scoped task and only
+its declared permissions, then waits for one result.
+
+Each Alter runs in a throwaway home with its own session, tools, files, and
+limits. It returns a final result as data. The parent can use that data in its
+reply, pass it to another worker, or reject it; the worker's private working
+context does not become part of the parent conversation.
+
+```text
+person ──request──> parent agent ──scoped task──> isolated Alter
+person <──reply──── parent agent <──result data── isolated Alter
+```
 
 The monorepo currently builds the `mind` CLI and the `@mind/core` embedding
 library. The names are distribution names; Alter Spawner is the framework.
@@ -26,6 +32,7 @@ installation is exercised in the integration suite. See [ROADMAP.md](ROADMAP.md)
 for the remaining publication decisions.
 
 Start with [the architecture](docs/architecture.md) for the framework model,
+[the metabolism guide](docs/metabolism.md) for recurring maintenance,
 [the embedding guide](docs/embedding.md) for host integration, and
 [CONTRIBUTING.md](CONTRIBUTING.md) for the verification and release workflow.
 See [WORKFLOWS.md](WORKFLOWS.md) for the implemented and planned `mind work`
