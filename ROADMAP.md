@@ -15,8 +15,6 @@
 
 ## Framework breadth
 
-- Add Codex as the second session-based coding harness and exercise the harness
-  contract against both implementations.
 - Add semantic retrieval and reranking adapters without changing the memory
   store contract.
 - Add first-class metabolic graphs for reward evaluation, abandoned-goal

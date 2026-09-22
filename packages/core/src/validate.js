@@ -34,7 +34,7 @@ export const buildValidateGraph = ({
   if (typeof context !== "string") fail("validate context must be a string.");
   if (!Number.isInteger(maxTokens) || maxTokens <= 0) fail("validate maxTokens must be a positive integer.");
   if (!Number.isInteger(commandTimeoutMs) || commandTimeoutMs < 1 || commandTimeoutMs > 3_600_000) fail("validate commandTimeoutMs must be between 1 and 3600000.");
-  if (executor !== null && !["llm", "opencode"].includes(executor)) fail("validate executor must be llm or opencode.");
+  if (executor !== null && !["llm", "opencode", "codex"].includes(executor)) fail("validate executor must be llm, opencode, or codex.");
 
   return {
     id: "validate",

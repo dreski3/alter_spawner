@@ -42,7 +42,7 @@ test("fuse CLI accepts explicit direct execution without changing model selectio
 
 
 test("fuse CLI supports an explicit OAuth writer executor override", () => {
-  const parsed = parseFuseArgs([...panel, "--writer", "c/model", "--executor", "llm", "--writer-executor", "opencode", "task"]);
-  assert.equal(parsed.executor, "llm");
+  const parsed = parseFuseArgs([...panel, "--writer", "c/model", "--executor", "codex", "--writer-executor", "opencode", "task"]);
+  assert.equal(parsed.executor, "codex");
   assert.equal(parsed.writerExecutor, "opencode");
 });

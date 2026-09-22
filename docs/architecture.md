@@ -21,7 +21,8 @@ processes that perform and maintain its work.
   resource budgets, goal recovery, reward signals, and maintenance. See
   [Metabolism](metabolism.md) for its execution model and guarantees.
 - **Harness**: the execution adapter behind an Alter. The built-ins cover
-  OpenCode sessions and direct tool-free LLM calls; hosts can register others.
+  OpenCode and Codex sessions plus direct tool-free LLM calls; hosts can
+  register others.
 - **Capability**: a fixed operation supplied by the host. Trusted deterministic
   operations and approval-gated operations use different executors so a model
   cannot silently widen its authority.

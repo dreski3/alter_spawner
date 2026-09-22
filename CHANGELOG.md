@@ -5,6 +5,9 @@ Versioning once public releases begin.
 
 ## 0.1.0 - Unreleased
 
+- Added a Codex CLI coding harness with resumable sessions, image inputs,
+  normalized JSONL usage and tool events, cancellation, and least-privilege
+  filesystem and web-search profiles.
 - Added project-configured direct inference over OpenAI Responses, Anthropic
   Messages, Gemini, and generic OpenAI-compatible endpoints, with OpenCode
   provider discovery retained as a compatibility fallback.

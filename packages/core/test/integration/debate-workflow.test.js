@@ -88,8 +88,9 @@ test("failed evidence is labeled and does not prevent later critics from running
 });
 
 test("debate graph bounds every prior-round edge and validates its controls", () => {
-  const graph = buildDebateGraph({ task: "Review", models: ["a/m", "b/m"], rounds: 1 });
+  const graph = buildDebateGraph({ task: "Review", models: ["a/m", "b/m"], rounds: 1, executor: "codex" });
   assert.equal(graph.max_edge_chars, DEBATE_EDGE_CHARS);
+  assert.equal(graph.nodes[0].executor, "codex");
   assert.deepEqual(graph.nodes.at(-1).depends_on, ["opening_1", "opening_2"]);
   assert.equal(graph.nodes.at(-1).allow_failed_dependencies, true);
   assert.throws(() => buildDebateGraph({ task: "x", models: ["a/m", "b/m"], rounds: 0 }), /between 1 and 3/);

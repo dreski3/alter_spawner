@@ -64,6 +64,14 @@ const resolveExecutor = (o, harness) => {
   return { name, adapter };
 };
 
+const validateExecutorOptions = (name, adapter, o, models) => {
+  try {
+    adapter.validateOptions?.(o, { models });
+  } catch (error) {
+    fail(error?.message || `executor "${name}" rejected this Alter configuration.`);
+  }
+};
+
 // Every Alter runs from an environment with no capability grant in it. A grant is
 // the privilege of one principal turn; an Alter beneath that turn is a sandbox and
 // must not be able to spend it. See withoutCapabilityGrant for why.
@@ -131,11 +139,15 @@ export const spawnAlter = async (
   // reaches for the same adapter.
   o.executor = harnessName;
   const attemptModels = buildAttemptPlan(o, cfg, runtime, { allowRetries: adapter.supportsRetry !== false }).map((attempt) => attempt.model);
+  validateExecutorOptions(harnessName, adapter, o, attemptModels);
   const authorityRuntime = delegateAuthority(o, cfg, runtime, { attemptModels });
   // `mind create` scaffolds a home without running anything, so it costs the tree no
   // node and holds no slot.
   if (createOnly) {
-    const home = scaffold(root, cfg, o, authorityRuntime, { agentFiles: adapter.needsAgentHome });
+    const home = scaffold(root, cfg, o, authorityRuntime, {
+      agentFiles: adapter.needsAgentHome,
+      agentHomeKind: adapter.agentHomeKind,
+    });
     return { home, created: true, depth: o.depth, model: o.model, executor: harnessName };
   }
   // Admission comes before scaffolding: a tree that has spent its budget should say so
@@ -144,7 +156,10 @@ export const spawnAlter = async (
   const { handle: treeNode, runtime: treeRuntime } = await enterTree(root, cfg, o, authorityRuntime);
   let res;
   try {
-    const home = scaffold(root, cfg, o, treeRuntime, { agentFiles: adapter.needsAgentHome });
+    const home = scaffold(root, cfg, o, treeRuntime, {
+      agentFiles: adapter.needsAgentHome,
+      agentHomeKind: adapter.agentHomeKind,
+    });
     const timeout = o.timeout ?? cfg.run_timeout_ms ?? 180000;
     const effectivePrompt = [o.promptPrefix, o.prompt, o.promptSuffix].filter(Boolean).join("\n\n");
     let attempts;
@@ -165,7 +180,7 @@ export const spawnAlter = async (
       runtime: treeRuntime,
       // An adapter with no agent home has no generated agent definition on disk, so
       // there is nothing for a model swap to rewrite.
-      regenerateAgentFile: adapter.needsAgentHome,
+      regenerateAgentFile: adapter.needsAgentHome && adapter.regeneratesAgentFile,
       // A deterministic executor gets exactly one attempt; see buildAttemptPlan.
       allowRetries: adapter.supportsRetry !== false,
     }));
@@ -273,6 +288,7 @@ export const runExistingAlter = async (
   const { name: harnessName, adapter } = resolveExecutor(o, harness);
   o.executor = harnessName;
   const attemptModels = buildAttemptPlan(o, cfg, runtime, { allowRetries: adapter.supportsRetry !== false }).map((attempt) => attempt.model);
+  validateExecutorOptions(harnessName, adapter, o, attemptModels);
   const authorityRuntime = delegateAuthority(o, cfg, runtime, { attemptModels });
   prepareImages(root, cfg, o, authorityRuntime, harnessName, adapter);
   // A re-run is a real process and a real model call, so it draws on the tree budget

@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { registerHarness, runValidate, writeValidateReport } from "@mind/core";
+import { buildValidateGraph, registerHarness, runValidate, writeValidateReport } from "@mind/core";
 import { createWorktree } from "../../src/validate-apply.js";
 
 const fixture = (t) => {
@@ -19,6 +19,16 @@ const fixture = (t) => {
 const response = (text) => ({
   text, tokens: { input: 2, output: 3, reasoning: 0, cache_read: 0, total: 5 }, sessionID: null,
   steps: 1, exitCode: 0, killed: false, ok: true, budget_exceeded: false, empty_output: false,
+});
+
+test("validate accepts the Codex executor", () => {
+  const graph = buildValidateGraph({
+    task: "Review",
+    model: "openai/gpt-5.6-sol",
+    commands: [["npm", "test"]],
+    executor: "codex",
+  });
+  assert.equal(graph.nodes[0].executor, "codex");
 });
 
 const git = (root, ...args) => {

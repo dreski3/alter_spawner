@@ -18,12 +18,12 @@ test("validate CLI parses explicit immutable commands and ceilings", () => {
 test("validate CLI requires an explicit implementer and write boundary for apply", () => {
   assert.deepEqual(parseValidateArgs([
     "--model", "a/designer", "--command", '["npm","test"]', "--apply",
-    "--implementer", "b/implementer", "--write", "packages/core/src", "--max-repairs", "2", "Fix it",
+    "--implementer", "b/implementer", "--write", "packages/core/src", "--max-repairs", "2", "--executor", "codex", "Fix it",
   ]), {
     help: false, task: "Fix it", model: "a/designer", commands: [["npm", "test"]], contextFiles: [],
     maxTokens: 4000, commandTimeoutMs: 300000, deadlineMs: 900000, maxCostUsd: null, dryRun: false,
     apply: true, maxRepairs: 2, implementerMaxTokens: 16000, writePaths: ["packages/core/src"], json: false,
-    implementer: "b/implementer",
+    implementer: "b/implementer", executor: "codex",
   });
   assert.throws(() => parseValidateArgs(["--model", "a/designer", "--command", '["npm","test"]', "--apply", "task"]), /requires --implementer/);
   assert.throws(() => parseValidateArgs(["--model", "a/designer", "--command", '["npm","test"]', "--apply", "--implementer", "b/implementer", "task"]), /--write paths/);

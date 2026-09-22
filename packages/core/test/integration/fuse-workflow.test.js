@@ -144,7 +144,7 @@ test("fuse applies an explicit tool-free executor to all graph nodes", () => {
 
 
 test("fuse can route direct analysts and an OAuth writer through different executors", () => {
-  const graph = buildFuseGraph({ ...options, executor: "llm", writerExecutor: "opencode" });
-  assert.deepEqual(graph.nodes.map((node) => node.executor), ["llm", "llm", "opencode"]);
+  const graph = buildFuseGraph({ ...options, executor: "codex", writerExecutor: "opencode" });
+  assert.deepEqual(graph.nodes.map((node) => node.executor), ["codex", "codex", "opencode"]);
   assert.throws(() => buildFuseGraph({ ...options, writerExecutor: "shell" }), /writerExecutor/);
 });

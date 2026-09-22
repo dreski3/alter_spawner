@@ -43,9 +43,9 @@ workflow designs.
 - **`packages/core`** (`@mind/core`) — the engine. Project-root discovery
   (walks up from `cwd` for `.alters/config.json`, like `git` finds `.git`),
   catalog resolution, Alter-home scaffolding, retry/fallback, and a
-  harness-adapter interface (`src/harness/adapter.js`) with a session-based
-  `opencode` adapter and a direct, tool-free `llm` adapter. Library callers can
-  use `parseSpawnArgs` plus `spawnAlter` directly and pass an `AbortSignal` to
+  harness-adapter interface (`src/harness/adapter.js`) with session-based
+  `opencode` and `codex` adapters plus a direct, tool-free `llm` adapter.
+  Library callers can use `parseSpawnArgs` plus `spawnAlter` directly and pass an `AbortSignal` to
   cancel the underlying harness process without shelling out to `mind`.
   `runAlterGraph` executes validated dependency graphs, runs ready branches in
   parallel, interpolates dependency results, and checkpoints a graph trace.
@@ -76,7 +76,7 @@ mind spawn --image ./diagram.png --model openai/gpt-4o "Explain this diagram."
 ```
 
 `--image <file>` is repeatable and attaches PNG, JPEG, GIF, or WebP files to an
-OpenCode-backed Alter. The selected model and every configured fallback must
+image-capable Alter. The selected model and every configured fallback must
 accept image input and return text. Images are bounded to 8 files, 20 MiB each,
 and 40 MiB total. Run records retain only filename, media type, size, and SHA-256;
 the image bytes and original paths are not copied into the Alter home.
@@ -198,6 +198,31 @@ through OpenCode's model catalog and auth files.
 Use `executor: "llm"` on a catalog entry or `--executor llm` at invocation.
 The OpenAI, Anthropic, and Gemini protocols use their standard public base URL
 when `base_url` is omitted. `openai-compatible` requires an explicit base URL.
+
+The `codex` executor runs the installed Codex CLI non-interactively and reuses
+its existing authentication. It accepts OpenAI model references, strips the
+`openai/` namespace for the CLI, preserves session IDs for resumed turns, and
+normalizes Codex JSONL events into the same result, usage, tool, cancellation,
+retry, image, and event-log contract as OpenCode.
+
+```bash
+mind spawn \
+  --executor codex \
+  --model openai/gpt-5.6-sol \
+  --name codex-reviewer \
+  --description "Reviews the requested code change." \
+  "Review the implementation and report concrete defects."
+```
+
+Codex runs with user configuration ignored except for authentication, its own
+subagent spawning disabled, command network access disabled, and a per-run
+permission profile that denies the rest of the filesystem while granting the
+Alter home plus declared read/write paths. Shell commands receive only Codex's
+reduced core environment with automatic secret filtering. `--web` enables
+Codex's hosted live web search without opening command networking. Codex currently rejects
+`--nestable`, `--bash-only`, `--bash-allow`, `opencode_provider`, and
+`opencode_variant` because those controls do not have equivalent Codex CLI
+enforcement.
 
 **Graph runs** — library callers can define chains and branches with
 `runAlterGraph`. A node consumes a direct dependency using
@@ -373,8 +398,9 @@ the server cannot start, OpenCode nodes fall back to safe serial execution. This
 maximizes safe concurrency without a manual `--concurrency` value. The writer is
 selected independently by the same rule.
 
-`--executor llm` or `--executor opencode` remains an explicit override for all
-analysts. `--writer-executor` overrides the writer separately (for example,
+`--executor llm`, `--executor opencode`, or `--executor codex` remains an
+explicit override for all analysts. `--writer-executor` overrides the writer
+separately (for example,
 `--executor llm --writer-executor opencode` for direct Mistral analysts and an
 OAuth writer). Unsupported explicitly requested direct providers fail without
 switching executors or models.
@@ -635,8 +661,9 @@ untouched with `storage: null`.
   release decision.
 - OpenCode runs in `--pure` mode by default to avoid loading external plugins.
   A custom provider can still require its configured AI SDK runtime package.
-- Only one session-based coding harness exists (`opencode`). The direct `llm`
-  executor exercises the adapter contract but has no tools or sessions.
+- The `codex` harness currently supports only OpenAI model references and does
+  not support nestable or command-allowlisted Alters. Use `opencode` for those
+  cases. The direct `llm` executor has no tools or sessions.
 - Persistent-memory retrieval is lexical. SQLite adds FTS indexing, but no
   embedding/vector or semantic-reranking adapter exists yet.
 - Output validation is opt-in. Catalog entries without `output_contract` still

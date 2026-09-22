@@ -7,14 +7,14 @@ const MAX_CONTEXT_FILE_BYTES = 32 * 1024;
 const MAX_CONTEXT_BYTES = 128 * 1024;
 
 const usage = () => {
-  console.error("usage: mind work fuse --model <provider/model> (2-5) --writer <provider/model> [--executor llm|opencode] [--writer-executor llm|opencode] [--context <file>]* [--max-tokens <n>] [--concurrency <n>] [--json] <task>");
+  console.error("usage: mind work fuse --model <provider/model> (2-5) --writer <provider/model> [--executor llm|opencode|codex] [--writer-executor llm|opencode|codex] [--context <file>]* [--max-tokens <n>] [--concurrency <n>] [--json] <task>");
   console.error("usage: mind work opinion --model <provider/model> --model <provider/model> [--model <provider/model> ...]");
   console.error("                         [--context <file>]* [--max-tokens <n>] [--concurrency <n>] [--json] <task>");
-  console.error("usage: mind work debate --model <provider/model> (2-5) [--rounds <1-3>] [--executor llm|opencode]");
+  console.error("usage: mind work debate --model <provider/model> (2-5) [--rounds <1-3>] [--executor llm|opencode|codex]");
   console.error("                         [--context <file>]* [--max-tokens <n>] [--concurrency <n>] [--json] <task>");
   console.error("usage: mind work validate --model <provider/model> --command '[\"npm\",\"test\"]' [--command <JSON argv>]*");
   console.error("                         [--dry-run | --apply --implementer <provider/model> --write <path> [--write <path>]*]");
-  console.error("                         [--max-repairs <0-3>] [--implementer-max-tokens <n>] [--executor llm|opencode]");
+  console.error("                         [--max-repairs <0-3>] [--implementer-max-tokens <n>] [--executor llm|opencode|codex]");
   console.error("                         [--context <file>]* [--max-tokens <n>] [--command-timeout-ms <n>]");
   console.error("                         [--deadline-ms <n>] [--max-cost-usd <n>] [--json] <task>");
   console.error("usage: mind work collaborate --planner <provider/model> (2-5) --worker <provider/model> (1-5)");
@@ -62,10 +62,10 @@ const parseWorkArgs = (argv, workflow) => {
       models.push(argv[++i].trim());
     } else if (parseFlags && arg === "--writer-executor" && workflow === "fuse") {
       writerExecutor = argv[++i];
-      if (!["llm", "opencode"].includes(writerExecutor)) fail("--writer-executor must be llm or opencode.");
+      if (!["llm", "opencode", "codex"].includes(writerExecutor)) fail("--writer-executor must be llm, opencode, or codex.");
     } else if (parseFlags && arg === "--executor" && ["fuse", "debate"].includes(workflow)) {
       executor = argv[++i];
-      if (!["llm", "opencode"].includes(executor)) fail("--executor must be llm or opencode.");
+      if (!["llm", "opencode", "codex"].includes(executor)) fail("--executor must be llm, opencode, or codex.");
     } else if (parseFlags && arg === "--rounds" && workflow === "debate") {
       rounds = positiveInteger(argv[++i], "--rounds", { max: 3 });
     } else if (parseFlags && arg === "--writer" && workflow === "fuse") {
@@ -159,7 +159,7 @@ export const parseValidateArgs = (argv) => {
       writePaths.push(argv[++i]);
     } else if (parseFlags && arg === "--executor") {
       executor = argv[++i];
-      if (!["llm", "opencode"].includes(executor)) fail("--executor must be llm or opencode.");
+      if (!["llm", "opencode", "codex"].includes(executor)) fail("--executor must be llm, opencode, or codex.");
     } else if (parseFlags && arg === "--context") {
       if (!argv[i + 1]) fail("--context requires a file path.");
       contextFiles.push(argv[++i]);
