@@ -68,6 +68,10 @@ export const runAlterGraph = async (
     // cannot tell which one is streaming.
     onEvent,
     memory = null,
+    // Optional per-executor lanes sit underneath the graph-wide limit. This lets a
+    // workflow keep direct HTTP nodes fully parallel while serializing an executor
+    // with a shared mutable store, such as OpenCode's SQLite database.
+    executorConcurrency = null,
   } = {},
 ) => {
   const runtime = resolveRuntime(runtimeOverride);
@@ -151,98 +155,120 @@ export const runAlterGraph = async (
     persist();
   }
   const limit = Number.isFinite(concurrency) ? Math.max(1, Math.floor(concurrency)) : nodes.size;
+  const laneCounts = new Map();
+  const withLimit = async (key, laneLimit, run) => {
+    const active = laneCounts.get(key) || new Set();
+    laneCounts.set(key, active);
+    while (active.size >= laneLimit) await Promise.race(active);
+    const job = Promise.resolve().then(run);
+    // Waiters care only that a slot was released. A failed job is still observed by
+    // its owner below and must not reject an unrelated node waiting for the lane.
+    const ticket = job.then(() => undefined, () => undefined);
+    active.add(ticket);
+    try {
+      return await job;
+    } finally {
+      active.delete(ticket);
+    }
+  };
+  const withExecutorLane = (executor, run) => {
+    const laneLimit = Number(executorConcurrency?.[executor]);
+    return Number.isInteger(laneLimit) && laneLimit > 0
+      ? withLimit(`executor:${executor}`, laneLimit, run)
+      : run();
+  };
+  const withGlobalLane = (run) => withLimit("graph", limit, run);
   const pending = new Set(nodes.keys());
   const curationJobs = [];
-  while (pending.size) {
+  const runNode = async (id) => {
+    const node = nodes.get(id);
+    const record = records[id];
+    if (signal?.aborted) {
+      record.state = "skipped";
+      record.error = "graph aborted";
+      persist();
+      return;
+    }
+    const failedDependency = node.allow_failed_dependencies
+      ? null
+      : node.depends_on.find((dependency) => records[dependency].state !== "succeeded");
+    if (failedDependency) {
+      record.state = "skipped";
+      const dependencyError = records[failedDependency].error;
+      record.error = `dependency "${failedDependency}" did not succeed${dependencyError ? `: ${dependencyError}` : ""}`;
+      persist();
+      return;
+    }
+    record.state = "running";
+    persist();
+    try {
+      const truncatedEdges = [];
+      const options = buildGraphSpawnOptions({
+        ...node,
+        prompt: renderGraphPrompt(node, records, {
+          maxEdgeChars: graph.max_edge_chars === undefined ? undefined : graph.max_edge_chars,
+          onTruncate: (edge) => truncatedEdges.push(edge),
+        }),
+      }, graphId, mindBinPath);
+      if (recalledContexts.get(id)) options.prompt += recalledContexts.get(id);
+      if (truncatedEdges.length) record.truncated_edges = truncatedEdges;
+      const effectiveExecutor = options.executor || harness || "opencode";
+      const spawned = await withExecutorLane(effectiveExecutor, () => withGlobalLane(() => spawnAlter(root, options, {
+        harness,
+        signal,
+        runtime,
+        onEvent: onEvent ? (event) => onEvent({ ...event, node: id }) : undefined,
+      })));
+      record.home = spawned.home;
+      record.result = spawned.result;
+      record.state = spawned.result.ok ? "succeeded" : "failed";
+      if (!spawned.result.ok) record.error = describeAlterFailure(spawned.result);
+      if (spawned.result.ok && node.memory?.curate) {
+        const trace = record.memory.curate;
+        trace.state = "queued";
+        curationJobs.push(async () => {
+          trace.state = "running";
+          persist();
+          try {
+            if (!memoryScope) throw new Error("graph memory hooks require options.memory.scope");
+            const curated = await curateWorkflow(root, {
+              content: spawned.result.text,
+              scope: { ...memoryScope, ...(node.memory.curate.namespace ? { namespace: node.memory.curate.namespace } : {}) },
+              source: { runId: spawned.result.id || null, catalogId: node.catalog || null },
+              approvals: memory?.curateApprovals,
+              signal,
+              onEvent: onEvent ? (event) => onEvent({ ...event, node: id, memory: "curate" }) : undefined,
+              runtime,
+              harness,
+            });
+            trace.record_ids = curated.records?.map((memoryRecord) => memoryRecord.id) || [];
+            trace.state = "succeeded";
+            memoryCycle.curated_records += trace.record_ids.length;
+          } catch (error) {
+            trace.state = "failed";
+            trace.error = error instanceof Error ? error.message : String(error);
+          }
+          persist();
+        });
+      }
+    } catch (error) {
+      record.state = "failed";
+      record.error = error instanceof Error ? error.message : String(error);
+    }
+    persist();
+  };
+  const active = new Map();
+  while (pending.size || active.size) {
     const ready = [...pending].filter((id) =>
       nodes.get(id).depends_on.every((dependency) => records[dependency].state !== "pending" && records[dependency].state !== "running")
     );
-    if (ready.length === 0) fail("alter graph scheduler reached an invalid state.");
-    for (let offset = 0; offset < ready.length; offset += limit) {
-      const batch = ready.slice(offset, offset + limit);
-      await Promise.all(
-        batch.map(async (id) => {
-          pending.delete(id);
-          const node = nodes.get(id);
-          const record = records[id];
-          if (signal?.aborted) {
-            record.state = "skipped";
-            record.error = "graph aborted";
-            persist();
-            return;
-          }
-          const failedDependency = node.depends_on.find((dependency) => records[dependency].state !== "succeeded");
-          if (failedDependency) {
-            record.state = "skipped";
-            record.error = `dependency "${failedDependency}" did not succeed`;
-            persist();
-            return;
-          }
-          record.state = "running";
-          persist();
-          try {
-            const truncatedEdges = [];
-            const options = buildGraphSpawnOptions(
-              {
-                ...node,
-                prompt: renderGraphPrompt(node, records, {
-                  maxEdgeChars: graph.max_edge_chars === undefined ? undefined : graph.max_edge_chars,
-                  onTruncate: (edge) => truncatedEdges.push(edge),
-                }),
-              },
-              graphId,
-              mindBinPath
-            );
-            if (recalledContexts.get(id)) options.prompt += recalledContexts.get(id);
-            // Recorded on the node that received the shortened input, so the trace
-            // shows which prompt was cut rather than leaving it to be inferred.
-            if (truncatedEdges.length) record.truncated_edges = truncatedEdges;
-            const spawned = await spawnAlter(root, options, {
-              harness,
-              signal,
-              runtime,
-              onEvent: onEvent ? (event) => onEvent({ ...event, node: id }) : undefined,
-            });
-            record.home = spawned.home;
-            record.result = spawned.result;
-            record.state = spawned.result.ok ? "succeeded" : "failed";
-            if (!spawned.result.ok) record.error = describeAlterFailure(spawned.result);
-            if (spawned.result.ok && node.memory?.curate) {
-              const trace = record.memory.curate;
-              trace.state = "queued";
-              curationJobs.push(async () => {
-                trace.state = "running";
-                persist();
-                try {
-                  if (!memoryScope) throw new Error("graph memory hooks require options.memory.scope");
-                  const curated = await curateWorkflow(root, {
-                    content: spawned.result.text,
-                    scope: { ...memoryScope, ...(node.memory.curate.namespace ? { namespace: node.memory.curate.namespace } : {}) },
-                    source: { runId: spawned.result.id || null, catalogId: node.catalog || null },
-                    approvals: memory?.curateApprovals,
-                    signal,
-                    onEvent: onEvent ? (event) => onEvent({ ...event, node: id, memory: "curate" }) : undefined,
-                    runtime,
-                    harness,
-                  });
-                  trace.record_ids = curated.records?.map((memoryRecord) => memoryRecord.id) || [];
-                  trace.state = "succeeded";
-                  memoryCycle.curated_records += trace.record_ids.length;
-                } catch (error) {
-                  trace.state = "failed";
-                  trace.error = error instanceof Error ? error.message : String(error);
-                }
-                persist();
-              });
-            }
-          } catch (error) {
-            record.state = "failed";
-            record.error = error instanceof Error ? error.message : String(error);
-          }
-          persist();
-        })
-      );
+    for (const id of ready) {
+      pending.delete(id);
+      const job = runNode(id).finally(() => active.delete(id));
+      active.set(id, job);
     }
+    if (active.size) await Promise.race(active.values());
+    else if (pending.size) fail("alter graph scheduler reached an invalid state.");
   }
   await Promise.all(curationJobs.map((run) => run()));
   if (memoryCycle) memoryCycle.state = "completed";

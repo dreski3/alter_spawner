@@ -540,6 +540,55 @@ export function runExistingAlter(
 
 export function resolveEffectiveModel(options: SpawnOptions, cfg: MindConfig, runtime?: Runtime): string;
 
+export type Opinion = {
+  model: string;
+  state: "pending" | "running" | "succeeded" | "failed" | "skipped";
+  text: string | null;
+  error: string | null;
+};
+export function buildOpinionGraph(options: {
+  task: string;
+  models: string[];
+  context?: string;
+  maxTokens?: number | null;
+}): AlterGraph;
+export function runOpinion(
+  root: string,
+  options: { task: string; models: string[]; context?: string; maxTokens?: number | null },
+  runOptions?: {
+    harness?: string | null;
+    signal?: AbortSignal;
+    concurrency?: number;
+    mindBinPath?: string | null;
+    runtime?: Runtime;
+    onProgress?: (result: AlterGraphResult) => void;
+    onEvent?: (event: AlterRuntimeEvent & { node: string }) => void;
+  },
+): Promise<{ home: string; result: AlterGraphResult; report: OpinionReportFiles; opinions: Opinion[] }>;
+
+export type OpinionPricing = {
+  source: "opencode-model-catalog";
+  rates_usd_per_million: { input: number | null; output: number | null; cache_read: number | null };
+};
+export type OpinionReport = {
+  schema_version: 1;
+  workflow: "opinion";
+  graph_home: string;
+  graph_id: string;
+  generated_at: string;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_ms: number | null;
+  status: string | null;
+  pricing: { source: "opencode-model-catalog" | "unavailable"; catalog_path: string | null; unit: "USD per million tokens"; note: string };
+  totals: { reviewers: number; succeeded: number; tokens: number; reviewer_duration_ms: number; estimated_api_cost_usd: number | null };
+  opinions: Array<Opinion & { id: string; executor: string | null; attempts: number; max_tokens: number | null; started_at: string | null; ended_at: string | null; duration_ms: number | null; tokens: AlterTokens; pricing: OpinionPricing | null; estimated_api_cost_usd: number | null }>;
+};
+export type OpinionReportFiles = { report: OpinionReport; html: string; json: string };
+export function createOpinionReport(options: { home: string; result: AlterGraphResult; env?: Record<string, string | undefined> }): OpinionReport;
+export function renderOpinionReport(report: OpinionReport): string;
+export function writeOpinionReport(home: string, result: AlterGraphResult, options?: { env?: Record<string, string | undefined> }): OpinionReportFiles;
+
 export const PRINCIPAL_DEPTH: -1;
 
 export function isPrincipalProject(projectDir: string): boolean;
@@ -642,6 +691,7 @@ export type AlterGraphNode = {
   catalog?: string;
   description?: string;
   model?: string;
+  executor?: string | null;
   fallbackModel?: string;
   maxTokens?: number;
   timeout?: number;
@@ -649,6 +699,7 @@ export type AlterGraphNode = {
   writeGrants?: string[];
   bashAllow?: string[];
   bashOnly?: boolean;
+  textOnly?: boolean;
   nestable?: boolean;
   allowedCatalogs?: string[] | null;
   webAccess?: boolean;
@@ -657,6 +708,8 @@ export type AlterGraphNode = {
   opencodeProvider?: Record<string, unknown>;
   opencodeVariant?: string;
   outputContract?: OutputContract;
+  /** Continue after terminal failed dependencies; their prompt placeholders become labeled unavailable evidence. */
+  allow_failed_dependencies?: boolean;
   memory?: {
     recall?: boolean | { namespace?: string; query?: string };
     curate?: boolean | { namespace?: string };
@@ -690,7 +743,7 @@ export function validateGraph(graph: AlterGraph): {
 export const DEFAULT_MAX_EDGE_CHARS: number;
 export function renderGraphPrompt(
   node: AlterGraphNode,
-  records: Record<string, { result: { text: string } }>,
+  records: Record<string, { state?: Opinion["state"]; result: { text: string } | null; error?: string | null }>,
   options?: {
     maxEdgeChars?: number | null;
     onTruncate?: (event: { from: string; to: string; kept: number; total: number }) => void;
@@ -708,6 +761,31 @@ export type GraphMemoryRuntime = {
 /** Why an Alter run failed, in one actionable sentence. Reports a token-budget overrun ahead of any contract failure it caused. */
 export function describeAlterFailure(result: AlterResult | AlterResponse): string;
 
+export type AlterGraphResult = {
+  schema_version: number;
+  id: string;
+  ok: boolean;
+  state: "running" | "completed";
+  output_node: string;
+  output: string | null;
+  tokens: AlterTokens;
+  node_counts: { total: number; succeeded: number; failed: number; skipped: number };
+  started_at: string;
+  ended_at: string | null;
+  duration_ms: number | null;
+  memory_cycle: Record<string, unknown> | null;
+  nodes: Record<string, {
+    id: string;
+    state: Opinion["state"];
+    depends_on: string[];
+    home: string | null;
+    result: AlterResult | null;
+    error: string | null;
+    truncated_edges: Array<{ from: string; to: string; kept: number; total: number }> | null;
+    memory: Record<string, unknown> | null;
+  }>;
+};
+
 export function runAlterGraph(
   root: string,
   graph: AlterGraph,
@@ -717,11 +795,27 @@ export function runAlterGraph(
     concurrency?: number;
     mindBinPath?: string;
     runtime?: Runtime;
-    onProgress?: (result: Record<string, unknown>) => void;
+    onProgress?: (result: AlterGraphResult) => void;
     onEvent?: (event: AlterRuntimeEvent & { node: string; memory?: "recall" | "curate" }) => void;
     memory?: GraphMemoryRuntime | null;
+    executorConcurrency?: Record<string, number> | null;
   },
-): Promise<{ home: string; result: Record<string, unknown> }>;
+): Promise<{ home: string; result: AlterGraphResult }>;
+
+export function selectWorkflowExecutors(
+  graph: AlterGraph,
+  options?: { env?: NodeJS.ProcessEnv; resolveDirect?: (model: string, env?: NodeJS.ProcessEnv) => unknown },
+): AlterGraph;
+export const WORKFLOW_EXECUTOR_CONCURRENCY: Readonly<{ opencode: 1 }>;
+export function prepareWorkflowConcurrency(
+  graph: AlterGraph,
+  runOptions?: Record<string, unknown> & { runtime?: Runtime; executorConcurrency?: Record<string, number> | null },
+  dependencies?: { startServer?: typeof startWorkflowOpenCodeServer },
+): Promise<{ options: Record<string, unknown>; stop: () => Promise<void> }>;
+export function startWorkflowOpenCodeServer(options?: {
+  environment?: NodeJS.ProcessEnv;
+  startupTimeoutMs?: number;
+}): Promise<{ url: string; environment: NodeJS.ProcessEnv; stop: () => Promise<void> }>;
 
 export type ApprovalDecision = "allow-once" | "allow-run" | "always-catalog" | "deny";
 
@@ -1930,3 +2024,269 @@ export class CapabilityRequestError extends Error {
 }
 
 export class MindError extends Error {}
+
+export type FuseOptions = { task: string; models: string[]; writer: string; context?: string; maxTokens?: number | null; executor?: "llm" | "opencode" | null; writerExecutor?: "llm" | "opencode" | null };
+export type FuseEntry = Opinion & { id: string };
+export type FuseReport = Omit<OpinionReport, "workflow" | "opinions" | "totals"> & {
+  workflow: "fuse";
+  nodes: Array<Omit<OpinionReport["opinions"][number], "model"> & { model: string | null; role: "analyst" | "writer" }>;
+  totals: { nodes: number; analysts: number; succeeded: number; tokens: number; node_duration_ms: number; estimated_api_cost_usd: number | null };
+};
+export type FuseResult = {
+  home: string;
+  result: AlterGraphResult;
+  analysts: FuseEntry[];
+  writer: FuseEntry;
+  report: FuseReportFiles;
+  answer: string | null;
+};
+export function buildFuseGraph(options: FuseOptions): AlterGraph;
+export function runFuse(root: string, options: FuseOptions, runOptions?: NonNullable<Parameters<typeof runOpinion>[2]> & { env?: Record<string, string | undefined> }): Promise<FuseResult>;
+
+export type FuseReportFiles = { report: FuseReport; json: string; html: string };
+export function createFuseReport(options: { home: string; result: AlterGraphResult; env?: Record<string, string | undefined>; models?: Record<string, string> }): FuseReport;
+export function renderFuseReport(report: FuseReport): string;
+export function writeFuseReport(home: string, result: AlterGraphResult, options?: { env?: Record<string, string | undefined>; models?: Record<string, string> }): FuseReportFiles;
+
+export const MAX_DEBATE_ROUNDS: 3;
+export const DEBATE_EDGE_CHARS: number;
+export type DebateOptions = {
+  task: string;
+  models: string[];
+  context?: string;
+  rounds?: number;
+  maxTokens?: number | null;
+  executor?: "llm" | "opencode" | null;
+};
+export type DebateEntry = Opinion & {
+  id: string;
+  round: number;
+  reviewer: number;
+  phase: "opening" | "critique";
+};
+export type DebateReport = Omit<OpinionReport, "workflow" | "opinions" | "totals"> & {
+  workflow: "debate";
+  critique_rounds: number;
+  nodes: Array<OpinionReport["opinions"][number] & { round: number | null; reviewer: number | null; phase: "opening" | "critique" | "unknown" }>;
+  totals: { nodes: number; reviewers: number; succeeded: number; tokens: number; node_duration_ms: number; estimated_api_cost_usd: number | null };
+};
+export type DebateReportFiles = { report: DebateReport; json: string; html: string };
+export type DebateResult = {
+  home: string;
+  result: AlterGraphResult;
+  critiqueRounds: number;
+  rounds: Array<{ round: number; phase: "opening" | "critique"; entries: DebateEntry[] }>;
+  report: DebateReportFiles;
+};
+export function buildDebateGraph(options: DebateOptions): AlterGraph;
+export function runDebate(root: string, options: DebateOptions, runOptions?: NonNullable<Parameters<typeof runOpinion>[2]> & { env?: Record<string, string | undefined> }): Promise<DebateResult>;
+export function createDebateReport(options: { home: string; result: AlterGraphResult; env?: Record<string, string | undefined> }): DebateReport;
+export function renderDebateReport(report: DebateReport): string;
+export function writeDebateReport(home: string, result: AlterGraphResult, options?: { env?: Record<string, string | undefined> }): DebateReportFiles;
+
+export const MAX_VALIDATION_COMMANDS: 8;
+export const MAX_VALIDATION_OUTPUT_BYTES: number;
+export type ValidationCommand = {
+  argv: string[];
+  purpose: string;
+  expected_exit_code: number;
+  timeout_ms: number;
+};
+export type AcceptanceContract = {
+  summary: string;
+  commands: ValidationCommand[];
+  relevant_files: string[];
+  negative_cases: Array<{ case: string; expected: string }>;
+};
+export type ValidationCommandResult = {
+  argv: string[];
+  exit_code: number | null;
+  signal: string | null;
+  timed_out: boolean;
+  aborted: boolean;
+  error: string | null;
+  duration_ms: number;
+  stdout: string;
+  stderr: string;
+  stdout_truncated: boolean;
+  stderr_truncated: boolean;
+  ok?: boolean;
+};
+export type ValidateSourceSnapshot = { revision: string | null; changed_files: string[] };
+export type ValidateImplementerAttempt = {
+  attempt: number;
+  result_file: string;
+  patch_file: string | null;
+  changed_files: string[];
+  state: string;
+  ok: boolean;
+  error: string | null;
+  cost_usd: number | null;
+  tokens: AlterTokens;
+  duration_ms: number | null;
+  summary: string | null;
+  gate: ValidationCommandResult[];
+};
+export type ValidateApplication = {
+  status: "baseline_unrunnable" | "deadline_exceeded" | "implementation_failed" | "cost_exceeded" | "gate_unrunnable" | "passed_no_changes" | "applied" | "repair_exhausted" | "apply_rejected";
+  applied: boolean;
+  error?: string;
+  baselineGate: ValidationCommandResult[];
+  finalGate: ValidationCommandResult[];
+  attempts: ValidateImplementerAttempt[];
+  changedFiles: string[];
+  patch: string | null;
+  totalCost: number | null;
+};
+export type ValidateAudit = {
+  schema_version: 1;
+  workflow: "validate";
+  status: "designer_failed" | "contract_rejected" | "contract_ready" | "gate_failed" | "passed" | ValidateApplication["status"];
+  dry_run: boolean;
+  apply: boolean;
+  task: string;
+  model: string;
+  contract: AcceptanceContract | null;
+  contract_error: string | null;
+  gate: ValidationCommandResult[];
+  application: ValidateApplication | null;
+  source_before: ValidateSourceSnapshot;
+  source_after: ValidateSourceSnapshot;
+  deadline_ms: number;
+  command_timeout_ms: number;
+  max_cost_usd: number | null;
+  duration_ms: number;
+};
+export type ValidateOptions = {
+  task: string;
+  model: string;
+  commands: Array<string | string[]>;
+  context?: string;
+  contextFiles?: string[];
+  maxTokens?: number;
+  executor?: "llm" | "opencode" | null;
+  commandTimeoutMs?: number;
+  deadlineMs?: number;
+  maxCostUsd?: number | null;
+  dryRun?: boolean;
+  apply?: boolean;
+  implementer?: string;
+  writePaths?: string[];
+  maxRepairs?: number;
+  implementerMaxTokens?: number;
+};
+export type ValidateReport = {
+  schema_version: 1;
+  workflow: "validate";
+  graph_home: string;
+  graph_id: string;
+  generated_at: string;
+  status: string;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_ms: number | null;
+  pricing: OpinionReport["pricing"];
+  totals: { nodes: number; succeeded: number; tokens: number; node_duration_ms: number; estimated_api_cost_usd: number | null };
+  aggregate_tokens: AlterTokens;
+  designer: OpinionReport["opinions"][number];
+  audit: ValidateAudit | null;
+};
+export type ValidateReportFiles = { report: ValidateReport; json: string; html: string };
+export type ValidateResult = { home: string; result: AlterGraphResult; audit: ValidateAudit; report: ValidateReportFiles; ok: boolean; status: ValidateAudit["status"] };
+export function parseValidationCommand(value: string | string[], label?: string): readonly string[];
+export function validateAcceptanceContract(value: unknown, options: { root: string; allowedCommands: Array<string | string[]>; allowedFiles?: string[]; commandTimeoutMs: number; resolvePath?: (root: string, relative?: string) => string }): AcceptanceContract;
+export function runValidationCommand(root: string, argv: string[], options: { timeoutMs: number; signal?: AbortSignal; env?: Record<string, string | undefined>; maxOutputBytes?: number; now?: () => number }): Promise<ValidationCommandResult>;
+export function buildValidateGraph(options: ValidateOptions): AlterGraph;
+export function runValidate(root: string, options: ValidateOptions, runOptions?: NonNullable<Parameters<typeof runOpinion>[2]> & { env?: Record<string, string | undefined>; commandRunner?: typeof runValidationCommand; implementerHarness?: string }): Promise<ValidateResult>;
+export function createValidateReport(options: { home: string; result: AlterGraphResult; env?: Record<string, string | undefined>; model?: string; audit?: ValidateAudit | null }): ValidateReport;
+export function renderValidateReport(report: ValidateReport): string;
+export function writeValidateReport(home: string, result: AlterGraphResult, options?: { env?: Record<string, string | undefined>; model?: string; audit?: ValidateAudit | null }): ValidateReportFiles;
+
+export const MAX_COLLABORATE_TASKS: 16;
+export type CollaborateTask = {
+  id: string;
+  title: string;
+  role: "reader" | "writer";
+  model: string;
+  depends_on: string[];
+  instructions: string;
+  allowed_paths: string[];
+  expected_output: string;
+  max_tokens: number;
+};
+export type CollaboratePlan = { summary: string; tasks: CollaborateTask[]; reserved_tokens: number };
+export type CollaborateCandidate = { planner_index: number; model: string; plan: CollaboratePlan | null; error: string | null };
+export type CollaborateApplication = {
+  status: "baseline_unrunnable" | "execution_failed" | "gate_unrunnable" | "gate_failed" | "deadline_exceeded" | "passed_no_changes" | "applied" | "apply_rejected";
+  applied: boolean;
+  error?: string;
+  baselineGate: ValidationCommandResult[];
+  finalGate: ValidationCommandResult[];
+  execution: null | { result_file: string; node_counts: AlterGraphResult["node_counts"]; ok: boolean; tokens: AlterTokens; duration_ms: number; cost_usd: number | null };
+  changedFiles: string[];
+  patch: string | null;
+};
+export type CollaborateOptions = {
+  task: string;
+  planners: string[];
+  workers: string[];
+  commands: Array<string | string[]>;
+  writePaths: string[];
+  context?: string;
+  contextFiles?: string[];
+  maxTasks?: number;
+  concurrency?: number | null;
+  plannerMaxTokens?: number;
+  taskMaxTokens?: number;
+  maxTotalTokens?: number;
+  commandTimeoutMs?: number;
+  deadlineMs?: number;
+  dryRun?: boolean;
+  apply?: boolean;
+};
+export type CollaborateAudit = {
+  schema_version: 1;
+  workflow: "collaborate";
+  status: "plan_ready" | "plan_rejected" | CollaborateApplication["status"];
+  dry_run: boolean;
+  apply: boolean;
+  task: string;
+  planners: string[];
+  workers: string[];
+  selected_plan: CollaboratePlan | null;
+  selected_planner: number | null;
+  candidates: CollaborateCandidate[];
+  commands: string[][];
+  write_paths: string[];
+  max_tasks: number;
+  planner_max_tokens: number;
+  task_max_tokens: number;
+  max_total_tokens: number;
+  concurrency: number;
+  deadline_ms: number;
+  duration_ms: number;
+  application: CollaborateApplication | null;
+};
+export type CollaborateReport = {
+  schema_version: 1;
+  workflow: "collaborate";
+  graph_home: string;
+  generated_at: string;
+  status: string;
+  duration_ms: number | null;
+  pricing: OpinionReport["pricing"];
+  totals: { planners: number; tasks: number; succeeded_tasks: number; tokens: number; estimated_api_cost_usd: number | null };
+  aggregate_tokens: AlterTokens;
+  planner_nodes: OpinionReport["opinions"];
+  audit: CollaborateAudit | null;
+};
+export type CollaborateReportFiles = { report: CollaborateReport; json: string; html: string };
+export type CollaborateResult = { home: string; result: AlterGraphResult; audit: CollaborateAudit; report: CollaborateReportFiles; ok: boolean; status: CollaborateAudit["status"] };
+export function validateCollaboratePlan(value: unknown, options: { workers: string[]; writePaths: string[]; maxTasks?: number; taskMaxTokens?: number; availableTaskTokens?: number }): CollaboratePlan;
+export function selectCollaboratePlan(candidates: CollaborateCandidate[]): CollaborateCandidate | null;
+export function buildCollaboratePlannerGraph(options: CollaborateOptions & { availableTaskTokens?: number }): AlterGraph;
+export function buildCollaborateTaskGraph(options: { plan: CollaboratePlan; task: string; context?: string; worktree: string; writePaths: Array<{ relative: string; worktree: string }>; workerHarness?: string | null }): AlterGraph;
+export function runCollaborate(root: string, options: CollaborateOptions, runOptions?: NonNullable<Parameters<typeof runOpinion>[2]> & { env?: Record<string, string | undefined>; plannerHarness?: string; workerHarness?: string; commandRunner?: typeof runValidationCommand }): Promise<CollaborateResult>;
+export function createCollaborateReport(options: { home: string; result: AlterGraphResult; audit?: CollaborateAudit | null; env?: Record<string, string | undefined> }): CollaborateReport;
+export function renderCollaborateReport(report: CollaborateReport): string;
+export function writeCollaborateReport(home: string, result: AlterGraphResult, options?: { audit?: CollaborateAudit | null; env?: Record<string, string | undefined> }): CollaborateReportFiles;

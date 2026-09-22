@@ -28,6 +28,8 @@ for the remaining publication decisions.
 Start with [the architecture](docs/architecture.md) for the framework model,
 [the embedding guide](docs/embedding.md) for host integration, and
 [CONTRIBUTING.md](CONTRIBUTING.md) for the verification and release workflow.
+See [WORKFLOWS.md](WORKFLOWS.md) for the implemented and planned `mind work`
+workflow designs.
 
 ## Packages
 
@@ -47,9 +49,9 @@ Start with [the architecture](docs/architecture.md) for the framework model,
   project profile under `profiles/default/`.
 
 A project's own `.alters/` holds only *data* — `config.json` and `catalog/` —
-never a copy of the engine. Nestable Alters get the same treatment: their
-scoped bash permission targets the resolved, absolute path of the running
-`mind` CLI entrypoint rather than a vendored copy of it.
+never a copy of the engine. The installed `mind` command is globally available;
+nestable Alters receive narrowly scoped permission for its delegation
+subcommands rather than a vendored copy of the CLI.
 
 ## Quickstart (local, unpublished)
 
@@ -180,6 +182,189 @@ node --test packages/core/test/integration/provider-routing.live.test.js
 
 Each matrix entry may also contain an `opencode_provider` map for a custom
 provider; built-in providers can rely on the user's existing OpenCode auth.
+
+**Engineering opinions** — `mind work opinion` runs an explicit panel of two
+to five models independently. The reviewers are tool-free and receive only the
+task plus any selected context files; they cannot inspect or change the project.
+Every response is preserved in a graph trace under `.alters/graphs/`.
+
+```bash
+mind work opinion \
+  --model provider-a/reviewer \
+  --model provider-b/reviewer \
+  --context packages/core/src/engine.js \
+  --context packages/core/src/authority.js \
+  --max-tokens 1200 \
+  "Review whether nested authority can be widened through a retry path."
+```
+
+`--model` is required so the command never makes an unrequested provider call.
+`--context` is repeatable, accepts regular files inside the mind project only,
+and is bounded to eight files, 32 KiB per file, and 128 KiB combined. Add
+`--json` for the complete graph result or `--concurrency <n>` to reduce the
+number of simultaneous reviewers.
+
+Each run also writes `<graph>/opinion.html`: a self-contained, side-by-side
+dashboard with the output, model, executor, retries, token split, elapsed time,
+and a current API-equivalent cost estimate. The estimate uses the local OpenCode
+model catalog's USD-per-million-token rates and is explicitly not an invoice for
+subscription, OAuth, bundled, or promotional use. Regenerate a dashboard for a
+past run (or the most recent opinion run) with:
+
+```bash
+mind work opinion report
+mind work opinion report 20260908T163219Z_opinion
+```
+
+The command saves both `opinion.html` and a rate snapshot in
+`opinion-report.json` beside the graph result.
+
+**Bounded debate** — `mind work debate` starts with the same independent panel,
+then runs one to three critique rounds. Each reviewer sees only the immediately
+preceding round as bounded, labeled, untrusted evidence and returns a revised
+position rather than voting for a winner.
+
+```bash
+mind work debate \
+  --model provider-a/reviewer \
+  --model provider-b/reviewer \
+  --rounds 2 \
+  --context packages/core/src/graph.js \
+  --max-tokens 1200 \
+  "Debate whether failed graph dependencies should stop every downstream reviewer."
+```
+
+`--rounds` counts critique rounds after the opening panel, defaults to one, and
+is capped at three. Reviewers within a round use the same automatic maximum-safe
+concurrency as other workflows. Failed evidence is labeled and does not prevent
+the remaining reviewers from continuing. Every run writes `debate.html` and
+`debate-report.json`; regenerate them without model calls with `mind work debate
+report [graph-folder]`.
+
+**Frozen validation gate** — `mind work validate` lets a tool-free designer
+describe an acceptance contract while the host retains control of what can run.
+Commands are operator-supplied JSON argv arrays; a model cannot add or rewrite
+them, and no shell interprets them.
+
+```bash
+mind work validate \
+  --model openai/gpt-5.6-luna \
+  --command '["npm","run","check"]' \
+  --command '["npm","test"]' \
+  --context packages/core/src/graph.js \
+  "Validate the graph scheduler changes."
+```
+
+Use `--dry-run` to freeze and inspect the contract without running commands.
+Add `--apply`, an explicit `--implementer provider/model`, and one or more
+existing project-relative `--write` paths to enable the bounded implementation
+loop. The implementer edits a detached temporary Git worktree; the host runs the
+unchanged gate there and transfers only a passing patch back to an unchanged,
+clean source checkout. `--max-repairs` defaults to one and is capped at three.
+The implementer has a separate 16,000-token default, configurable with
+`--implementer-max-tokens`.
+Completed runs retain bounded command artifacts, source state, changed files,
+tokens, estimated cost, `validation.json`, `validate-report.json`,
+`validate.html`, and, on success, `validated.patch`.
+
+**Validated collaboration** — `mind work collaborate` asks two to five
+tool-free planners for strict task DAGs, deterministically selects the smallest
+valid plan, and schedules dependency-ready work without a batch barrier.
+Read-only tasks may overlap; writer tasks are ordered and share one isolated Git
+worktree. The host transfers a patch only after the unchanged operator gate
+passes.
+
+```bash
+mind work collaborate \
+  --planner openai/gpt-5.6-luna \
+  --planner xai/grok-4.5 \
+  --worker openai/gpt-5.6-luna \
+  --write packages/core/src \
+  --write packages/core/test \
+  --command '["npm","run","check"]' \
+  --command '["npm","test"]' \
+  --dry-run \
+  --context packages/core/src/graph.js \
+  "Plan the graph scheduler change and its focused tests."
+```
+
+Use `--dry-run` to inspect the selected plan without invoking workers. Replace
+it with `--apply` to execute the plan in a detached worktree. Planner and worker
+models are explicit; `--max-tasks`, `--concurrency`, per-node token limits, the
+whole-run token reservation, command timeouts, and the workflow deadline are
+bounded. Every invocation creates new immutable artifacts:
+`collaboration-plans.json`, `collaboration.json`, `collaborate-report.json`, and
+`collaborate.html`, plus execution, gate, and patch artifacts when applicable.
+Regenerate the report without model calls with `mind work collaborate report
+[graph-folder]`.
+
+**Implementation synthesis** — `mind work fuse` runs two to five distinct,
+isolated, tool-free analysts in parallel, followed by one explicitly selected
+writer. The writer receives the original task/context and labeled analyst
+outputs, resolves disagreements, and produces an implementation-oriented answer.
+It does not edit files or execute the proposed implementation.
+
+```bash
+mind work fuse \
+  --model provider-a/analyst \
+  --model provider-b/analyst \
+  --writer provider-c/writer \
+  --context packages/core/src/engine.js \
+  --max-tokens 1600 \
+  "Propose an implementation plan for deadline propagation with focused tests."
+```
+
+When `--executor` is omitted, Fuse automatically uses direct tool-free chat
+completions for compatible API-key models, including Mistral and xAI, while
+keeping OAuth and unsupported provider protocols on OpenCode. Direct requests
+run concurrently. When several nodes require OpenCode, the workflow starts one
+password-protected loopback OpenCode server and attaches every node to it, so a
+single process owns the shared SQLite database while model requests overlap. If
+the server cannot start, OpenCode nodes fall back to safe serial execution. This
+maximizes safe concurrency without a manual `--concurrency` value. The writer is
+selected independently by the same rule.
+
+`--executor llm` or `--executor opencode` remains an explicit override for all
+analysts. `--writer-executor` overrides the writer separately (for example,
+`--executor llm --writer-executor opencode` for direct Mistral analysts and an
+OAuth writer). Unsupported explicitly requested direct providers fail without
+switching executors or models.
+
+Both the analyst panel and `--writer` are required; the writer may reuse an
+analyst model but runs in a separate Alter home. No default or fallback model is
+implicitly selected. Configured same-model retries still apply. Context file
+limits and `--concurrency` / `--json` controls match `opinion`; `--max-tokens`
+applies to every analyst and the writer and is the existing post-run token check,
+not a hard whole-workflow spending cap.
+
+The writer runs only if every analyst succeeds. A failure produces a nonzero
+CLI exit status and an inspectable failed/skipped graph, without a successful
+answer artifact. Each analyst-to-writer edge is bounded to 32,000 characters;
+truncation is marked in the prompt and recorded in the graph trace. Full analyst
+outputs remain in the trace. No recall, curation, tools, or nested workers are
+attached. Task, context, and outputs are retained as plaintext run artifacts.
+
+The terminal shows node status, models, attempts, tokens, elapsed time, and the
+synthesis. Under `.alters/graphs/`, `result.json` preserves the full graph,
+`implementation.md` holds the successful writer answer, `fuse.html` presents the
+synthesis first with collapsible analyst outputs, and `fuse-report.json`
+snapshots node usage and local OpenCode catalog rates. Costs are API-equivalent
+estimates, not subscription invoices; missing pricing is reported as unknown.
+Both the terminal and HTML show each node's executor, attempts, elapsed time,
+input/output/reasoning/cache tokens, and estimated cost, including retry usage.
+The HTML is self-contained and renders Markdown headings, lists, tables, links,
+and fenced code blocks. Raw HTML is escaped, unsafe link schemes are removed,
+and image references display their alt text without loading remote content.
+
+Generate or refresh a dashboard for an existing run without calling any models:
+
+```bash
+mind work fuse report
+mind work fuse report 20260908T201426Z_fuse
+```
+
+With no folder, this selects the most recent Fuse graph. Regeneration snapshots
+the catalog rates available at that moment.
 
 **Profile** — what `mind init` scaffolds at a project's root: `AGENTS.md`,
 `opencode.jsonc`, `.opencode/skills/alter/SKILL.md`, `.alters/config.json`,

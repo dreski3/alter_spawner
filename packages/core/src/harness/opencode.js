@@ -29,9 +29,10 @@ export const classify = classifyOpenCodeResult;
 
 // Exported for the same reason as `classify`: the argument vector decides how much
 // this run costs, so it should be assertable without spawning a real `opencode`.
-export const buildRunArgs = ({ home, prompt, images = [], pure, agent, sessionId, title, alterId, model, variant }) => {
+export const buildRunArgs = ({ home, prompt, images = [], pure, agent, sessionId, title, alterId, model, variant, serverUrl }) => {
   const args = ["run"];
   if (pure) args.push("--pure");
+  if (serverUrl) args.push("--attach", serverUrl);
   if (agent) args.push("--agent", agent);
   args.push("--dir", home, "--format", "json");
   // Naming the session ourselves suppresses opencode's own title generation, which
@@ -81,7 +82,7 @@ const run = (
   }
 ) =>
   new Promise((resolve) => {
-    const args = buildRunArgs({ home, prompt, images, pure, agent, sessionId, title, alterId, model, variant });
+    const args = buildRunArgs({ home, prompt, images, pure, agent, sessionId, title, alterId, model, variant, serverUrl: environment.OPENCODE_SERVER_URL });
     const child = spawn(
       "opencode",
       args,

@@ -45,6 +45,16 @@ const usage = (write = console.log) => {
   write("  catalog save <name> --from <id> | ...spawn flags   (add/update a harness)");
   write("  catalog export <name> --to <dir>        (copy an alter project out, to version or share)");
   write("  catalog import <dir> [--as <name>] [--trust]       (copy one in; grants are dropped unless --trust)");
+  write("  work    opinion --model <provider/model> (2-5) <task> (parallel, tool-free engineering opinions)");
+  write("  work    debate --model <provider/model> (2-5) [--rounds <1-3>] <task>");
+  write("  work    validate --model <provider/model> --command '<JSON argv>' [--dry-run|--apply] <task>");
+  write("  work    collaborate --planner <provider/model> --worker <provider/model> (--dry-run|--apply) <task>");
+  write("  work    fuse --model <provider/model> (2-5) --writer <provider/model> <task>");
+  write("  work    fuse report [graph-folder]        (synthesis and usage dashboard)");
+  write("  work    opinion report [graph-folder]     (side-by-side comparison dashboard)");
+  write("  work    debate report [graph-folder]      (round-by-round critique dashboard)");
+  write("  work    validate report [graph-folder]    (frozen acceptance-gate dashboard)");
+  write("  work    collaborate report [graph-folder] (validated task-DAG dashboard)");
 };
 
 const COMMANDS = {
@@ -64,6 +74,7 @@ const COMMANDS = {
   usage: () => import("./commands/usage.js"),
   catalog: () => import("./commands/catalog.js"),
   memory: () => import("./commands/memory.js"),
+  work: () => import("./commands/work.js"),
 };
 
 const main = async () => {

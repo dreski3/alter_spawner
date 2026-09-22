@@ -88,6 +88,16 @@ export {
 } from "./run-capabilities.js";
 export { buildRunMaintenanceGraph, runRunMaintenanceGraph } from "./run-maintenance-workflow.js";
 export { spawnAlter, runExistingAlter, resolveEffectiveModel } from "./engine.js";
+export { buildOpinionGraph, runOpinion } from "./opinion.js";
+export { createOpinionReport, renderOpinionReport, writeOpinionReport } from "./opinion-report.js";
+export { MAX_DEBATE_ROUNDS, DEBATE_EDGE_CHARS, buildDebateGraph, runDebate } from "./debate.js";
+export { createDebateReport, renderDebateReport, writeDebateReport } from "./debate-report.js";
+export { buildValidateGraph, runValidate } from "./validate.js";
+export { createValidateReport, renderValidateReport, writeValidateReport } from "./validate-report.js";
+export { MAX_VALIDATION_COMMANDS, MAX_VALIDATION_OUTPUT_BYTES, parseValidationCommand, validateAcceptanceContract, runValidationCommand } from "./validation-gate.js";
+export { MAX_COLLABORATE_TASKS, validateCollaboratePlan, selectCollaboratePlan } from "./collaborate-plan.js";
+export { buildCollaboratePlannerGraph, buildCollaborateTaskGraph, runCollaborate } from "./collaborate.js";
+export { createCollaborateReport, renderCollaborateReport, writeCollaborateReport } from "./collaborate-report.js";
 export {
   PRINCIPAL_DEPTH,
   isPrincipalProject,
@@ -270,3 +280,8 @@ export {
   formatAssistantOutcome,
   formatStorageOutcome,
 } from "./memory-client.js";
+
+export { buildFuseGraph, runFuse } from "./fuse.js";
+export { createFuseReport, renderFuseReport, writeFuseReport } from "./fuse-report.js";
+export { prepareWorkflowConcurrency, selectWorkflowExecutors, WORKFLOW_EXECUTOR_CONCURRENCY } from "./workflow-execution.js";
+export { startWorkflowOpenCodeServer } from "./opencode-server.js";

@@ -75,6 +75,9 @@ export const validateGraph = (graph) => {
     if (node.images != null && (!Array.isArray(node.images) || node.images.some((image) => typeof image !== "string" || !image.trim()))) {
       fail(`graph node "${id}" images must be an array of non-empty file paths.`);
     }
+    if (node.allow_failed_dependencies != null && typeof node.allow_failed_dependencies !== "boolean") {
+      fail(`graph node "${id}" allow_failed_dependencies must be a boolean.`);
+    }
     nodes.set(id, { ...node, depends_on: node.depends_on || [], memory: normalizeGraphNodeMemory(node.memory, id) });
   }
   for (const node of nodes.values()) {
@@ -119,7 +122,11 @@ export const DEFAULT_MAX_EDGE_CHARS = 32000;
 
 export const renderGraphPrompt = (node, records, { maxEdgeChars = DEFAULT_MAX_EDGE_CHARS, onTruncate } = {}) =>
   node.prompt.replace(/\{\{result:([^}]+)\}\}/g, (_match, id) => {
-    const text = records[id].result.text;
+    const record = records[id];
+    if ((record.state && record.state !== "succeeded") || !record.result) {
+      return `[unavailable evidence from "${id}": ${record.error || record.state}]`;
+    }
+    const text = record.result?.text;
     if (maxEdgeChars == null || typeof text !== "string" || text.length <= maxEdgeChars) return text;
     onTruncate?.({ from: id, to: node.id, kept: maxEdgeChars, total: text.length });
     return `${text.slice(0, maxEdgeChars)}\n\n[truncated: ${maxEdgeChars} of ${text.length} characters from "${id}"]`;
