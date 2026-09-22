@@ -70,7 +70,7 @@ test("Codex arguments use a least-privilege permission profile", () => {
   assert.match(profile, /"\/work\/home"="write"/);
   assert.match(profile, /"\/work\/read"="read"/);
   assert.match(profile, /"\/work\/write"="write"/);
-  assert.deepEqual(args.slice(-3), ["--image", "/work/image.png", "inspect"]);
+  assert.deepEqual(args.slice(-4), ["--image", "/work/image.png", "--", "inspect"]);
 });
 
 test("Codex resume keeps shared options before the subcommand", () => {
@@ -84,7 +84,7 @@ test("Codex resume keeps shared options before the subcommand", () => {
   const resume = args.indexOf("resume");
   assert.ok(args.indexOf("--cd") < resume);
   assert.ok(args.indexOf("--json") < resume);
-  assert.deepEqual(args.slice(-4), ["--image", "/work/image.png", "thread-1", "continue"]);
+  assert.deepEqual(args.slice(-5), ["--image", "/work/image.png", "thread-1", "--", "continue"]);
 });
 
 test("Codex is registered as a session-based image-capable harness", () => {

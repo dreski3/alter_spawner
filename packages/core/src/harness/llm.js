@@ -272,7 +272,12 @@ const run = async (
     });
     body = await response.text();
   } catch (error) {
-    if (plan.timedOut()) return failed(`${endpoint.providerId}/${endpoint.modelId} timed out after ${timeout}ms`, -1);
+    if (plan.timedOut()) {
+      return {
+        ...failed(`${endpoint.providerId}/${endpoint.modelId} timed out after ${timeout}ms`, -1),
+        killed: true,
+      };
+    }
     if (signal?.aborted) return { ...failed("run cancelled"), aborted: true, killed: true };
     return failed(`request to ${endpoint.providerId} failed: ${error?.message || error}`, -2);
   } finally {

@@ -5,6 +5,12 @@ Versioning once public releases begin.
 
 ## 0.1.0 - Unreleased
 
+- Kept a Codex prompt positional when images are attached. `codex exec --image`
+  otherwise treats the prompt as another file path and reads stdin.
+- Added a harness conformance suite that runs the OpenCode, Codex, and direct
+  executors through cancellation, timeout, empty output, usage, session
+  continuation, permissions, images, and process-tree cleanup. Direct-executor
+  timeouts are recorded as killed runs.
 - Added a Codex CLI coding harness with resumable sessions, image inputs,
   normalized JSONL usage and tool events, cancellation, and least-privilege
   filesystem and web-search profiles.

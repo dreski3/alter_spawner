@@ -101,6 +101,9 @@ export const buildCodexRunArgs = ({
   if (sessionId) args.push("resume");
   for (const image of images) args.push("--image", image);
   if (sessionId) args.push(sessionId);
+  // `codex exec --image` takes one or more files and will consume the positional
+  // prompt as another path, then try to read the prompt from stdin.
+  if (images.length) args.push("--");
   args.push(prompt);
   return args;
 };
