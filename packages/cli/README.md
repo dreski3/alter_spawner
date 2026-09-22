@@ -12,7 +12,8 @@ mind spawn --image ./screenshot.png --model openai/gpt-4o "Describe the failure.
 ```
 
 Repeat `--image <file>` to attach PNG, JPEG, GIF, or WebP inputs to an
-image-capable OpenCode model. The direct `llm` executor is text-only.
+image-capable model. Both the OpenCode and direct `llm` executors support
+validated image inputs.
 
 Run `mind --help` for the command list and `mind --version` for the installed
 version. Node.js 22.13 or newer is required.

@@ -157,6 +157,48 @@ also be supplied while saving a catalog entry with
 }
 ```
 
+The direct `llm` executor can resolve providers without OpenCode. Declare them
+under `providers` in `.alters/config.json`; credentials are named by environment
+variable and are never stored in the project. Supported protocols are
+`openai-responses`, `openai-compatible`, `anthropic-messages`, and `gemini`.
+An optional `models` map acts as an allowlist and can declare output and input
+capabilities. Provider IDs not declared here retain the compatibility path
+through OpenCode's model catalog and auth files.
+
+```json
+{
+  "providers": {
+    "openai": {
+      "protocol": "openai-responses",
+      "api_key_env": "OPENAI_API_KEY",
+      "models": {
+        "gpt-example": {
+          "max_output_tokens": 8192,
+          "input": ["text", "image"]
+        }
+      }
+    },
+    "anthropic": {
+      "protocol": "anthropic-messages",
+      "api_key_env": "ANTHROPIC_API_KEY"
+    },
+    "google": {
+      "protocol": "gemini",
+      "api_key_env": "GEMINI_API_KEY"
+    },
+    "local": {
+      "protocol": "openai-compatible",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "api_key_env": null
+    }
+  }
+}
+```
+
+Use `executor: "llm"` on a catalog entry or `--executor llm` at invocation.
+The OpenAI, Anthropic, and Gemini protocols use their standard public base URL
+when `base_url` is omitted. `openai-compatible` requires an explicit base URL.
+
 **Graph runs** — library callers can define chains and branches with
 `runAlterGraph`. A node consumes a direct dependency using
 `{{result:node-id}}`; nodes whose dependencies are ready run concurrently.
@@ -593,8 +635,8 @@ untouched with `storage: null`.
   release decision.
 - OpenCode runs in `--pure` mode by default to avoid loading external plugins.
   A custom provider can still require its configured AI SDK runtime package.
-- Only one harness adapter exists (`opencode`); the interface is unexercised
-  by a second implementation.
+- Only one session-based coding harness exists (`opencode`). The direct `llm`
+  executor exercises the adapter contract but has no tools or sessions.
 - Persistent-memory retrieval is lexical. SQLite adds FTS indexing, but no
   embedding/vector or semantic-reranking adapter exists yet.
 - Output validation is opt-in. Catalog entries without `output_contract` still

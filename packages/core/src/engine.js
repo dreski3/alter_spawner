@@ -11,7 +11,7 @@ import { validateOutputContract } from "./output-contract.js";
 import { resolveRuntime } from "./runtime.js";
 import { withoutCapabilityGrant } from "./capability-client.js";
 import { getHarness } from "./harness/adapter.js";
-import { validateImageFiles, validateImageModels } from "./image-input.js";
+import { validateDirectImageModels, validateImageFiles, validateImageModels } from "./image-input.js";
 import { authorityMaxDepth, delegateAuthority } from "./authority.js";
 import {
   admitTreeNode,
@@ -102,11 +102,12 @@ const prepareImages = (root, cfg, o, runtime, harnessName, adapter, { createOnly
   });
   o.images = images.map((image) => image.path);
   o.imageMetadata = images.map((image) => image.metadata);
-  if ((harnessName === "opencode" && !o.opencodeProvider) || harnessName === "llm") {
-    validateImageModels(
-      buildAttemptPlan(o, cfg, runtime, { allowRetries: adapter.supportsRetry !== false }).map((attempt) => attempt.model),
-      runtime.env,
-    );
+  const models = buildAttemptPlan(o, cfg, runtime, { allowRetries: adapter.supportsRetry !== false })
+    .map((attempt) => attempt.model);
+  if (harnessName === "llm") {
+    validateDirectImageModels(models, cfg.providers, runtime.env);
+  } else if (harnessName === "opencode" && !o.opencodeProvider) {
+    validateImageModels(models, runtime.env);
   }
 };
 

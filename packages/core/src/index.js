@@ -13,6 +13,7 @@ export {
   validateImageFiles,
   modelImageSupport,
   validateImageModels,
+  validateDirectImageModels,
 } from "./image-input.js";
 export {
   ALTER_SCHEMA_VERSION,
@@ -213,6 +214,9 @@ export {
   loadAuth,
   loadModelsCatalog,
   modelsCatalogPath,
+  DIRECT_PROVIDER_PROTOCOLS,
+  resolveConfiguredLlmEndpoint,
+  resolveDirectLlmEndpoint,
   resolveLlmEndpoint,
   resolveLlmEndpointFromDisk,
   splitModelRef,

@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   MAX_IMAGE_FILES,
   modelImageSupport,
+  validateDirectImageModels,
   validateImageFiles,
 } from "../../src/index.js";
 
@@ -91,4 +92,24 @@ test("model metadata distinguishes vision, text-only, and unknown models", () =>
   assert.equal(modelImageSupport("p/text", catalog), false);
   assert.equal(modelImageSupport("p/generator", catalog), false);
   assert.equal(modelImageSupport("p/unknown", catalog), null);
+});
+
+test("configured direct providers reject declared text-only models without OpenCode state", () => {
+  const providers = {
+    native: {
+      protocol: "openai-responses",
+      models: {
+        text: { input: ["text"] },
+        vision: { input: ["text", "image"] },
+      },
+    },
+  };
+  assert.throws(
+    () => validateDirectImageModels(["native/text"], providers, { OPENCODE_MODELS_PATH: "/does/not/exist" }),
+    /does not support attached image input/,
+  );
+  assert.equal(
+    validateDirectImageModels(["native/vision"], providers, { OPENCODE_MODELS_PATH: "/does/not/exist" }),
+    undefined,
+  );
 });

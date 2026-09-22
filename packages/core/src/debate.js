@@ -1,4 +1,5 @@
 import { runAlterGraph } from "./graph.js";
+import { readConfig } from "./config.js";
 import { validateModels } from "./opinion.js";
 import { writeDebateReport } from "./debate-report.js";
 import { prepareWorkflowConcurrency, selectWorkflowExecutors } from "./workflow-execution.js";
@@ -80,7 +81,7 @@ export const runDebate = async (root, options, runOptions = {}) => {
   const built = buildDebateGraph(options);
   const graph = runOptions.harness
     ? built
-    : selectWorkflowExecutors(built, { env: runOptions.runtime?.env || runOptions.env || process.env });
+    : selectWorkflowExecutors(built, { env: runOptions.runtime?.env || runOptions.env || process.env, providers: readConfig(root).providers });
   const concurrency = runOptions.concurrency ?? options.models.length;
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 5) fail("debate concurrency must be an integer between 1 and 5.");
   const execution = await prepareWorkflowConcurrency(graph, { ...runOptions, concurrency });

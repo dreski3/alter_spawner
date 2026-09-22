@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readConfig } from "./config.js";
 import { runAlterGraph } from "./graph.js";
 import { validateModels } from "./opinion.js";
 import { writeFuseReport } from "./fuse-report.js";
@@ -55,7 +56,7 @@ export const runFuse = async (root, options, runOptions = {}) => {
   const built = buildFuseGraph(options);
   const graph = runOptions.harness
     ? built
-    : selectWorkflowExecutors(built, { env: runOptions.runtime?.env || runOptions.env || process.env });
+    : selectWorkflowExecutors(built, { env: runOptions.runtime?.env || runOptions.env || process.env, providers: readConfig(root).providers });
   const concurrency = runOptions.concurrency ?? graph.nodes.length - 1;
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 5) fail("fuse concurrency must be an integer between 1 and 5.");
   const execution = await prepareWorkflowConcurrency(graph, {

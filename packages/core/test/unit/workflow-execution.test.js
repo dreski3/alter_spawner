@@ -14,8 +14,9 @@ test("workflow nodes automatically prefer direct execution when the model suppor
     ],
   }, {
     env: { MARKER: "test" },
-    resolveDirect(model, env) {
-      seen.push({ model, env });
+    providers: { native: { protocol: "openai-responses" } },
+    resolveDirect(model, env, providers) {
+      seen.push({ model, env, providers });
       if (model.startsWith("openai/")) throw new Error("OAuth requires OpenCode");
       return {};
     },
@@ -27,6 +28,7 @@ test("workflow nodes automatically prefer direct execution when the model suppor
   assert.equal(graph.nodes[3].executor, undefined, "tool-capable nodes must keep the sandbox executor path");
   assert.deepEqual(seen.map(({ model }) => model), ["xai/grok", "openai/luna"]);
   assert.equal(seen[0].env.MARKER, "test");
+  assert.equal(seen[0].providers.native.protocol, "openai-responses");
 });
 
 test("multiple OpenCode workflow nodes share one attached server and remain concurrent", async () => {

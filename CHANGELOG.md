@@ -5,7 +5,10 @@ Versioning once public releases begin.
 
 ## 0.1.0 - Unreleased
 
-- Added bounded image attachments for image-capable OpenCode Alters across the
+- Added project-configured direct inference over OpenAI Responses, Anthropic
+  Messages, Gemini, and generic OpenAI-compatible endpoints, with OpenCode
+  provider discovery retained as a compatibility fallback.
+- Added bounded image attachments for image-capable Alters across the
   CLI, embedded API, reruns, and graph nodes, with modality checks and safe run metadata.
 - Added isolated Alter execution with retry, fallback, cancellation, output
   contracts, nested tree budgets, and durable run traces.

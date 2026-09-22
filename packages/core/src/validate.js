@@ -1,5 +1,6 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
+import { readConfig } from "./config.js";
 import { runAlterGraph } from "./graph.js";
 import { writeJsonAtomic } from "./persistence.js";
 import { prepareWorkflowConcurrency, selectWorkflowExecutors } from "./workflow-execution.js";
@@ -92,7 +93,7 @@ export const runValidate = async (root, options = {}, runOptions = {}) => {
   if (options.maxCostUsd != null && (!Number.isFinite(options.maxCostUsd) || options.maxCostUsd <= 0)) fail("validate maxCostUsd must be a positive number or null.");
   const built = buildValidateGraph(options);
   const allowedCommands = options.commands.map((command, index) => parseValidationCommand(command, `validate command ${index + 1}`));
-  const graph = runOptions.harness ? built : selectWorkflowExecutors(built, { env: runOptions.runtime?.env || runOptions.env || process.env });
+  const graph = runOptions.harness ? built : selectWorkflowExecutors(built, { env: runOptions.runtime?.env || runOptions.env || process.env, providers: readConfig(root).providers });
   const deadline = controllerWithDeadline(runOptions.signal, deadlineMs);
   const started = Date.now();
   const before = validationSourceSnapshot(root);

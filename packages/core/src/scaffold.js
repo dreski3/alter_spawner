@@ -155,6 +155,7 @@ const scaffoldAgentFiles = (root, cfg, o, runtime, home) => {
           default_fallback_model: o.fallbackModel || cfg.default_fallback_model || null,
           opencode_pure: cfg.opencode_pure !== false,
           opencode_event_log: cfg.opencode_event_log === true,
+          providers: cfg.providers || {},
           retry: cfg.retry || { same_harness_retries: 1, fallback_retries: 1 },
         }
     );
