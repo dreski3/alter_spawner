@@ -9,8 +9,8 @@ import { fail } from "./util.js";
 
 export const buildFuseGraph = ({ task, models, writer, context = "", maxTokens = null, executor = null, writerExecutor = executor } = {}) => {
   const analysts = validateModels(models, "fuse");
-  if (executor !== null && !["llm", "opencode", "codex"].includes(executor)) fail("fuse executor must be llm, opencode, or codex.");
-  if (writerExecutor !== null && !["llm", "opencode", "codex"].includes(writerExecutor)) fail("fuse writerExecutor must be llm, opencode, or codex.");
+  if (executor !== null && !["llm", "opencode", "codex", "grok"].includes(executor)) fail("fuse executor must be llm, opencode, codex, or grok.");
+  if (writerExecutor !== null && !["llm", "opencode", "codex", "grok"].includes(writerExecutor)) fail("fuse writerExecutor must be llm, opencode, codex, or grok.");
   if (typeof writer !== "string" || !/^[^\s/]+\/\S+$/.test(writer.trim())) fail("fuse requires an explicit writer provider/model.");
   if (typeof task !== "string" || !task.trim()) fail("fuse requires a task.");
   if (typeof context !== "string") fail("fuse context must be a string.");

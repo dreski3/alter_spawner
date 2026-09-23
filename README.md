@@ -44,7 +44,7 @@ workflow designs.
   (walks up from `cwd` for `.alters/config.json`, like `git` finds `.git`),
   catalog resolution, Alter-home scaffolding, retry/fallback, and a
   harness-adapter interface (`src/harness/adapter.js`) with session-based
-  `opencode` and `codex` adapters plus a direct, tool-free `llm` adapter.
+  `opencode`, `codex`, and `grok` adapters plus a direct, tool-free `llm` adapter.
   Library callers can use `parseSpawnArgs` plus `spawnAlter` directly and pass an `AbortSignal` to
   cancel the underlying harness process without shelling out to `mind`.
   `runAlterGraph` executes validated dependency graphs, runs ready branches in
@@ -224,6 +224,37 @@ Codex's hosted live web search without opening command networking. Codex current
 `opencode_variant` because those controls do not have equivalent Codex CLI
 enforcement.
 
+The `grok` executor runs the installed Grok CLI in headless mode and reuses
+its existing authentication (`XAI_API_KEY`, `GROK_AUTH_PATH`, or
+`~/.grok/auth.json`). It accepts xAI model references, strips the `xai/`
+namespace for the CLI, preserves session IDs for resumed turns, and normalizes
+streaming JSON events into the same result, usage, tool, cancellation, retry,
+image, and event-log contract as OpenCode and Codex.
+
+```bash
+mind spawn \
+  --executor grok \
+  --model xai/grok-4.5 \
+  --name grok-reviewer \
+  --description "Reviews the requested code change." \
+  "Review the implementation and report concrete defects."
+```
+
+Grok runs with an isolated `GROK_HOME` inside the Alter home, so the user's
+MCP servers, hooks, skills, and memory are not inherited. Authentication is
+passed through without copying credentials into the home. Subagent spawning
+and plan mode are disabled. The harness requests a per-run `strict` sandbox
+profile that denies child-process networking, keeps writes to the Alter home
+plus declared write paths, and adds declared read paths. When Grok cannot
+apply that profile because a runtime socket such as `/var/run/docker.sock` is
+a symlink, the harness uses Grok's built-in `workspace` profile instead:
+writes stay in the Alter home and temporary directories, and reads are not
+limited to the declared grants. `--web` enables Grok's hosted web search
+without opening command networking. Images travel inline when they fit in the
+process argument limit, and as file references inside the home otherwise.
+Grok rejects `--nestable`, `--bash-only`, `--bash-allow`, `opencode_provider`,
+and `opencode_variant`.
+
 **Graph runs** — library callers can define chains and branches with
 `runAlterGraph`. A node consumes a direct dependency using
 `{{result:node-id}}`; nodes whose dependencies are ready run concurrently.
@@ -398,7 +429,7 @@ the server cannot start, OpenCode nodes fall back to safe serial execution. This
 maximizes safe concurrency without a manual `--concurrency` value. The writer is
 selected independently by the same rule.
 
-`--executor llm`, `--executor opencode`, or `--executor codex` remains an
+`--executor llm`, `--executor opencode`, `--executor codex`, or `--executor grok` remains an
 explicit override for all analysts. `--writer-executor` overrides the writer
 separately (for example,
 `--executor llm --writer-executor opencode` for direct Mistral analysts and an
@@ -664,6 +695,11 @@ untouched with `storage: null`.
 - The `codex` harness currently supports only OpenAI model references and does
   not support nestable or command-allowlisted Alters. Use `opencode` for those
   cases. The direct `llm` executor has no tools or sessions.
+- The `grok` harness currently supports only xAI model references and does
+  not support nestable or command-allowlisted Alters. Its strict sandbox
+  falls back to Grok's `workspace` profile when a runtime socket is a
+  symlink, which leaves temporary directories writable and reads
+  unrestricted. Use `opencode` when those boundaries are too wide.
 - Persistent-memory retrieval is lexical. SQLite adds FTS indexing, but no
   embedding/vector or semantic-reranking adapter exists yet.
 - Output validation is opt-in. Catalog entries without `output_contract` still

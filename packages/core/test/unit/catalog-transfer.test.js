@@ -164,6 +164,14 @@ test("web survives an untrusted import, and is reported rather than dropped", ()
   assert.equal(JSON.parse(readFileSync(path.join(imported.dir, "manifest.json"), "utf8")).web, true);
 });
 
+test("Grok remains a portable executor across catalog imports", () => {
+  const root = projectRoot();
+  const imported = importCatalogEntry(root, CFG, foreignProject({ ...BASE, executor: "grok" }));
+
+  assert.deepEqual(imported.dropped, []);
+  assert.equal(imported.manifest.executor, "grok");
+});
+
 test("Codex remains a portable executor across catalog imports", () => {
   const root = projectRoot();
   const imported = importCatalogEntry(root, CFG, foreignProject({ ...BASE, executor: "codex" }));

@@ -410,7 +410,7 @@ export function scaffold(
   cfg: MindConfig,
   options: SpawnOptions,
   runtime?: Runtime,
-  scaffoldOptions?: { agentFiles?: boolean; agentHomeKind?: "opencode" | "codex" },
+  scaffoldOptions?: { agentFiles?: boolean; agentHomeKind?: "opencode" | "codex" | "grok" },
 ): string;
 
 export function buildFrontmatter(options: SpawnOptions): string;
@@ -646,6 +646,7 @@ export type HarnessRunOptions = {
   maxTokens: number | null;
   model: string;
   images?: string[];
+  imageMetadata?: Array<{ media_type?: string }>;
   pure: boolean;
   recordEvents: boolean;
   attempt: number;
@@ -674,7 +675,7 @@ export type HarnessAdapter = {
   supportsRetry?: boolean;
   /** True when the adapter can attach validated image files to a request. Default false. */
   supportsImages?: boolean;
-  agentHomeKind?: "opencode" | "codex";
+  agentHomeKind?: "opencode" | "codex" | "grok";
   regeneratesAgentFile?: boolean;
   validateOptions?(options: SpawnOptions, context: { models: string[] }): void;
 };
@@ -2071,7 +2072,7 @@ export class CapabilityRequestError extends Error {
 
 export class MindError extends Error {}
 
-export type FuseOptions = { task: string; models: string[]; writer: string; context?: string; maxTokens?: number | null; executor?: "llm" | "opencode" | "codex" | null; writerExecutor?: "llm" | "opencode" | "codex" | null };
+export type FuseOptions = { task: string; models: string[]; writer: string; context?: string; maxTokens?: number | null; executor?: "llm" | "opencode" | "codex" | "grok" | null; writerExecutor?: "llm" | "opencode" | "codex" | "grok" | null };
 export type FuseEntry = Opinion & { id: string };
 export type FuseReport = Omit<OpinionReport, "workflow" | "opinions" | "totals"> & {
   workflow: "fuse";
@@ -2102,7 +2103,7 @@ export type DebateOptions = {
   context?: string;
   rounds?: number;
   maxTokens?: number | null;
-  executor?: "llm" | "opencode" | "codex" | null;
+  executor?: "llm" | "opencode" | "codex" | "grok" | null;
 };
 export type DebateEntry = Opinion & {
   id: string;
@@ -2210,7 +2211,7 @@ export type ValidateOptions = {
   context?: string;
   contextFiles?: string[];
   maxTokens?: number;
-  executor?: "llm" | "opencode" | "codex" | null;
+  executor?: "llm" | "opencode" | "codex" | "grok" | null;
   commandTimeoutMs?: number;
   deadlineMs?: number;
   maxCostUsd?: number | null;

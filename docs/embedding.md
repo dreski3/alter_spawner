@@ -50,7 +50,7 @@ cancellation; cancellation propagates to active harness work and does not spend
 the retry policy.
 
 Image paths are invocation-only inputs for image-capable harnesses. The
-`opencode`, `codex`, and direct `llm` harnesses support validated image inputs.
+`opencode`, `codex`, `grok`, and direct `llm` harnesses support validated image inputs.
 Custom harnesses opt in with `supportsImages: true` and receive canonical paths
 as `options.images`. The runtime validates file signatures and size limits before
 creating a run folder.

@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRuntime, createSpawnOptions, getHarness, HARNESS_ADAPTERS, spawnAlter } from "@mind/core";
 
-const BUILTIN_ADAPTERS = ["codex", "llm", "opencode"];
+const BUILTIN_ADAPTERS = ["codex", "grok", "llm", "opencode"];
 const TOKENS = { input: 11, output: 4, reasoning: 2, cache_read: 3, total: 15 };
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
 
@@ -25,6 +25,10 @@ writeFileSync(process.env.MIND_CONFORMANCE_TRACE, JSON.stringify({ argv, kind })
 
 const emit = (event) => console.log(JSON.stringify(event));
 const session = (() => {
+  if (kind === "grok") {
+    const index = argv.indexOf("--resume");
+    return index >= 0 ? argv[index + 1] : "grok_session";
+  }
   if (kind === "codex" && argv.includes("resume")) return argv.at(-2);
   if (kind === "opencode") {
     const index = argv.indexOf("--session");
@@ -43,7 +47,9 @@ if (scenario === "hang") {
   writeFileSync(process.env.MIND_CONFORMANCE_PARENT_PID, String(process.pid));
   setInterval(() => {}, 1000);
 } else if (scenario === "empty") {
-  if (kind === "codex") {
+  if (kind === "grok") {
+    emit({ type: "end", sessionId: session, stopReason: "end_turn", num_turns: 1, usage: { input_tokens: 1, output_tokens: 0, total_tokens: 1 } });
+  } else if (kind === "codex") {
     emit({ type: "thread.started", thread_id: session });
     emit({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 0, total_tokens: 1 } });
   } else {
@@ -53,6 +59,21 @@ if (scenario === "hang") {
       part: { tokens: { input: 1, output: 0, reasoning: 0, cache: { read: 0 }, total: 1 } },
     });
   }
+} else if (kind === "grok") {
+  emit({ type: "text", data: "conformance-ok" });
+  emit({ type: "tool_call", toolCallId: "call-1", toolName: "read_file", status: "in_progress" });
+  emit({ type: "tool_call_update", toolCallId: "call-1", status: "completed" });
+  emit({
+    type: "usage",
+    usage: {
+      input_tokens: 11,
+      cache_read_input_tokens: 3,
+      output_tokens: 4,
+      reasoning_tokens: 2,
+      total_tokens: 15,
+    },
+  });
+  emit({ type: "end", sessionId: session, stopReason: "end_turn", num_turns: 1 });
 } else if (kind === "codex") {
   emit({ type: "thread.started", thread_id: session });
   emit({ type: "item.completed", item: { id: "message-1", type: "agent_message", text: "conformance-ok" } });
@@ -203,6 +224,7 @@ const conformanceEnv = (fakes, name, scenario, files) => ({
   TMPDIR: process.env.TMPDIR || "/tmp",
   LANG: process.env.LANG || "C",
   MIND_CODEX_BIN: fakes.harness,
+  MIND_GROK_BIN: fakes.harness,
   MIND_CONFORMANCE_KIND: name,
   MIND_CONFORMANCE_SCENARIO: scenario,
   MIND_CONFORMANCE_TRACE: files.trace,
@@ -230,7 +252,7 @@ const runAdapter = (name, home, prompt, { environment, providers, ...options } =
   timeout: 5000,
   depth: 0,
   alterId: "conform",
-  model: name === "llm" ? "local/small" : "openai/gpt-conformance",
+  model: name === "llm" ? "local/small" : name === "grok" ? "xai/grok-conformance" : "openai/gpt-conformance",
   pure: true,
   attempt: 1,
   recordEvents: false,
@@ -435,8 +457,10 @@ for (const name of BUILTIN_ADAPTERS) {
       assert.equal(server.requests[1].json.previous_response_id, undefined);
       return;
     }
-    assert.equal(first.sessionID, name === "codex" ? "thread_new" : "ses_new");
-    assert.equal(readTrace(files.trace).argv.includes(name === "codex" ? "resume" : "--session"), false);
+    const opened = { codex: "thread_new", grok: "grok_session" };
+    assert.equal(first.sessionID, opened[name] || "ses_new");
+    const resumeFlag = name === "grok" ? "--resume" : name === "codex" ? "resume" : "--session";
+    assert.equal(readTrace(files.trace).argv.includes(resumeFlag), false);
     const second = await runAdapter(name, home, "second", {
       environment,
       providers,
@@ -449,6 +473,9 @@ for (const name of BUILTIN_ADAPTERS) {
     if (name === "codex") {
       assert.ok(argv.includes("resume"));
       assert.equal(argv.at(-2), first.sessionID);
+    } else if (name === "grok") {
+      assert.equal(argv[argv.indexOf("--resume") + 1], first.sessionID);
+      assert.equal(argv.at(-1), "second");
     } else {
       assert.equal(argv[argv.indexOf("--session") + 1], first.sessionID);
       assert.equal(argv.includes("--title"), false);
@@ -469,7 +496,7 @@ for (const name of BUILTIN_ADAPTERS) {
       description: "Checks permissions.",
       prompt: "report",
       executor: name,
-      model: name === "llm" ? "local/small" : "openai/gpt-conformance",
+      model: name === "llm" ? "local/small" : name === "grok" ? "xai/grok-conformance" : "openai/gpt-conformance",
       readGrants: [readGrant],
       writeGrants: [writeGrant],
       webAccess: true,
@@ -487,6 +514,42 @@ for (const name of BUILTIN_ADAPTERS) {
     assert.deepEqual(recorded.read_grants, [readGrant]);
     assert.deepEqual(recorded.write_grants, [writeGrant]);
     assert.equal(recorded.web, true);
+    if (name === "grok") {
+      assert.equal(existsSync(path.join(output.home, ".opencode")), false);
+      const argv = readTrace(files.trace).argv;
+      const sandbox = argv[argv.indexOf("--sandbox") + 1];
+      assert.ok(sandbox === "alter" || sandbox === "workspace");
+      assert.equal(argv.includes("--disable-web-search"), false);
+      assert.ok(argv.includes("--no-subagents"));
+      if (sandbox === "alter") {
+        const profile = readFileSync(path.join(output.home, ".grok-runtime", "sandbox.toml"), "utf8");
+        assert.match(profile, /restrict_network = true/);
+        assert.ok(profile.includes(JSON.stringify(readGrant)));
+        assert.ok(profile.includes(JSON.stringify(writeGrant)));
+        assert.ok(profile.includes(JSON.stringify(output.home)));
+      }
+      await assert.rejects(
+        () => spawnAlter(root, createSpawnOptions({
+          ...options,
+          webAccess: false,
+          readGrants: [],
+          writeGrants: [],
+          nestable: true,
+        }), { runtime: createRuntime({ env: environment }) }),
+        /executor "grok" cannot be combined with nestable/,
+      );
+      await assert.rejects(
+        () => spawnAlter(root, createSpawnOptions({
+          ...options,
+          webAccess: false,
+          readGrants: [],
+          writeGrants: [],
+          bashAllow: ["echo ok"],
+        }), { runtime: createRuntime({ env: environment }) }),
+        /executor "grok" cannot be combined with bash_allow/,
+      );
+      return;
+    }
     if (name === "codex") {
       assert.equal(existsSync(path.join(output.home, ".opencode")), false);
       const argv = readTrace(files.trace).argv.join("\n");
@@ -554,6 +617,14 @@ for (const name of BUILTIN_ADAPTERS) {
       return;
     }
     const argv = readTrace(files.trace).argv;
+    if (name === "grok") {
+      const blocks = JSON.parse(argv[argv.indexOf("--prompt-json") + 1]);
+      assert.equal(blocks[0].text, "describe");
+      assert.equal(blocks[1].type, "image");
+      assert.equal(blocks[1].mimeType, "image/png");
+      assert.equal(blocks[1].data, PNG.toString("base64"));
+      return;
+    }
     const flag = name === "codex" ? "--image" : "--file";
     assert.equal(argv[argv.indexOf(flag) + 1], image);
     assert.deepEqual(argv.slice(-2), ["--", "describe"]);

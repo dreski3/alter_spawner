@@ -90,7 +90,7 @@ flowchart LR
 mind work debate \
   --model provider-a/reviewer \
   --model provider-b/reviewer \
-  [--rounds 1-3] [--executor llm|opencode] \
+  [--rounds 1-3] [--executor llm|opencode|codex|grok] \
   [--context file]* [--max-tokens n] [--concurrency n] [--json] \
   "<task>"
 ```
@@ -141,7 +141,7 @@ mind work fuse \
   --model provider-a/analyst \
   --model provider-b/analyst \
   --writer provider-c/writer \
-  [--executor llm|opencode] [--writer-executor llm|opencode] \
+  [--executor llm|opencode|codex|grok] [--writer-executor llm|opencode|codex|grok] \
   [--context file]* [--max-tokens n] [--concurrency n] [--json] \
   "<task>"
 ```
@@ -303,7 +303,7 @@ mind work validate \
   --command '["npm","test"]' \
   [--dry-run | --apply --implementer provider/model --write path [--write path]*] \
   [--max-repairs 0..3] [--implementer-max-tokens n] \
-  [--executor llm|opencode] \
+  [--executor llm|opencode|codex|grok] \
   [--context file]* [--max-tokens n] \
   [--command-timeout-ms n] [--deadline-ms n] [--max-cost-usd n] [--json] \
   "<task>"

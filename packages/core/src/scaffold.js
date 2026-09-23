@@ -79,13 +79,15 @@ export const scaffold = (
 const scaffoldAgentFiles = (root, cfg, o, runtime, home, agentHomeKind) => {
   gitInit(home);
   cpSync(ALTER_HOME_TEMPLATE_DIR, home, { recursive: true });
-  if (agentHomeKind === "codex") {
+  if (agentHomeKind === "codex" || agentHomeKind === "grok") {
     rmSync(path.join(home, ".opencode"), { recursive: true, force: true });
     writeTextAtomic(path.join(home, "AGENTS.md"), buildBody(o).trimEnd() + "\n");
     if (o.catalogEntryDir && o.catalogSkillsDir && !o.textOnly) {
       const src = path.join(o.catalogEntryDir, o.catalogSkillsDir);
       if (existsSync(src)) {
-        const dest = path.join(home, ".agents", "skills");
+        const dest = agentHomeKind === "grok"
+          ? path.join(home, ".grok", "skills")
+          : path.join(home, ".agents", "skills");
         mkdirSync(dest, { recursive: true });
         cpSync(src, dest, { recursive: true, filter: (from) => path.basename(from) !== ".gitkeep" });
       }

@@ -5,6 +5,13 @@ Versioning once public releases begin.
 
 ## 0.1.0 - Unreleased
 
+- Grok Alters use the built-in `workspace` sandbox when a runtime socket is
+  a symlink, because Grok refuses to start its strict and custom profiles
+  in that case.
+- Added a Grok CLI coding harness with resumable sessions, image inputs,
+  normalized streaming JSON usage and tool events, cancellation, and a
+  per-run strict sandbox profile. The harness conformance suite covers it
+  alongside OpenCode, Codex, and the direct executor.
 - Kept a Codex prompt positional when images are attached. `codex exec --image`
   otherwise treats the prompt as another file path and reads stdin.
 - Added a harness conformance suite that runs the OpenCode, Codex, and direct
