@@ -3,6 +3,7 @@ export const createOpenCodeAccumulator = () => ({
   text: "",
   sessionID: null,
   steps: 0,
+  toolActivity: false,
   // What the run actually *did*, as opposed to what it spent. `steps` counts model
   // turns, which is not a tool count: a step may call several tools or none, so the two
   // numbers answer different questions and neither substitutes for the other.
@@ -73,7 +74,10 @@ export const consumeOpenCodeEvent = (line, accumulator, onEvent) => {
       sessionID: accumulator.sessionID,
     });
   } else if (event.type === "tool_use") {
-    if (event.part?.type === "tool" || event.part?.tool) consumeToolEvent(accumulator, event.part, emit);
+    if (event.part?.type === "tool" || event.part?.tool) {
+      accumulator.toolActivity = true;
+      consumeToolEvent(accumulator, event.part, emit);
+    }
   } else if (event.type === "text") {
     const delta = event.part?.text || "";
     accumulator.text += delta;

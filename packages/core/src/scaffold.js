@@ -205,6 +205,7 @@ const writeAlterJson = (root, cfg, o, runtime, home) => {
         name: o.name || null,
         description: o.description || null,
         model: o.model,
+        model_candidates: o.modelCandidates?.map((candidate) => ({ ...candidate })) || null,
         executor: o.executor || null,
         capability: o.capability ? { ...o.capability } : null,
         nestable: !!o.nestable,

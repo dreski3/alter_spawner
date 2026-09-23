@@ -15,16 +15,37 @@ export const buildAttemptPlan = (o, cfg, runtimeOverride, { allowRetries = true 
   // the same input gives the same answer, so a second attempt is a guaranteed-identical
   // failure, and the fallback tier — which escalates to a different *model* — is
   // incoherent for something that never called one.
-  if (!allowRetries) return [{ model: o.model, reason: "initial" }];
+  const candidates = o.modelCandidates?.length
+    ? o.modelCandidates
+    : [{ model: o.model, id: null }];
+  const primary = candidates[0] || { model: o.model, id: null };
+  if (!allowRetries) {
+    return [{ model: primary.model, reason: "initial", ...(primary.id ? { candidateId: primary.id } : {}) }];
+  }
   const sameRetries = cfg.retry?.same_harness_retries ?? 1;
   const fallbackRetries = cfg.retry?.fallback_retries ?? 1;
-  const fallbackModel =
-    o.fallbackModel ||
-    (o.catalogName ? null : cfg.default_fallback_model || runtime.env.ALTER_MODEL || null);
-  const plan = [{ model: o.model, reason: "initial" }];
-  for (let i = 0; i < sameRetries; i++) plan.push({ model: o.model, reason: "retry_same_model" });
-  if (fallbackModel && fallbackModel !== o.model) {
-    for (let i = 0; i < fallbackRetries; i++) plan.push({ model: fallbackModel, reason: "retry_fallback_model" });
+  const plan = [{ model: primary.model, reason: "initial", ...(primary.id ? { candidateId: primary.id } : {}) }];
+  for (let i = 0; i < sameRetries; i++) {
+    plan.push({ model: primary.model, reason: "retry_same_model", ...(primary.id ? { candidateId: primary.id } : {}) });
+  }
+  const fallbacks = o.modelCandidates?.length
+    ? candidates.slice(1)
+    : (() => {
+      const fallbackModel =
+        o.fallbackModel ||
+        (o.catalogName ? null : cfg.default_fallback_model || runtime.env.ALTER_MODEL || null);
+      return fallbackModel && fallbackModel !== primary.model
+        ? [{ model: fallbackModel, id: null }]
+        : [];
+    })();
+  for (const candidate of fallbacks) {
+    for (let i = 0; i < fallbackRetries; i++) {
+      plan.push({
+        model: candidate.model,
+        reason: "retry_fallback_model",
+        ...(candidate.id ? { candidateId: candidate.id } : {}),
+      });
+    }
   }
   return plan;
 };
@@ -65,7 +86,9 @@ export const runWithRetries = async ({
   const attempts = [];
   let res;
   for (let i = 0; i < plan.length; i++) {
+    const attemptNumber = attempts.length + 1;
     const attemptModel = plan[i].model;
+    const candidateId = plan[i].candidateId || null;
     if (regenerateAgentFile && i > 0 && attemptModel !== plan[i - 1].model) {
       o.model = attemptModel;
       writeTextAtomic(
@@ -75,7 +98,13 @@ export const runWithRetries = async ({
     }
     const startedAt = iso(runtime.now());
     const startMs = runtime.now();
-    emit({ type: "attempt.started", attempt: i + 1, model: attemptModel, reason: plan[i].reason });
+    emit({
+      type: "attempt.started",
+      attempt: attemptNumber,
+      model: attemptModel,
+      reason: plan[i].reason,
+      ...(candidateId ? { candidate_id: candidateId } : {}),
+    });
     res = await harness.run(home, prompt, {
       timeout,
       depth,
@@ -85,9 +114,14 @@ export const runWithRetries = async ({
       variant: o.opencodeVariant || null,
       pure,
       recordEvents,
-      attempt: i + 1,
+      attempt: attemptNumber,
       signal,
-      onEvent: (event) => emit({ ...event, attempt: i + 1, model: attemptModel }),
+      onEvent: (event) => emit({
+        ...event,
+        attempt: attemptNumber,
+        model: attemptModel,
+        ...(candidateId ? { candidate_id: candidateId } : {}),
+      }),
       environment: runtime.env,
       agent,
       sessionId,
@@ -107,13 +141,14 @@ export const runWithRetries = async ({
     if (res.ok && o.outputContract) {
       const contract = checkOutputContract(res.text, o.outputContract);
       if (!contract.ok) {
-        res = { ...res, ok: false, contract_failed: true, contract_error: contract.error };
+        res = { ...res, ok: false, contract_failed: true, contract_error: contract.error, retryable: true };
       }
     }
     const endedAt = iso(runtime.now());
     attempts.push({
-      attempt: i + 1,
+      attempt: attemptNumber,
       model: attemptModel,
+      ...(candidateId ? { candidate_id: candidateId } : {}),
       reason: plan[i].reason,
       ok: res.ok,
       exit_code: res.exitCode,
@@ -126,6 +161,7 @@ export const runWithRetries = async ({
       capability_error: res.capability_error || null,
       tokens: res.tokens,
       tools: res.tools ? { calls: res.tools.calls, errors: res.tools.errors, by_name: { ...res.tools.byName } } : null,
+      tool_activity: !!res.toolActivity || (res.tools?.calls || 0) > 0,
       started_at: startedAt,
       ended_at: endedAt,
       duration_ms: runtime.now() - startMs,
@@ -137,7 +173,18 @@ export const runWithRetries = async ({
     // An empty result (`res.empty_output`, so `ok:false`) is *not* terminal and falls through
     // to the next attempt — returning no final message is often model-specific, so the
     // same-model retry and then the fallback model are both worth spending.
-    if (res.ok || res.budget_exceeded || res.aborted || signal?.aborted) break;
+    if (
+      res.ok || res.budget_exceeded || res.aborted || signal?.aborted ||
+      (o.modelCandidates?.length && (res.toolActivity || (res.tools?.calls || 0) > 0))
+    ) break;
+    if (o.modelCandidates?.length && res.retryable === false) {
+      const nextCandidate = plan.findIndex((item, index) => index > i && item.candidateId !== candidateId);
+      if (nextCandidate >= 0) {
+        i = nextCandidate - 1;
+        continue;
+      }
+      break;
+    }
   }
   return { res, attempts };
 };

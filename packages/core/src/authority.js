@@ -74,7 +74,9 @@ export const readInheritedAuthority = (environment) => {
   }
 };
 
-const requestedModels = (o, attemptModels) => unique(attemptModels || [o.model, o.fallbackModel]);
+const requestedModels = (o, attemptModels) => unique(
+  attemptModels || o.modelCandidates?.map((candidate) => candidate.model) || [o.model, o.fallbackModel],
+);
 
 const currentAuthority = (o, cfg, attemptModels, inherited = null) => ({
   schema_version: AUTHORITY_SCHEMA_VERSION,

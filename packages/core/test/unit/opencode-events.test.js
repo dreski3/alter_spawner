@@ -28,6 +28,7 @@ test("OpenCode events count tool calls by name, once per call id", () => {
   const events = [];
   const observe = (event) => events.push(event);
   consumeOpenCodeEvent(toolEvent("read", "call-1", "running"), accumulator, observe);
+  assert.equal(accumulator.toolActivity, true);
   consumeOpenCodeEvent(toolEvent("read", "call-1"), accumulator, observe);
   consumeOpenCodeEvent(toolEvent("read", "call-1"), accumulator, observe);
   consumeOpenCodeEvent(toolEvent("bash", "call-2"), accumulator, observe);

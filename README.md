@@ -199,6 +199,33 @@ Use `executor: "llm"` on a catalog entry or `--executor llm` at invocation.
 The OpenAI, Anthropic, and Gemini protocols use their standard public base URL
 when `base_url` is omitted. `openai-compatible` requires an explicit base URL.
 
+A catalog Alter can use an ordered `model_candidates` list instead of the
+legacy `model` and `fallback_model` fields. All candidates use the Alter's one
+`executor`. The first is attempted first, followed by its configured
+same-model retries, then each alternative in order. Candidate ids appear in
+attempt records and runtime events. Passing `--model` pins a catalog run to
+that model and does not use the manifest's alternative list.
+When creating or updating an entry with `mind catalog save`, repeat
+`--model-candidate id=provider/model` to set the list.
+
+```json
+{
+  "name": "reviewer",
+  "description": "Reviews a proposed change.",
+  "executor": "llm",
+  "model_candidates": [
+    { "id": "local", "model": "local/reviewer" },
+    { "id": "cloud", "model": "openai/gpt-example" }
+  ]
+}
+```
+
+Automatic fallback across multiple candidates is supported by `llm` and
+OpenCode. OpenCode stops retrying once a tool call has started, to avoid
+repeating possible side effects. Multi-candidate lists with other executors are
+rejected until those adapters can report replay safety. Cost and residency
+constraints are part of the planned request planner, not enforced by this list.
+
 The `codex` executor runs the installed Codex CLI non-interactively and reuses
 its existing authentication. It accepts OpenAI model references, strips the
 `openai/` namespace for the CLI, preserves session IDs for resumed turns, and

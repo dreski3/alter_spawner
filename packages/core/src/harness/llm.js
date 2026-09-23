@@ -17,7 +17,7 @@ import { resolveDirectLlmEndpoint } from "../providers.js";
 
 const ZERO = { input: 0, output: 0, reasoning: 0, cache_read: 0, total: 0 };
 
-const failed = (message, exitCode = 1) => {
+const failed = (message, exitCode = 1, retryable = false) => {
   process.stderr.write(`(alter llm) ${message}\n`);
   return {
     tokens: { ...ZERO },
@@ -33,6 +33,7 @@ const failed = (message, exitCode = 1) => {
     // normal schedule rather than reading it as an empty answer.
     empty_output: false,
     llm_error: message,
+    retryable,
   };
 };
 
@@ -274,19 +275,20 @@ const run = async (
   } catch (error) {
     if (plan.timedOut()) {
       return {
-        ...failed(`${endpoint.providerId}/${endpoint.modelId} timed out after ${timeout}ms`, -1),
+        ...failed(`${endpoint.providerId}/${endpoint.modelId} timed out after ${timeout}ms`, -1, true),
         killed: true,
       };
     }
     if (signal?.aborted) return { ...failed("run cancelled"), aborted: true, killed: true };
-    return failed(`request to ${endpoint.providerId} failed: ${error?.message || error}`, -2);
+    return failed(`request to ${endpoint.providerId} failed: ${error?.message || error}`, -2, true);
   } finally {
     plan.done();
   }
 
   if (!response.ok) {
     // Truncated: a provider error body can be long, and it is going to stderr.
-    return failed(`${endpoint.providerId} returned ${response.status}: ${body.slice(0, 400)}`, response.status);
+    const retryable = response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500;
+    return failed(`${endpoint.providerId} returned ${response.status}: ${body.slice(0, 400)}`, response.status, retryable);
   }
   let parsed;
   try {
@@ -313,6 +315,7 @@ const run = async (
     budget_exceeded: budgetExceeded,
     empty_output: emptyOutput,
     llm_error: null,
+    retryable: !budgetExceeded,
   };
 };
 

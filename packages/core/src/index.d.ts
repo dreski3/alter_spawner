@@ -19,6 +19,7 @@ export type SpawnOptions = {
   name: string | null;
   description: string | null;
   model: string | null;
+  modelCandidates: ModelCandidate[] | null;
   prompt: string | null;
   /** Image files attached to this invocation. Paths are validated and canonicalized before execution. */
   images: string[];
@@ -78,6 +79,8 @@ export type HarnessToolUsage = {
   byName: Record<string, number>;
 };
 
+export type ModelCandidate = { id: string; model: string };
+
 export type AlterResponse = {
   tokens: AlterTokens;
   text: string;
@@ -92,14 +95,16 @@ export type AlterResponse = {
   contract_failed: boolean;
   contract_error: string | null;
   tools?: HarnessToolUsage | null;
+  toolActivity?: boolean;
+  retryable?: boolean;
   eventLog?: string | null;
   capability_error?: string | null;
 };
 
 export type AlterRuntimeEvent =
-  | { type: "attempt.started"; attempt: number; model: string; reason: string }
-  | { type: "output.delta"; attempt: number; model: string; delta: string; text: string; sessionID: string | null }
-  | { type: "usage.updated"; attempt: number; model: string; tokens: AlterTokens; steps: number; sessionID: string | null };
+  | { type: "attempt.started"; attempt: number; model: string; candidate_id?: string; reason: string }
+  | { type: "output.delta"; attempt: number; model: string; candidate_id?: string; delta: string; text: string; sessionID: string | null }
+  | { type: "usage.updated"; attempt: number; model: string; candidate_id?: string; tokens: AlterTokens; steps: number; sessionID: string | null };
 
 export type AlterAttemptReason = "initial" | "retry_same_model" | "retry_fallback_model";
 
@@ -107,6 +112,7 @@ export type AlterAttemptReason = "initial" | "retry_same_model" | "retry_fallbac
 export type AlterAttempt = {
   attempt: number;
   model: string;
+  candidate_id?: string;
   reason: AlterAttemptReason;
   ok: boolean;
   exit_code: number | null;
@@ -117,6 +123,7 @@ export type AlterAttempt = {
   contract_error: string | null;
   tokens: AlterTokens;
   tools: AlterToolUsage | null;
+  tool_activity?: boolean;
   started_at: string;
   ended_at: string;
   duration_ms: number;
@@ -141,6 +148,7 @@ export type AlterResult = {
   session_id: string | null;
   event_log: string | null;
   model: string;
+  model_candidates?: ModelCandidate[] | null;
   executor: string | null;
   catalog: string | null;
   depth: number;
@@ -267,6 +275,7 @@ export type CatalogManifest = {
   description: string;
   model?: string | null;
   fallback_model?: string | null;
+  model_candidates?: ModelCandidate[];
   max_tokens?: number | null;
   nestable?: boolean;
   web?: boolean;
@@ -417,13 +426,13 @@ export function buildFrontmatter(options: SpawnOptions): string;
 export function buildBody(options: SpawnOptions): string;
 export function buildAgentsMd(options: SpawnOptions): string;
 
-/** Initial run, then same-model retries, then fallback-model retries if one is available. */
+/** Initial run, same-candidate retries, then ordered fallback-candidate retries if available. */
 export function buildAttemptPlan(
   options: SpawnOptions,
   cfg: MindConfig,
   runtime?: Runtime,
   planOptions?: { allowRetries?: boolean },
-): { model: string; reason: AlterAttemptReason }[];
+): { model: string; reason: AlterAttemptReason; candidateId?: string }[];
 
 export function runWithRetries(options: {
   options: SpawnOptions;
@@ -452,6 +461,7 @@ export type AlterRecord = {
   name: string | null;
   description: string | null;
   model: string;
+  model_candidates?: ModelCandidate[] | null;
   executor: string | null;
   capability: { id: string; input?: "text" | "json" } | null;
   nestable: boolean;

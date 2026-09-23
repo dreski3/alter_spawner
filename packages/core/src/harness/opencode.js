@@ -151,11 +151,13 @@ const run = (
         sessionID: acc.sessionID,
         steps: acc.steps,
         tools: acc.tools,
+        toolActivity: acc.toolActivity,
         exitCode,
         killed,
         aborted,
         eventLog,
         ...classifyOpenCodeResult({ exitCode, killed, budgetExceeded, text: acc.text }),
+        retryable: !acc.toolActivity && !budgetExceeded && !aborted,
       };
       eventStream?.end();
       eventStreamDone.then(() => resolve(output));

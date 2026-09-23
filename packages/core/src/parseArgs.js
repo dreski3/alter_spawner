@@ -27,6 +27,14 @@ export const parseSpawnArgs = (argv) => {
     else if (a === "--allow-no-catalogs") o.allowedCatalogs = [];
     else if (a === "--max-tokens") o.maxTokens = Number(argv[++i]);
     else if (a === "--fallback-model") o.fallbackModel = argv[++i];
+    else if (a === "--model-candidate") {
+      const value = argv[++i] || "";
+      const separator = value.indexOf("=");
+      if (separator <= 0 || separator === value.length - 1) {
+        throw new Error("--model-candidate expects <id=provider/model>.");
+      }
+      (o.modelCandidates ??= []).push({ id: value.slice(0, separator), model: value.slice(separator + 1) });
+    }
     else if (a === "--prompt-prefix") o.promptPrefix = argv[++i];
     else if (a === "--prompt-suffix") o.promptSuffix = argv[++i];
     else if (a === "--output-exact") o.outputContract = { type: "exact", value: argv[++i] };

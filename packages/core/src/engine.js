@@ -83,8 +83,42 @@ const sandboxRuntime = (runtimeOverride) => {
 export const resolveEffectiveModel = (o, cfg, runtime = resolveRuntime()) =>
   o.model || runtime.env.ALTER_MODEL || cfg.default_model;
 
+const validateSpawnModelCandidates = (o) => {
+  if (o.modelCandidates != null) {
+    if (!Array.isArray(o.modelCandidates) || o.modelCandidates.length === 0) {
+      fail("modelCandidates must be a non-empty array when provided.");
+    }
+    if (o.fallbackModel) fail("modelCandidates cannot be combined with fallbackModel.");
+    const ids = new Set();
+    const models = new Set();
+    for (const candidate of o.modelCandidates) {
+      const unsupported = candidate && typeof candidate === "object" && !Array.isArray(candidate)
+        ? Object.keys(candidate).find((key) => !["id", "model"].includes(key))
+        : null;
+      if (unsupported) fail(`modelCandidates entry field "${unsupported}" is not supported.`);
+      if (
+        !candidate || typeof candidate !== "object" || Array.isArray(candidate) ||
+        typeof candidate.id !== "string" || !candidate.id.trim() || candidate.id !== candidate.id.trim() ||
+        typeof candidate.model !== "string" || !candidate.model.trim() || candidate.model !== candidate.model.trim() ||
+        candidate.model.indexOf("/") <= 0 || candidate.model.indexOf("/") === candidate.model.length - 1
+      ) {
+        fail("each modelCandidates entry must have a non-empty id and a provider/model reference.");
+      }
+      if (ids.has(candidate.id)) fail(`duplicate model candidate id "${candidate.id}".`);
+      if (models.has(candidate.model)) fail(`duplicate model candidate "${candidate.model}".`);
+      ids.add(candidate.id);
+      models.add(candidate.model);
+    }
+    if (o.model && o.model !== o.modelCandidates[0].model) {
+      fail("model must match the first modelCandidates entry when both are provided.");
+    }
+    o.model = o.modelCandidates[0].model;
+  }
+};
+
 const prepareSpawn = (root, cfg, o, runtime) => {
   if (o.catalog) applyCatalog(o, resolveCatalogEntry(root, cfg, o.catalog));
+  validateSpawnModelCandidates(o);
   validateOutputContract(o.outputContract);
   const incoming = runtime.env.ALTER_DEPTH !== undefined ? Number(runtime.env.ALTER_DEPTH) : -1;
   const depth = incoming + 1;
@@ -133,6 +167,12 @@ export const spawnAlter = async (
   // Resolved before scaffolding, because the adapter decides how much to scaffold —
   // and because an unknown executor should fail before anything is written to disk.
   const { name: harnessName, adapter } = resolveExecutor(o, harness);
+  if (o.modelCandidates?.length && adapter.supportsRetry === false) {
+    fail(`executor "${harnessName}" does not support model candidates.`);
+  }
+  if (o.modelCandidates?.length > 1 && !["llm", "opencode"].includes(harnessName)) {
+    fail(`executor "${harnessName}" cannot prove model candidate fallback is safe; use "llm" or "opencode".`);
+  }
   prepareImages(root, cfg, o, runtime, harnessName, adapter, { createOnly });
   // Pin the resolved name onto the Alter so alter.json and result.json record what
   // actually ran rather than "unspecified", and so `mind run` on this home later
@@ -155,6 +195,7 @@ export const spawnAlter = async (
   // should wait here rather than after doing work.
   const { handle: treeNode, runtime: treeRuntime } = await enterTree(root, cfg, o, authorityRuntime);
   let res;
+  let attempts;
   try {
     const home = scaffold(root, cfg, o, treeRuntime, {
       agentFiles: adapter.needsAgentHome,
@@ -162,7 +203,6 @@ export const spawnAlter = async (
     });
     const timeout = o.timeout ?? cfg.run_timeout_ms ?? 180000;
     const effectivePrompt = [o.promptPrefix, o.prompt, o.promptSuffix].filter(Boolean).join("\n\n");
-    let attempts;
     ({ res, attempts } = await runWithRetries({
       options: o,
       config: cfg,
@@ -194,7 +234,7 @@ export const spawnAlter = async (
     // Released even when the run throws: a slot leaked here is a slot the tree never
     // gets back, and the pid-liveness prune would not reclaim it while this process
     // is still alive.
-    await releaseTreeNode(treeNode, res?.tokens?.total ?? 0);
+    await releaseTreeNode(treeNode, attempts?.reduce((sum, attempt) => sum + (attempt.tokens?.total || 0), 0) ?? res?.tokens?.total ?? 0);
   }
 };
 
@@ -276,6 +316,7 @@ export const runExistingAlter = async (
     webAccess: !!aj.web,
     maxTokens: aj.max_tokens ?? null,
     fallbackModel: aj.fallback_model || null,
+    modelCandidates: aj.model_candidates || null,
     opencodeProvider: aj.opencode_provider || null,
     opencodeVariant: aj.opencode_variant || null,
     outputContract: aj.output_contract || null,
@@ -284,8 +325,15 @@ export const runExistingAlter = async (
     spawned_by: aj.parent_id || runtime.env.ALTER_ID || "root",
     mindBinPath,
   });
+  validateSpawnModelCandidates(o);
   validateOutputContract(o.outputContract);
   const { name: harnessName, adapter } = resolveExecutor(o, harness);
+  if (o.modelCandidates?.length && adapter.supportsRetry === false) {
+    fail(`executor "${harnessName}" does not support model candidates.`);
+  }
+  if (o.modelCandidates?.length > 1 && !["llm", "opencode"].includes(harnessName)) {
+    fail(`executor "${harnessName}" cannot prove model candidate fallback is safe; use "llm" or "opencode".`);
+  }
   o.executor = harnessName;
   const attemptModels = buildAttemptPlan(o, cfg, runtime, { allowRetries: adapter.supportsRetry !== false }).map((attempt) => attempt.model);
   validateExecutorOptions(harnessName, adapter, o, attemptModels);
@@ -297,8 +345,8 @@ export const runExistingAlter = async (
   // to keep working after the node budget was exhausted.
   const { handle: treeNode, runtime: treeRuntime } = await enterTree(root, cfg, { ...o, depth }, authorityRuntime);
   let res;
+  let attempts;
   try {
-    let attempts;
     ({ res, attempts } = await runWithRetries({
       options: o,
       config: cfg,
@@ -322,6 +370,6 @@ export const runExistingAlter = async (
     const result = writeResult(root, home, o, res, startedAt, endedAt, totalDuration, attempts);
     return { home, result, res };
   } finally {
-    await releaseTreeNode(treeNode, res?.tokens?.total ?? 0);
+    await releaseTreeNode(treeNode, attempts?.reduce((sum, attempt) => sum + (attempt.tokens?.total || 0), 0) ?? res?.tokens?.total ?? 0);
   }
 };
