@@ -156,6 +156,9 @@ export const validateManifest = (m, name) => {
       }
     }
   }
+  if (m.opencode_variant != null && (typeof m.opencode_variant !== "string" || !m.opencode_variant.trim())) {
+    fail(`catalog entry "${name}": opencode_variant must be a non-empty string or null.`);
+  }
   validateOutputContract(m.output_contract, `catalog entry "${name}": output_contract`);
 };
 
@@ -210,6 +213,7 @@ export const applyCatalog = (o, entry) => {
   o.catalogAgentsOverride = m.agents_md_override || null;
   o.catalogSkillsDir = m.skills_dir || null;
   if (o.opencodeProvider == null) o.opencodeProvider = m.opencode_provider || null;
+  if (o.opencodeVariant == null) o.opencodeVariant = m.opencode_variant || null;
   if (o.outputContract == null) o.outputContract = m.output_contract || null;
   o.catalogName = m.name;
 };
@@ -265,6 +269,7 @@ const manifestFromOptions = (name, o, runtime, { project = false } = {}) => ({
   agents_md_override: o.agentsMdOverride ?? (project ? PROJECT_AGENTS_FILE : null),
   skills_dir: o.skillsDir ?? (project && !o.textOnly ? PROJECT_SKILLS_DIR : null),
   opencode_provider: o.opencodeProvider || null,
+  opencode_variant: o.opencodeVariant || null,
   output_contract: o.outputContract || null,
   source: { type: "local", ref: null },
   created_at: iso(runtime.now()),

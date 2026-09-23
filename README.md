@@ -207,6 +207,10 @@ strategy preserves eligible manifest order; `lowest_cost` uses declared token
 prices. Candidate ids and executor names appear in attempt records and runtime
 events. OpenCode remains the default executor when none is selected. Passing
 `--model` pins a catalog run to that model.
+Use `--variant <name>` to select an OpenCode model variant, such as `none` for
+models that support disabling reasoning. Variant names and effects depend on
+the selected provider and model; the flag is only supported by the OpenCode
+executor.
 When creating or updating an entry with `mind catalog save`, repeat
 `--model-candidate id=provider/model` or
 `--model-candidate id=executor:provider/model` to set the list.
@@ -526,6 +530,9 @@ stdout, saved to `<home>/result.md`, with stats in `<home>/result.json` (tokens,
 steps, model, per-attempt history). A run that exits cleanly but returns no
 final message is therefore a failure, not a success — recorded as
 `ok:false, empty_output:true` and retried through the fallback tiers.
+`mind spawn --verbose` prints a post-run summary with total tokens and usage by
+attempt. It estimates API-equivalent cost from configured provider rates or the
+local OpenCode model catalog; this is not a billing total.
 
 **`bash_allow`** — a catalog entry can grant a scoped bash rule for one
 specific external command (e.g. `"python3 /abs/path/cipher.py **"`),

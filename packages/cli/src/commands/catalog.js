@@ -75,6 +75,7 @@ const catalogSave = (argv) => {
       promptPrefix: null,
       promptSuffix: null,
       opencodeProvider: aj.opencode_provider || null,
+      opencodeVariant: aj.opencode_variant || null,
       createdFrom: aj.id || fromId,
     };
   } else {

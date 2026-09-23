@@ -14,7 +14,7 @@ const usage = (write = console.log) => {
   write("                                          (scaffold this directory as a mind project)");
   write("  update  [--source <path>]              (re-apply profile-owned files + new catalog entries)");
   write("  spawn   --name? --description? --model? --image <file>* --allow <p> --allow-write <p>");
-  write("          --nestable? --web? --timeout? --rm? --verbose?");
+  write("          --nestable? --web? --timeout? --variant <name>? --rm? --verbose?");
   write("          --catalog <name>? --executor <name>? --max-tokens <n>? --fallback-model <m>?");
   write("          --model-candidate <id=provider/model|id=executor:provider/model>*");
   write("          --route-strategy <ordered|lowest_cost>? --route-residency <name>*");

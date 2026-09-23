@@ -120,6 +120,9 @@ const validateSpawnModelCandidates = (o) => {
 const prepareSpawn = (root, cfg, o, runtime) => {
   if (o.catalog) applyCatalog(o, resolveCatalogEntry(root, cfg, o.catalog));
   validateSpawnModelCandidates(o);
+  if (o.opencodeVariant != null && (typeof o.opencodeVariant !== "string" || !o.opencodeVariant.trim())) {
+    fail("variant must be a non-empty model variant name.");
+  }
   validateRoutingPolicy(o.routing);
   if (o.routing != null && o.modelCandidates == null) fail("routing requires modelCandidates.");
   validateOutputContract(o.outputContract);
@@ -165,6 +168,9 @@ const prepareExecution = (o, cfg, runtime, harness, prompt) => {
   }
   const { name: harnessName, adapter } = resolveExecutor(o, harness);
   const attemptPlan = buildAttemptPlan(o, cfg, runtime, { allowRetries: adapter.supportsRetry !== false });
+  if (o.opencodeVariant && attemptPlan.some((attempt) => (attempt.executor || harnessName) !== "opencode")) {
+    fail("--variant is supported only by the opencode executor.");
+  }
   const byExecutor = new Map();
   for (const attempt of attemptPlan) {
     const name = attempt.executor || harnessName;

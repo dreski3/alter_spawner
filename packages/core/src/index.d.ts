@@ -176,6 +176,7 @@ export type AlterResult = {
   model_candidates?: ModelCandidate[] | null;
   routing?: RoutingTrace | null;
   executor: string | null;
+  opencode_variant?: string | null;
   catalog: string | null;
   depth: number;
   home: string;
@@ -320,6 +321,7 @@ export type CatalogManifest = {
   agents_md_override?: string | null;
   skills_dir?: string | null;
   opencode_provider?: Record<string, unknown> | null;
+  opencode_variant?: string | null;
   output_contract?: OutputContract | null;
   source?: { type: "local" | "mcp"; ref: string | null };
   created_at?: string;
@@ -518,6 +520,7 @@ export type AlterRecord = {
   graph_id: string | null;
   depends_on: string[];
   opencode_provider: Record<string, unknown> | null;
+  opencode_variant?: string | null;
   output_contract: OutputContract | null;
   images: AlterImageMetadata[];
   created_at: string;
