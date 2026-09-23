@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readConfig } from "./config.js";
 import { runAlterGraph } from "./graph.js";
 import { validateModels } from "./opinion.js";
 import { writeFuseReport } from "./fuse-report.js";
@@ -8,8 +9,8 @@ import { fail } from "./util.js";
 
 export const buildFuseGraph = ({ task, models, writer, context = "", maxTokens = null, executor = null, writerExecutor = executor } = {}) => {
   const analysts = validateModels(models, "fuse");
-  if (executor !== null && !["llm", "opencode"].includes(executor)) fail("fuse executor must be llm or opencode.");
-  if (writerExecutor !== null && !["llm", "opencode"].includes(writerExecutor)) fail("fuse writerExecutor must be llm or opencode.");
+  if (executor !== null && !["llm", "opencode", "codex", "grok"].includes(executor)) fail("fuse executor must be llm, opencode, codex, or grok.");
+  if (writerExecutor !== null && !["llm", "opencode", "codex", "grok"].includes(writerExecutor)) fail("fuse writerExecutor must be llm, opencode, codex, or grok.");
   if (typeof writer !== "string" || !/^[^\s/]+\/\S+$/.test(writer.trim())) fail("fuse requires an explicit writer provider/model.");
   if (typeof task !== "string" || !task.trim()) fail("fuse requires a task.");
   if (typeof context !== "string") fail("fuse context must be a string.");
@@ -55,7 +56,7 @@ export const runFuse = async (root, options, runOptions = {}) => {
   const built = buildFuseGraph(options);
   const graph = runOptions.harness
     ? built
-    : selectWorkflowExecutors(built, { env: runOptions.runtime?.env || runOptions.env || process.env });
+    : selectWorkflowExecutors(built, { env: runOptions.runtime?.env || runOptions.env || process.env, providers: readConfig(root).providers });
   const concurrency = runOptions.concurrency ?? graph.nodes.length - 1;
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 5) fail("fuse concurrency must be an integer between 1 and 5.");
   const execution = await prepareWorkflowConcurrency(graph, {

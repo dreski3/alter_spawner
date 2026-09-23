@@ -37,6 +37,7 @@ export const DEFAULT_CONFIG = {
   default_fallback_model: null,
   opencode_pure: true,
   opencode_event_log: false,
+  providers: {},
   retry: { same_harness_retries: 1, fallback_retries: 1 },
 };
 
@@ -74,7 +75,12 @@ export const runsDir = (root) => path.join(kitDir(root), "runs");
 export const readConfig = (root) => {
   try {
     const raw = JSON.parse(readFileSync(path.join(kitDir(root), "config.json"), "utf8"));
-    return { ...DEFAULT_CONFIG, ...raw, retry: { ...DEFAULT_CONFIG.retry, ...(raw.retry || {}) } };
+    return {
+      ...DEFAULT_CONFIG,
+      ...raw,
+      providers: { ...DEFAULT_CONFIG.providers, ...(raw.providers || {}) },
+      retry: { ...DEFAULT_CONFIG.retry, ...(raw.retry || {}) },
+    };
   } catch {
     return { ...DEFAULT_CONFIG };
   }

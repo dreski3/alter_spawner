@@ -31,7 +31,7 @@ export const PRIVILEGED_MANIFEST_FIELDS = Object.freeze({
   capability: null,
 });
 
-const PORTABLE_EXECUTORS = new Set(["opencode", "llm"]);
+const PORTABLE_EXECUTORS = new Set(["opencode", "llm", "codex", "grok"]);
 
 const isSet = (value) => {
   if (Array.isArray(value)) return value.length > 0;

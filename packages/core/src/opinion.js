@@ -1,4 +1,5 @@
 import { runAlterGraph } from "./graph.js";
+import { readConfig } from "./config.js";
 import { writeOpinionReport } from "./opinion-report.js";
 import { prepareWorkflowConcurrency, selectWorkflowExecutors } from "./workflow-execution.js";
 import { fail } from "./util.js";
@@ -60,7 +61,7 @@ export const runOpinion = async (root, options, runOptions = {}) => {
   const built = buildOpinionGraph({ ...options, models });
   const graph = runOptions.harness
     ? built
-    : selectWorkflowExecutors(built, { env: runOptions.runtime?.env || runOptions.env || process.env });
+    : selectWorkflowExecutors(built, { env: runOptions.runtime?.env || runOptions.env || process.env, providers: readConfig(root).providers });
   const execution = await prepareWorkflowConcurrency(graph, {
     ...runOptions,
     concurrency: runOptions.concurrency ?? models.length,

@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readConfig } from "./config.js";
 import { runAlterGraph } from "./graph.js";
 import { createOpinionReport } from "./opinion-report.js";
 import { writeJsonAtomic, writeTextAtomic } from "./persistence.js";
@@ -143,10 +144,11 @@ export const runCollaborate = async (root, options = {}, runOptions = {}) => {
   const writes = canonicalWritePaths(root, options.writePaths);
   const deadline = controllerWithDeadline(runOptions.signal, deadlineMs);
   const started = Date.now();
+  const providers = readConfig(root).providers;
   let home = null;
   try {
     const built = buildCollaboratePlannerGraph({ ...options, task: options.task, planners, workers, writePaths: writes.map((entry) => entry.relative), maxTasks, maxTokens: plannerMaxTokens, taskMaxTokens, availableTaskTokens });
-    const plannerGraph = runOptions.plannerHarness ? built : selectWorkflowExecutors(built, { env: runOptions.runtime?.env || runOptions.env || process.env });
+    const plannerGraph = runOptions.plannerHarness ? built : selectWorkflowExecutors(built, { env: runOptions.runtime?.env || runOptions.env || process.env, providers });
     const plannerExecution = await prepareWorkflowConcurrency(plannerGraph, { ...runOptions, harness: runOptions.plannerHarness || null, signal: deadline.signal, concurrency: planners.length });
     let plannerResult;
     try {
@@ -186,7 +188,7 @@ export const runCollaborate = async (root, options = {}, runOptions = {}) => {
             if (deadline.expired()) return { status: "deadline_exceeded", applied: false, baselineGate, finalGate, execution: null, changedFiles: [], patch: null };
             if (!gateRunnable(baselineGate)) return { status: "baseline_unrunnable", applied: false, baselineGate, finalGate, execution: null, changedFiles: [], patch: null };
             const taskBuilt = buildCollaborateTaskGraph({ plan: selected.plan, task: options.task, context: options.context || "", worktree: isolated.worktree, writePaths: mappedWrites, workerHarness: runOptions.workerHarness });
-            const taskGraph = runOptions.workerHarness ? taskBuilt : selectWorkflowExecutors(taskBuilt, { env: runOptions.runtime?.env || runOptions.env || process.env });
+            const taskGraph = runOptions.workerHarness ? taskBuilt : selectWorkflowExecutors(taskBuilt, { env: runOptions.runtime?.env || runOptions.env || process.env, providers });
             const taskExecution = await prepareWorkflowConcurrency(taskGraph, { ...runOptions, harness: runOptions.workerHarness || null, signal: deadline.signal, concurrency, executorConcurrency: { ...(runOptions.executorConcurrency || {}), opencode: 1 } });
             let taskResult;
             let taskHome;

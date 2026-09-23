@@ -15,7 +15,6 @@
 
 ## Framework breadth
 
-- Exercise the harness contract with a second session-based coding harness.
 - Add semantic retrieval and reranking adapters without changing the memory
   store contract.
 - Add first-class metabolic graphs for reward evaluation, abandoned-goal

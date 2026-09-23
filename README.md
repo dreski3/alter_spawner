@@ -1,13 +1,19 @@
 # Alter Spawner (`mind`)
 
-Alter Spawner is a framework for building user-facing AI agents whose work is
-performed by isolated processing instances called **Alters**. One execution of
-an Alter is a **spike**. Recurring, phased groups of spikes are
-**oscillations**. Together, graphs, oscillations, memory, capability policies,
-and reward or maintenance tasks form the agent's metabolic layer: background
-work can consolidate memory, revisit unfinished goals, inspect resource use,
-and improve future execution without making every internal process part of the
-agent's conversational context.
+Alter Spawner lets a user-facing parent agent delegate bounded work without
+giving every worker its conversation or authority. The parent receives a
+request, chooses an **Alter** from a catalog, sends it a scoped task and only
+its declared permissions, then waits for one result.
+
+Each Alter runs in a throwaway home with its own session, tools, files, and
+limits. It returns a final result as data. The parent can use that data in its
+reply, pass it to another worker, or reject it; the worker's private working
+context does not become part of the parent conversation.
+
+```text
+person ──request──> parent agent ──scoped task──> isolated Alter
+person <──reply──── parent agent <──result data── isolated Alter
+```
 
 The monorepo currently builds the `mind` CLI and the `@mind/core` embedding
 library. The names are distribution names; Alter Spawner is the framework.
@@ -26,6 +32,7 @@ installation is exercised in the integration suite. See [ROADMAP.md](ROADMAP.md)
 for the remaining publication decisions.
 
 Start with [the architecture](docs/architecture.md) for the framework model,
+[the metabolism guide](docs/metabolism.md) for recurring maintenance,
 [the embedding guide](docs/embedding.md) for host integration, and
 [CONTRIBUTING.md](CONTRIBUTING.md) for the verification and release workflow.
 See [WORKFLOWS.md](WORKFLOWS.md) for the implemented and planned `mind work`
@@ -36,9 +43,9 @@ workflow designs.
 - **`packages/core`** (`@mind/core`) — the engine. Project-root discovery
   (walks up from `cwd` for `.alters/config.json`, like `git` finds `.git`),
   catalog resolution, Alter-home scaffolding, retry/fallback, and a
-  harness-adapter interface (`src/harness/adapter.js`) with a session-based
-  `opencode` adapter and a direct, tool-free `llm` adapter. Library callers can
-  use `parseSpawnArgs` plus `spawnAlter` directly and pass an `AbortSignal` to
+  harness-adapter interface (`src/harness/adapter.js`) with session-based
+  `opencode`, `codex`, and `grok` adapters plus a direct, tool-free `llm` adapter.
+  Library callers can use `parseSpawnArgs` plus `spawnAlter` directly and pass an `AbortSignal` to
   cancel the underlying harness process without shelling out to `mind`.
   `runAlterGraph` executes validated dependency graphs, runs ready branches in
   parallel, interpolates dependency results, and checkpoints a graph trace.
@@ -69,7 +76,7 @@ mind spawn --image ./diagram.png --model openai/gpt-4o "Explain this diagram."
 ```
 
 `--image <file>` is repeatable and attaches PNG, JPEG, GIF, or WebP files to an
-OpenCode-backed Alter. The selected model and every configured fallback must
+image-capable Alter. The selected model and every configured fallback must
 accept image input and return text. Images are bounded to 8 files, 20 MiB each,
 and 40 MiB total. Run records retain only filename, media type, size, and SHA-256;
 the image bytes and original paths are not copied into the Alter home.
@@ -149,6 +156,104 @@ also be supplied while saving a catalog entry with
   }
 }
 ```
+
+The direct `llm` executor can resolve providers without OpenCode. Declare them
+under `providers` in `.alters/config.json`; credentials are named by environment
+variable and are never stored in the project. Supported protocols are
+`openai-responses`, `openai-compatible`, `anthropic-messages`, and `gemini`.
+An optional `models` map acts as an allowlist and can declare output and input
+capabilities. Provider IDs not declared here retain the compatibility path
+through OpenCode's model catalog and auth files.
+
+```json
+{
+  "providers": {
+    "openai": {
+      "protocol": "openai-responses",
+      "api_key_env": "OPENAI_API_KEY",
+      "models": {
+        "gpt-example": {
+          "max_output_tokens": 8192,
+          "input": ["text", "image"]
+        }
+      }
+    },
+    "anthropic": {
+      "protocol": "anthropic-messages",
+      "api_key_env": "ANTHROPIC_API_KEY"
+    },
+    "google": {
+      "protocol": "gemini",
+      "api_key_env": "GEMINI_API_KEY"
+    },
+    "local": {
+      "protocol": "openai-compatible",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "api_key_env": null
+    }
+  }
+}
+```
+
+Use `executor: "llm"` on a catalog entry or `--executor llm` at invocation.
+The OpenAI, Anthropic, and Gemini protocols use their standard public base URL
+when `base_url` is omitted. `openai-compatible` requires an explicit base URL.
+
+The `codex` executor runs the installed Codex CLI non-interactively and reuses
+its existing authentication. It accepts OpenAI model references, strips the
+`openai/` namespace for the CLI, preserves session IDs for resumed turns, and
+normalizes Codex JSONL events into the same result, usage, tool, cancellation,
+retry, image, and event-log contract as OpenCode.
+
+```bash
+mind spawn \
+  --executor codex \
+  --model openai/gpt-5.6-sol \
+  --name codex-reviewer \
+  --description "Reviews the requested code change." \
+  "Review the implementation and report concrete defects."
+```
+
+Codex runs with user configuration ignored except for authentication, its own
+subagent spawning disabled, command network access disabled, and a per-run
+permission profile that denies the rest of the filesystem while granting the
+Alter home plus declared read/write paths. Shell commands receive only Codex's
+reduced core environment with automatic secret filtering. `--web` enables
+Codex's hosted live web search without opening command networking. Codex currently rejects
+`--nestable`, `--bash-only`, `--bash-allow`, `opencode_provider`, and
+`opencode_variant` because those controls do not have equivalent Codex CLI
+enforcement.
+
+The `grok` executor runs the installed Grok CLI in headless mode and reuses
+its existing authentication (`XAI_API_KEY`, `GROK_AUTH_PATH`, or
+`~/.grok/auth.json`). It accepts xAI model references, strips the `xai/`
+namespace for the CLI, preserves session IDs for resumed turns, and normalizes
+streaming JSON events into the same result, usage, tool, cancellation, retry,
+image, and event-log contract as OpenCode and Codex.
+
+```bash
+mind spawn \
+  --executor grok \
+  --model xai/grok-4.5 \
+  --name grok-reviewer \
+  --description "Reviews the requested code change." \
+  "Review the implementation and report concrete defects."
+```
+
+Grok runs with an isolated `GROK_HOME` inside the Alter home, so the user's
+MCP servers, hooks, skills, and memory are not inherited. Authentication is
+passed through without copying credentials into the home. Subagent spawning
+and plan mode are disabled. The harness requests a per-run `strict` sandbox
+profile that denies child-process networking, keeps writes to the Alter home
+plus declared write paths, and adds declared read paths. When Grok cannot
+apply that profile because a runtime socket such as `/var/run/docker.sock` is
+a symlink, the harness uses Grok's built-in `workspace` profile instead:
+writes stay in the Alter home and temporary directories, and reads are not
+limited to the declared grants. `--web` enables Grok's hosted web search
+without opening command networking. Images travel inline when they fit in the
+process argument limit, and as file references inside the home otherwise.
+Grok rejects `--nestable`, `--bash-only`, `--bash-allow`, `opencode_provider`,
+and `opencode_variant`.
 
 **Graph runs** — library callers can define chains and branches with
 `runAlterGraph`. A node consumes a direct dependency using
@@ -324,8 +429,9 @@ the server cannot start, OpenCode nodes fall back to safe serial execution. This
 maximizes safe concurrency without a manual `--concurrency` value. The writer is
 selected independently by the same rule.
 
-`--executor llm` or `--executor opencode` remains an explicit override for all
-analysts. `--writer-executor` overrides the writer separately (for example,
+`--executor llm`, `--executor opencode`, `--executor codex`, or `--executor grok` remains an
+explicit override for all analysts. `--writer-executor` overrides the writer
+separately (for example,
 `--executor llm --writer-executor opencode` for direct Mistral analysts and an
 OAuth writer). Unsupported explicitly requested direct providers fail without
 switching executors or models.
@@ -586,8 +692,14 @@ untouched with `storage: null`.
   release decision.
 - OpenCode runs in `--pure` mode by default to avoid loading external plugins.
   A custom provider can still require its configured AI SDK runtime package.
-- Only one harness adapter exists (`opencode`); the interface is unexercised
-  by a second implementation.
+- The `codex` harness currently supports only OpenAI model references and does
+  not support nestable or command-allowlisted Alters. Use `opencode` for those
+  cases. The direct `llm` executor has no tools or sessions.
+- The `grok` harness currently supports only xAI model references and does
+  not support nestable or command-allowlisted Alters. Its strict sandbox
+  falls back to Grok's `workspace` profile when a runtime socket is a
+  symlink, which leaves temporary directories writable and reads
+  unrestricted. Use `opencode` when those boundaries are too wide.
 - Persistent-memory retrieval is lexical. SQLite adds FTS indexing, but no
   embedding/vector or semantic-reranking adapter exists yet.
 - Output validation is opt-in. Catalog entries without `output_contract` still

@@ -1,4 +1,4 @@
-import { requireProjectRoot, spawnAlter, fail } from "@mind/core";
+import { describeAlterFailure, requireProjectRoot, spawnAlter, fail } from "@mind/core";
 import path from "node:path";
 import { parseSpawnArgs } from "../parseArgs.js";
 
@@ -28,8 +28,10 @@ export const run = async (argv, ctx, { createOnly = false } = {}) => {
     const n = result.attempts?.length ?? 1;
     console.error(
       `alter ${o.id}: returned no final message after ${n} attempt${n === 1 ? "" : "s"} ` +
-        `(empty_output; model=${o.model}) — see ${result.home}/result.json`
+      `(empty_output; model=${o.model}) — see ${result.home}/result.json`
     );
+  } else if (!res.ok) {
+    console.error(`alter ${o.id}: ${describeAlterFailure(result)} — see ${result.home}/result.json`);
   }
   if (!res.ok) process.exitCode = 1;
 };

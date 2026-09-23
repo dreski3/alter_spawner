@@ -1,4 +1,4 @@
-import { resolveLlmEndpointFromDisk } from "./providers.js";
+import { resolveDirectLlmEndpoint } from "./providers.js";
 import { createRuntime } from "./runtime.js";
 import { startWorkflowOpenCodeServer } from "./opencode-server.js";
 
@@ -20,13 +20,18 @@ const directEligible = (node) =>
 
 export const selectWorkflowExecutors = (
   graph,
-  { env = process.env, resolveDirect = resolveLlmEndpointFromDisk } = {},
+  {
+    env = process.env,
+    providers = {},
+    resolveDirect = (model, environment, configuredProviders) =>
+      resolveDirectLlmEndpoint(model, { env: environment, providers: configuredProviders }),
+  } = {},
 ) => ({
   ...graph,
   nodes: graph.nodes.map((node) => {
     if (node.executor != null || !directEligible(node)) return node;
     try {
-      resolveDirect(node.model, env);
+      resolveDirect(node.model, env, providers);
       return { ...node, executor: "llm" };
     } catch {
       return { ...node, executor: "opencode" };

@@ -6,7 +6,13 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolveLlmEndpoint, splitModelRef } from "../../src/index.js";
+import {
+  DIRECT_PROVIDER_PROTOCOLS,
+  resolveConfiguredLlmEndpoint,
+  resolveDirectLlmEndpoint,
+  resolveLlmEndpoint,
+  splitModelRef,
+} from "../../src/index.js";
 
 const catalog = {
   // Declares its own base URL and speaks plain OpenAI — the common case, 153 of the
@@ -124,4 +130,86 @@ test("every base URL in the built-in table is https and has no trailing slash", 
     const endpoint = resolve(ref, { auth: { cerebras: { type: "api", key: "k" } } });
     assert.match(endpoint.baseURL, /^https:\/\/[^\s]+[^/]$/);
   }
+});
+
+test("configured providers resolve without OpenCode state", () => {
+  const providers = {
+    openai: {
+      protocol: "openai-responses",
+      api_key_env: "MY_OPENAI_KEY",
+      models: {
+        "gpt-test": { max_output_tokens: 1234, input: ["text", "image"] },
+      },
+    },
+    local: {
+      protocol: "openai-compatible",
+      base_url: "http://127.0.0.1:11434/v1/",
+      api_key_env: null,
+    },
+  };
+  assert.deepEqual(DIRECT_PROVIDER_PROTOCOLS, [
+    "openai-responses",
+    "openai-compatible",
+    "anthropic-messages",
+    "gemini",
+  ]);
+  assert.deepEqual(resolveConfiguredLlmEndpoint("openai/gpt-test", {
+    providers,
+    env: { MY_OPENAI_KEY: "secret" },
+  }), {
+    providerId: "openai",
+    modelId: "gpt-test",
+    protocol: "openai-responses",
+    baseURL: "https://api.openai.com/v1",
+    apiKey: "secret",
+    maxOutputTokens: 1234,
+    supportsImages: true,
+  });
+  assert.equal(resolveConfiguredLlmEndpoint("unconfigured/model", { providers }), null);
+  assert.equal(resolveConfiguredLlmEndpoint("local/model", { providers }).apiKey, null);
+  assert.equal(resolveConfiguredLlmEndpoint("local/model", { providers }).baseURL, "http://127.0.0.1:11434/v1");
+});
+
+test("configured providers validate protocols, credentials, models, and limits", () => {
+  assert.throws(
+    () => resolveConfiguredLlmEndpoint("p/m", { providers: { p: { protocol: "unknown" } } }),
+    /protocol must be one of/,
+  );
+  assert.throws(
+    () => resolveConfiguredLlmEndpoint("p/m", { providers: { p: { protocol: "openai-compatible" } } }),
+    /must declare base_url/,
+  );
+  assert.throws(
+    () => resolveConfiguredLlmEndpoint("p/m", { providers: { p: { protocol: "anthropic-messages" } } }),
+    /set ANTHROPIC_API_KEY/,
+  );
+  assert.throws(
+    () => resolveConfiguredLlmEndpoint("p/m", {
+      providers: { p: { protocol: "gemini", models: { other: {} } } },
+      env: { GEMINI_API_KEY: "k" },
+    }),
+    /unknown model "m"/,
+  );
+  assert.throws(
+    () => resolveConfiguredLlmEndpoint("p/m", {
+      providers: { p: { protocol: "gemini", max_output_tokens: 0 } },
+      env: { GEMINI_API_KEY: "k" },
+    }),
+    /max_output_tokens must be a positive integer/,
+  );
+});
+
+test("configured providers take precedence over the OpenCode compatibility fallback", () => {
+  const endpoint = resolveDirectLlmEndpoint("probe/model", {
+    providers: {
+      probe: {
+        protocol: "openai-compatible",
+        base_url: "http://127.0.0.1:9999/v1",
+        api_key_env: null,
+      },
+    },
+    env: { OPENCODE_MODELS_PATH: "/does/not/exist" },
+  });
+  assert.equal(endpoint.protocol, "openai-compatible");
+  assert.equal(endpoint.baseURL, "http://127.0.0.1:9999/v1");
 });

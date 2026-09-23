@@ -125,3 +125,27 @@ export const validateImageModels = (models, environment = process.env) => {
     }
   }
 };
+
+export const validateDirectImageModels = (models, providers = {}, environment = process.env) => {
+  const fallback = [];
+  for (const modelRef of new Set(models)) {
+    let providerId;
+    let modelId;
+    try {
+      ({ providerId, modelId } = splitModelRef(modelRef));
+    } catch {
+      fallback.push(modelRef);
+      continue;
+    }
+    const provider = providers?.[providerId];
+    if (!provider) {
+      fallback.push(modelRef);
+      continue;
+    }
+    const input = provider.models?.[modelId]?.input ?? provider.input;
+    if (Array.isArray(input) && !input.includes("image")) {
+      fail(`model "${modelRef}" does not support attached image input with text output.`);
+    }
+  }
+  validateImageModels(fallback, environment);
+};

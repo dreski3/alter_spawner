@@ -175,6 +175,11 @@ export function validateImageFiles(
 ): { path: string; metadata: AlterImageMetadata }[];
 export function modelImageSupport(modelRef: string, catalog: Record<string, unknown>): boolean | null;
 export function validateImageModels(models: string[], environment?: Record<string, string | undefined>): void;
+export function validateDirectImageModels(
+  models: string[],
+  providers?: Record<string, DirectProviderConfig>,
+  environment?: Record<string, string | undefined>,
+): void;
 export const ALTER_SCHEMA_VERSION: number;
 export const RESULT_SCHEMA_VERSION: number;
 export const GRAPH_RESULT_SCHEMA_VERSION: number;
@@ -230,6 +235,7 @@ export type MindConfig = {
   default_fallback_model: string | null;
   opencode_pure: boolean;
   opencode_event_log: boolean;
+  providers: Record<string, DirectProviderConfig>;
   retry: { same_harness_retries: number; fallback_retries: number };
   [key: string]: unknown;
 };
@@ -404,7 +410,7 @@ export function scaffold(
   cfg: MindConfig,
   options: SpawnOptions,
   runtime?: Runtime,
-  scaffoldOptions?: { agentFiles?: boolean },
+  scaffoldOptions?: { agentFiles?: boolean; agentHomeKind?: "opencode" | "codex" | "grok" },
 ): string;
 
 export function buildFrontmatter(options: SpawnOptions): string;
@@ -640,12 +646,14 @@ export type HarnessRunOptions = {
   maxTokens: number | null;
   model: string;
   images?: string[];
+  imageMetadata?: Array<{ media_type?: string }>;
   pure: boolean;
   recordEvents: boolean;
   attempt: number;
   signal?: AbortSignal;
   onEvent?: (event: AlterRuntimeEvent) => void;
   environment?: Record<string, string | undefined>;
+  providers?: Record<string, DirectProviderConfig>;
   /** Which harness agent to run as. Defaults to an Alter home's generated `alter` agent. */
   agent?: string;
   /** Continues an existing harness session. An adapter with no session concept may ignore it. */
@@ -654,6 +662,9 @@ export type HarnessRunOptions = {
   capability?: { id: string; input?: "text" | "json" } | null;
   catalogName?: string | null;
   description?: string | null;
+  readGrants?: string[];
+  writeGrants?: string[];
+  webAccess?: boolean;
 };
 
 export type HarnessAdapter = {
@@ -664,6 +675,9 @@ export type HarnessAdapter = {
   supportsRetry?: boolean;
   /** True when the adapter can attach validated image files to a request. Default false. */
   supportsImages?: boolean;
+  agentHomeKind?: "opencode" | "codex" | "grok";
+  regeneratesAgentFile?: boolean;
+  validateOptions?(options: SpawnOptions, context: { models: string[] }): void;
 };
 
 export function registerHarness(name: string, adapter: HarnessAdapter): void;
@@ -804,7 +818,11 @@ export function runAlterGraph(
 
 export function selectWorkflowExecutors(
   graph: AlterGraph,
-  options?: { env?: NodeJS.ProcessEnv; resolveDirect?: (model: string, env?: NodeJS.ProcessEnv) => unknown },
+  options?: {
+    env?: NodeJS.ProcessEnv;
+    providers?: Record<string, DirectProviderConfig>;
+    resolveDirect?: (model: string, env?: NodeJS.ProcessEnv, providers?: Record<string, DirectProviderConfig>) => unknown;
+  },
 ): AlterGraph;
 export const WORKFLOW_EXECUTOR_CONCURRENCY: Readonly<{ opencode: 1 }>;
 export function prepareWorkflowConcurrency(
@@ -1460,6 +1478,27 @@ export type LlmEndpoint = {
   maxOutputTokens: number | null;
 };
 
+export type DirectProviderProtocol = "openai-responses" | "openai-compatible" | "anthropic-messages" | "gemini";
+export type DirectProviderModelConfig = {
+  max_output_tokens?: number | null;
+  input?: Array<"text" | "image">;
+};
+export type DirectProviderConfig = {
+  protocol: DirectProviderProtocol;
+  base_url?: string;
+  api_key_env?: string | null;
+  max_output_tokens?: number | null;
+  input?: Array<"text" | "image">;
+  models?: Record<string, DirectProviderModelConfig>;
+};
+export type DirectLlmEndpoint = Omit<LlmEndpoint, "apiKey"> & {
+  protocol: DirectProviderProtocol;
+  apiKey: string | null;
+  supportsImages: boolean | null;
+};
+
+export const DIRECT_PROVIDER_PROTOCOLS: ReadonlyArray<DirectProviderProtocol>;
+
 export function modelsCatalogPath(env?: Record<string, string | undefined>): string;
 export function authFilePath(env?: Record<string, string | undefined>): string;
 /** Parsed once per path per process — the catalog is ~3.5MB of JSON. */
@@ -1472,6 +1511,14 @@ export function resolveLlmEndpoint(
   options?: { catalog?: Record<string, unknown>; auth?: Record<string, unknown>; env?: Record<string, string | undefined> },
 ): LlmEndpoint;
 export function resolveLlmEndpointFromDisk(modelRef: string, env?: Record<string, string | undefined>): LlmEndpoint;
+export function resolveConfiguredLlmEndpoint(
+  modelRef: string,
+  options?: { providers?: Record<string, DirectProviderConfig>; env?: Record<string, string | undefined> },
+): DirectLlmEndpoint | null;
+export function resolveDirectLlmEndpoint(
+  modelRef: string,
+  options?: { providers?: Record<string, DirectProviderConfig>; env?: Record<string, string | undefined> },
+): DirectLlmEndpoint | LlmEndpoint;
 
 export const MIND_HOME_ENV: "MIND_HOME";
 export const REGISTRY_SCHEMA_VERSION: number;
@@ -2025,7 +2072,7 @@ export class CapabilityRequestError extends Error {
 
 export class MindError extends Error {}
 
-export type FuseOptions = { task: string; models: string[]; writer: string; context?: string; maxTokens?: number | null; executor?: "llm" | "opencode" | null; writerExecutor?: "llm" | "opencode" | null };
+export type FuseOptions = { task: string; models: string[]; writer: string; context?: string; maxTokens?: number | null; executor?: "llm" | "opencode" | "codex" | "grok" | null; writerExecutor?: "llm" | "opencode" | "codex" | "grok" | null };
 export type FuseEntry = Opinion & { id: string };
 export type FuseReport = Omit<OpinionReport, "workflow" | "opinions" | "totals"> & {
   workflow: "fuse";
@@ -2056,7 +2103,7 @@ export type DebateOptions = {
   context?: string;
   rounds?: number;
   maxTokens?: number | null;
-  executor?: "llm" | "opencode" | null;
+  executor?: "llm" | "opencode" | "codex" | "grok" | null;
 };
 export type DebateEntry = Opinion & {
   id: string;
@@ -2164,7 +2211,7 @@ export type ValidateOptions = {
   context?: string;
   contextFiles?: string[];
   maxTokens?: number;
-  executor?: "llm" | "opencode" | null;
+  executor?: "llm" | "opencode" | "codex" | "grok" | null;
   commandTimeoutMs?: number;
   deadlineMs?: number;
   maxCostUsd?: number | null;

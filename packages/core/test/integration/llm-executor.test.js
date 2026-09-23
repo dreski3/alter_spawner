@@ -29,6 +29,7 @@ test.before(async () => {
       received.push({
         url: request.url,
         authorization: request.headers.authorization,
+        headers: request.headers,
         body: JSON.parse(raw || "{}"),
         bytes: Buffer.byteLength(raw),
       });
@@ -80,7 +81,7 @@ const makeEnvironment = (t) => {
   return { OPENCODE_MODELS_PATH: catalogFile, XDG_DATA_HOME: path.join(dir, "data") };
 };
 
-const makeProject = (t, environment) => {
+const makeProject = (t, environment, config = {}) => {
   const root = mkdtempSync(path.join(tmpdir(), "mind-llm-proj-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(path.join(root, ".alters"), { recursive: true });
@@ -92,6 +93,7 @@ const makeProject = (t, environment) => {
       max_tree_tokens: null,
       max_concurrent_alters: null,
       retry: { same_harness_retries: 1, fallback_retries: 0 },
+      ...config,
     }),
   );
   return { root, environment };
@@ -138,6 +140,93 @@ test("one request, no tools, and a system prompt that is only the role", async (
   assert.equal(result.executor, "llm");
   assert.equal(result.steps, 1);
   assert.equal(result.session_id, null);
+});
+
+test("a configured OpenAI Responses provider needs no OpenCode files", async (t) => {
+  const environment = { OPENAI_TEST_KEY: "responses-key" };
+  const { root } = makeProject(t, environment, {
+    default_model: "native/model-a",
+    providers: {
+      native: {
+        protocol: "openai-responses",
+        base_url: origin,
+        api_key_env: "OPENAI_TEST_KEY",
+        models: { "model-a": { max_output_tokens: 777, input: ["text", "image"] } },
+      },
+    },
+  });
+  respond = () => ({ status: 200, body: JSON.stringify({
+    output: [{ type: "message", content: [{ type: "output_text", text: "responses-result" }] }],
+    usage: {
+      input_tokens: 10,
+      output_tokens: 4,
+      total_tokens: 14,
+      input_tokens_details: { cached_tokens: 3 },
+      output_tokens_details: { reasoning_tokens: 2 },
+    },
+  }) });
+  received.length = 0;
+  const { result } = await spawn(root, environment, { model: "native/model-a" });
+  assert.equal(result.ok, true);
+  assert.equal(result.text, "responses-result");
+  assert.deepEqual(result.tokens, { input: 10, output: 4, reasoning: 2, cache_read: 3, total: 14 });
+  assert.equal(received[0].url, "/v1/responses");
+  assert.equal(received[0].authorization, "Bearer responses-key");
+  assert.equal(received[0].body.max_output_tokens, 777);
+  assert.equal(received[0].body.store, false);
+  assert.equal(received[0].body.input, "the disastrous numbers");
+});
+
+test("configured Anthropic and Gemini providers use their native protocols", async (t) => {
+  const environment = { ANTHROPIC_TEST_KEY: "anthropic-key", GEMINI_TEST_KEY: "gemini-key" };
+  const providers = {
+    claude: {
+      protocol: "anthropic-messages",
+      base_url: origin,
+      api_key_env: "ANTHROPIC_TEST_KEY",
+      max_output_tokens: 600,
+    },
+    google: {
+      protocol: "gemini",
+      base_url: origin,
+      api_key_env: "GEMINI_TEST_KEY",
+    },
+  };
+  const { root } = makeProject(t, environment, { providers });
+
+  respond = () => ({ status: 200, body: JSON.stringify({
+    content: [{ type: "text", text: "anthropic-result" }],
+    usage: { input_tokens: 12, output_tokens: 5, cache_read_input_tokens: 4 },
+  }) });
+  received.length = 0;
+  let outcome = await spawn(root, environment, { model: "claude/model-b" });
+  assert.equal(outcome.result.text, "anthropic-result");
+  assert.equal(received[0].url, "/v1/messages");
+  assert.equal(received[0].headers["x-api-key"], "anthropic-key");
+  assert.equal(received[0].headers["anthropic-version"], "2023-06-01");
+  assert.equal(received[0].body.max_tokens, 600);
+
+  respond = () => ({ status: 200, body: JSON.stringify({
+    candidates: [{ content: { parts: [{ text: "gemini-result" }] } }],
+    usageMetadata: {
+      promptTokenCount: 8,
+      candidatesTokenCount: 3,
+      thoughtsTokenCount: 2,
+      cachedContentTokenCount: 1,
+      totalTokenCount: 13,
+    },
+  }) });
+  received.length = 0;
+  outcome = await spawn(root, environment, { model: "google/model-c" });
+  assert.equal(outcome.result.text, "gemini-result");
+  assert.equal(received[0].url, "/v1/models/model-c:generateContent");
+  assert.equal(received[0].headers["x-goog-api-key"], "gemini-key");
+  assert.deepEqual(outcome.result.tokens, { input: 8, output: 3, reasoning: 2, cache_read: 1, total: 13 });
+
+  respond = () => ({ status: 200, body: JSON.stringify({
+    choices: [{ message: { content: "transformed" } }],
+    usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+  }) });
 });
 
 test("validated images are sent as OpenAI-compatible data URL content parts", async (t) => {

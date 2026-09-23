@@ -1,5 +1,6 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
+import { readConfig } from "./config.js";
 import { runAlterGraph } from "./graph.js";
 import { writeJsonAtomic } from "./persistence.js";
 import { prepareWorkflowConcurrency, selectWorkflowExecutors } from "./workflow-execution.js";
@@ -33,7 +34,7 @@ export const buildValidateGraph = ({
   if (typeof context !== "string") fail("validate context must be a string.");
   if (!Number.isInteger(maxTokens) || maxTokens <= 0) fail("validate maxTokens must be a positive integer.");
   if (!Number.isInteger(commandTimeoutMs) || commandTimeoutMs < 1 || commandTimeoutMs > 3_600_000) fail("validate commandTimeoutMs must be between 1 and 3600000.");
-  if (executor !== null && !["llm", "opencode"].includes(executor)) fail("validate executor must be llm or opencode.");
+  if (executor !== null && !["llm", "opencode", "codex", "grok"].includes(executor)) fail("validate executor must be llm, opencode, codex, or grok.");
 
   return {
     id: "validate",
@@ -92,7 +93,7 @@ export const runValidate = async (root, options = {}, runOptions = {}) => {
   if (options.maxCostUsd != null && (!Number.isFinite(options.maxCostUsd) || options.maxCostUsd <= 0)) fail("validate maxCostUsd must be a positive number or null.");
   const built = buildValidateGraph(options);
   const allowedCommands = options.commands.map((command, index) => parseValidationCommand(command, `validate command ${index + 1}`));
-  const graph = runOptions.harness ? built : selectWorkflowExecutors(built, { env: runOptions.runtime?.env || runOptions.env || process.env });
+  const graph = runOptions.harness ? built : selectWorkflowExecutors(built, { env: runOptions.runtime?.env || runOptions.env || process.env, providers: readConfig(root).providers });
   const deadline = controllerWithDeadline(runOptions.signal, deadlineMs);
   const started = Date.now();
   const before = validationSourceSnapshot(root);

@@ -75,13 +75,18 @@ export const runPrincipalTurn = async (projectDir, {
     catalogName: null,
     outputContract: null,
   });
+  const adapter = getHarness(harness);
+  try {
+    adapter.validateOptions?.(options, { models: [options.model] });
+  } catch (error) {
+    fail(error?.message || `executor "${harness}" rejected this principal configuration.`);
+  }
   if (options.images.length) {
-    const adapter = getHarness(harness);
     if (!adapter.supportsImages) fail(`executor "${harness}" does not support image inputs.`);
     const prepared = validateImageFiles(projectDir, options.images, { environment: runtime.env });
     options.images = prepared.map((image) => image.path);
     options.imageMetadata = prepared.map((image) => image.metadata);
-    validateImageModels([options.model], runtime.env);
+    if (harness === "opencode") validateImageModels([options.model], runtime.env);
   }
   const startedAt = runtime.now();
   const { res, attempts } = await runWithRetries({

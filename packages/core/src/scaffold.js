@@ -58,21 +58,47 @@ const claimRunFolder = (root, id, runtime) => {
 // files, the generated agent definition, a nestable Alter's child kit — exists for
 // a harness that reads a home off disk. An adapter that declares
 // `needsAgentHome: false` reads none of it, so writing it would be pure latency.
-export const scaffold = (root, cfg, o, runtimeOverride, { agentFiles = true } = {}) => {
+export const scaffold = (
+  root,
+  cfg,
+  o,
+  runtimeOverride,
+  { agentFiles = true, agentHomeKind = "opencode" } = {},
+) => {
   const runtime = resolveRuntime(runtimeOverride);
   if (agentFiles && o.catalogEntryDir && (o.catalogAgentsOverride || o.catalogSkillsDir)) {
     inspectProjectTree(o.catalogEntryDir, { action: "scaffold catalog entry" });
   }
   o.runFolder = claimRunFolder(root, o.id, runtime);
   const home = path.join(runsDir(root), o.runFolder);
-  if (agentFiles) scaffoldAgentFiles(root, cfg, o, runtime, home);
+  if (agentFiles) scaffoldAgentFiles(root, cfg, o, runtime, home, agentHomeKind);
   writeAlterJson(root, cfg, o, runtime, home);
   return home;
 };
 
-const scaffoldAgentFiles = (root, cfg, o, runtime, home) => {
+const scaffoldAgentFiles = (root, cfg, o, runtime, home, agentHomeKind) => {
   gitInit(home);
   cpSync(ALTER_HOME_TEMPLATE_DIR, home, { recursive: true });
+  if (agentHomeKind === "codex" || agentHomeKind === "grok") {
+    rmSync(path.join(home, ".opencode"), { recursive: true, force: true });
+    writeTextAtomic(path.join(home, "AGENTS.md"), buildBody(o).trimEnd() + "\n");
+    if (o.catalogEntryDir && o.catalogSkillsDir && !o.textOnly) {
+      const src = path.join(o.catalogEntryDir, o.catalogSkillsDir);
+      if (existsSync(src)) {
+        const dest = agentHomeKind === "grok"
+          ? path.join(home, ".grok", "skills")
+          : path.join(home, ".agents", "skills");
+        mkdirSync(dest, { recursive: true });
+        cpSync(src, dest, { recursive: true, filter: (from) => path.basename(from) !== ".gitkeep" });
+      }
+    }
+  } else {
+    scaffoldOpenCodeAgentFiles(o, home);
+  }
+  if (o.nestable) scaffoldChildKit(root, cfg, o, home);
+};
+
+const scaffoldOpenCodeAgentFiles = (o, home) => {
   // The alter-spawning skill (and the "you can spawn children" framing baked
   // into AGENTS.md/alter.md below) only matters to a nestable Alter — every
   // other catalog entry is a leaf that will never call `mind`. Dropping it
@@ -115,50 +141,52 @@ const scaffoldAgentFiles = (root, cfg, o, runtime, home) => {
         }
     );
   }
-  if (o.nestable) {
-    const childKit = path.join(home, ".alters");
-    mkdirSync(childKit, { recursive: true });
-    const catalogDirName = cfg.catalog_dir || "catalog";
-    const catalogSrc = catalogDirPath(root, cfg);
-    const catalogDest = path.join(childKit, catalogDirName);
-    if (existsSync(catalogSrc)) {
+};
+
+const scaffoldChildKit = (root, cfg, o, home) => {
+  const childKit = path.join(home, ".alters");
+  mkdirSync(childKit, { recursive: true });
+  const catalogDirName = cfg.catalog_dir || "catalog";
+  const catalogSrc = catalogDirPath(root, cfg);
+  const catalogDest = path.join(childKit, catalogDirName);
+  if (existsSync(catalogSrc)) {
       // The child can only ever spawn what it can resolve, so the allowlist is
       // enforced by what lands on disk: an entry the parent did not allow is
       // never copied and `--catalog <name>` fails to resolve. Narrowing is
       // naturally transitive — each level copies from its own already-filtered
       // catalog, so a grandchild's reachable set can only shrink.
-      if (o.allowedCatalogs) {
-        mkdirSync(catalogDest, { recursive: true });
-        for (const allowed of new Set(o.allowedCatalogs.map(sanitizeName))) {
-          const entrySrc = path.join(catalogSrc, allowed);
-          if (existsSync(path.join(entrySrc, "manifest.json"))) {
-            cpSync(entrySrc, path.join(catalogDest, allowed), { recursive: true });
-          }
+    if (o.allowedCatalogs) {
+      mkdirSync(catalogDest, { recursive: true });
+      for (const allowed of new Set(o.allowedCatalogs.map(sanitizeName))) {
+        const entrySrc = path.join(catalogSrc, allowed);
+        if (existsSync(path.join(entrySrc, "manifest.json"))) {
+          cpSync(entrySrc, path.join(catalogDest, allowed), { recursive: true });
         }
-      } else {
-        cpSync(catalogSrc, catalogDest, { recursive: true });
       }
+    } else {
+      cpSync(catalogSrc, catalogDest, { recursive: true });
     }
-    writeJsonAtomic(
-      path.join(childKit, "config.json"),
-        {
-          default_model: o.model,
-          max_depth: cfg.max_depth ?? 12,
-          // The tree limits have to reach every level: a child reads its own kit
-          // config, so a limit left behind here would be silently lifted one level
-          // down. The ledger they share travels separately, in the environment.
-          max_tree_nodes: cfg.max_tree_nodes ?? null,
-          max_tree_tokens: cfg.max_tree_tokens ?? null,
-          max_concurrent_alters: cfg.max_concurrent_alters ?? null,
-          run_timeout_ms: cfg.run_timeout_ms ?? 180000,
-          catalog_dir: catalogDirName,
-          default_fallback_model: o.fallbackModel || cfg.default_fallback_model || null,
-          opencode_pure: cfg.opencode_pure !== false,
-          opencode_event_log: cfg.opencode_event_log === true,
-          retry: cfg.retry || { same_harness_retries: 1, fallback_retries: 1 },
-        }
-    );
   }
+  writeJsonAtomic(
+    path.join(childKit, "config.json"),
+    {
+      default_model: o.model,
+      max_depth: cfg.max_depth ?? 12,
+      // The tree limits have to reach every level: a child reads its own kit
+      // config, so a limit left behind here would be silently lifted one level
+      // down. The ledger they share travels separately, in the environment.
+      max_tree_nodes: cfg.max_tree_nodes ?? null,
+      max_tree_tokens: cfg.max_tree_tokens ?? null,
+      max_concurrent_alters: cfg.max_concurrent_alters ?? null,
+      run_timeout_ms: cfg.run_timeout_ms ?? 180000,
+      catalog_dir: catalogDirName,
+      default_fallback_model: o.fallbackModel || cfg.default_fallback_model || null,
+      opencode_pure: cfg.opencode_pure !== false,
+      opencode_event_log: cfg.opencode_event_log === true,
+      providers: cfg.providers || {},
+      retry: cfg.retry || { same_harness_retries: 1, fallback_retries: 1 },
+    },
+  );
 };
 
 // The record of what this Alter is, written for every executor. `mind list`, `tree`,

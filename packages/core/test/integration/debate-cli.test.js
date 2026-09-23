@@ -7,7 +7,7 @@ test("debate CLI parses bounded rounds and shared workflow controls", () => {
     "--model", "a/model",
     "--model", "b/model",
     "--rounds", "2",
-    "--executor", "opencode",
+    "--executor", "codex",
     "--max-tokens", "500",
     "--concurrency", "2",
     "--json",
@@ -21,7 +21,7 @@ test("debate CLI parses bounded rounds and shared workflow controls", () => {
     concurrency: 2,
     json: true,
     rounds: 2,
-    executor: "opencode",
+    executor: "codex",
   });
   assert.equal(parseDebateArgs(["--model", "a/m", "--model", "b/m", "task"]).rounds, 1);
   assert.throws(() => parseDebateArgs(["--model", "a/m", "--model", "b/m", "--rounds", "4", "task"]), /no greater than 3/);

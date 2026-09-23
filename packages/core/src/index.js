@@ -1,4 +1,6 @@
 import "./harness/opencode.js";
+import "./harness/codex.js";
+import "./harness/grok.js";
 // Self-registering like opencode: it needs nothing a host must build, only the catalog
 // and credentials opencode already keeps on disk. See harness/llm.js.
 import "./harness/llm.js";
@@ -13,6 +15,7 @@ export {
   validateImageFiles,
   modelImageSupport,
   validateImageModels,
+  validateDirectImageModels,
 } from "./image-input.js";
 export {
   ALTER_SCHEMA_VERSION,
@@ -213,6 +216,9 @@ export {
   loadAuth,
   loadModelsCatalog,
   modelsCatalogPath,
+  DIRECT_PROVIDER_PROTOCOLS,
+  resolveConfiguredLlmEndpoint,
+  resolveDirectLlmEndpoint,
   resolveLlmEndpoint,
   resolveLlmEndpointFromDisk,
   splitModelRef,

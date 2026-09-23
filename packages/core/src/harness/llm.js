@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { registerHarness } from "./adapter.js";
 import { MindError } from "../util.js";
-import { resolveLlmEndpointFromDisk } from "../providers.js";
+import { resolveDirectLlmEndpoint } from "../providers.js";
 
 // One tool-less chat completion. No coding-agent session, no home on disk, no process.
 //
@@ -11,10 +11,9 @@ import { resolveLlmEndpointFromDisk } from "../providers.js";
 // ~2.7s of spawning opencode, booting a session and tearing it down, replaced by a
 // single HTTP request. On a wide tree of small transforms that is the whole wall clock.
 //
-// Self-registering, unlike the capability executors: it needs nothing a host has to
-// build, only the two files opencode already keeps on disk, and it grants a nested
-// Alter no privilege it did not already have — it was making model calls through
-// opencode with the same credentials a moment ago.
+// Self-registering, unlike the capability executors: it resolves project-configured
+// direct providers first and retains OpenCode's catalog/auth files as a compatibility
+// fallback for provider IDs the project has not configured.
 
 const ZERO = { input: 0, output: 0, reasoning: 0, cache_read: 0, total: 0 };
 
@@ -73,6 +72,150 @@ const userContent = (prompt, images = [], imageMetadata = []) => {
   ];
 };
 
+const imageParts = (images, imageMetadata) => images.map((file, index) => ({
+  mediaType: imageMetadata[index]?.media_type || "image/png",
+  data: readFileSync(file).toString("base64"),
+}));
+
+const buildRequest = (endpoint, prompt, description, images, imageMetadata, outputCap) => {
+  const headers = { "content-type": "application/json" };
+  if (endpoint.protocol === "anthropic-messages") {
+    if (endpoint.apiKey) headers["x-api-key"] = endpoint.apiKey;
+    headers["anthropic-version"] = "2023-06-01";
+    const parts = imageParts(images, imageMetadata);
+    return {
+      url: `${endpoint.baseURL}/messages`,
+      headers,
+      body: {
+        model: endpoint.modelId,
+        system: systemPrompt(description),
+        messages: [{
+          role: "user",
+          content: parts.length ? [
+            { type: "text", text: prompt },
+            ...parts.map((part) => ({
+              type: "image",
+              source: { type: "base64", media_type: part.mediaType, data: part.data },
+            })),
+          ] : prompt,
+        }],
+        max_tokens: outputCap || 4096,
+      },
+    };
+  }
+  if (endpoint.protocol === "gemini") {
+    if (endpoint.apiKey) headers["x-goog-api-key"] = endpoint.apiKey;
+    const parts = imageParts(images, imageMetadata);
+    return {
+      url: `${endpoint.baseURL}/models/${encodeURIComponent(endpoint.modelId)}:generateContent`,
+      headers,
+      body: {
+        systemInstruction: { parts: [{ text: systemPrompt(description) }] },
+        contents: [{
+          role: "user",
+          parts: [
+            { text: prompt },
+            ...parts.map((part) => ({ inlineData: { mimeType: part.mediaType, data: part.data } })),
+          ],
+        }],
+        ...(outputCap ? { generationConfig: { maxOutputTokens: outputCap } } : {}),
+      },
+    };
+  }
+  if (endpoint.apiKey) headers.authorization = `Bearer ${endpoint.apiKey}`;
+  if (endpoint.protocol === "openai-responses") {
+    const parts = imageParts(images, imageMetadata);
+    return {
+      url: `${endpoint.baseURL}/responses`,
+      headers,
+      body: {
+        model: endpoint.modelId,
+        instructions: systemPrompt(description),
+        input: parts.length ? [{
+          role: "user",
+          content: [
+            { type: "input_text", text: prompt },
+            ...parts.map((part) => ({
+              type: "input_image",
+              image_url: `data:${part.mediaType};base64,${part.data}`,
+            })),
+          ],
+        }] : prompt,
+        ...(outputCap ? { max_output_tokens: outputCap } : {}),
+        store: false,
+      },
+    };
+  }
+  return {
+    url: `${endpoint.baseURL}/chat/completions`,
+    headers,
+    body: {
+      model: endpoint.modelId,
+      messages: [
+        { role: "system", content: systemPrompt(description) },
+        { role: "user", content: userContent(prompt, images, imageMetadata) },
+      ],
+      ...(outputCap ? { max_tokens: outputCap } : {}),
+      stream: false,
+    },
+  };
+};
+
+const responseText = (protocol, body) => {
+  if (protocol === "anthropic-messages") {
+    return (body.content || []).filter((part) => part?.type === "text").map((part) => part.text || "").join("");
+  }
+  if (protocol === "gemini") {
+    return (body.candidates?.[0]?.content?.parts || []).map((part) => part?.text || "").join("");
+  }
+  if (protocol === "openai-responses") {
+    if (typeof body.output_text === "string") return body.output_text;
+    return (body.output || []).flatMap((item) => item?.content || [])
+      .filter((part) => part?.type === "output_text")
+      .map((part) => part.text || "")
+      .join("");
+  }
+  return body.choices?.[0]?.message?.content ?? "";
+};
+
+const responseUsage = (protocol, body) => {
+  const usage = body.usage || body.usageMetadata || {};
+  if (protocol === "anthropic-messages") {
+    const input = usage.input_tokens || 0;
+    const output = usage.output_tokens || 0;
+    return {
+      input,
+      output,
+      reasoning: 0,
+      cache_read: usage.cache_read_input_tokens || 0,
+      total: input + output,
+    };
+  }
+  if (protocol === "gemini") {
+    const input = usage.promptTokenCount || 0;
+    const output = usage.candidatesTokenCount || 0;
+    return {
+      input,
+      output,
+      reasoning: usage.thoughtsTokenCount || 0,
+      cache_read: usage.cachedContentTokenCount || 0,
+      total: usage.totalTokenCount || input + output,
+    };
+  }
+  if (protocol === "openai-responses") {
+    const input = usage.input_tokens || 0;
+    const output = usage.output_tokens || 0;
+    return {
+      input,
+      output,
+      reasoning: usage.output_tokens_details?.reasoning_tokens || 0,
+      cache_read: usage.input_tokens_details?.cached_tokens || 0,
+      total: usage.total_tokens || input + output,
+    };
+  }
+  return readUsage(usage);
+};
+
 // Combines the caller's cancellation with this run's timeout. AbortSignal.any would do
 // it in one line, but keeping this explicit also makes timeout attribution local.
 const abortPlan = (signal, timeout) => {
@@ -99,11 +242,11 @@ const abortPlan = (signal, timeout) => {
 const run = async (
   home,
   prompt,
-  { timeout, maxTokens, model, signal, description, images = [], imageMetadata = [], environment = process.env } = {},
+  { timeout, maxTokens, model, signal, description, images = [], imageMetadata = [], providers = {}, environment = process.env } = {},
 ) => {
   let endpoint;
   try {
-    endpoint = resolveLlmEndpointFromDisk(model, environment);
+    endpoint = resolveDirectLlmEndpoint(model, { providers, env: environment });
   } catch (error) {
     // Resolution failures are configuration problems with actionable messages —
     // an unknown model, a missing credential, a protocol this does not speak.
@@ -117,29 +260,24 @@ const run = async (
   // usage the provider reports.
   const outputCap = maxTokens ?? endpoint.maxOutputTokens ?? null;
   const plan = abortPlan(signal, timeout);
+  const request = buildRequest(endpoint, prompt, description, images, imageMetadata, outputCap);
   let response;
   let body;
   try {
-    response = await fetch(`${endpoint.baseURL}/chat/completions`, {
+    response = await fetch(request.url, {
       method: "POST",
       signal: plan.signal,
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${endpoint.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: endpoint.modelId,
-        messages: [
-          { role: "system", content: systemPrompt(description) },
-          { role: "user", content: userContent(prompt, images, imageMetadata) },
-        ],
-        ...(outputCap ? { max_tokens: outputCap } : {}),
-        stream: false,
-      }),
+      headers: request.headers,
+      body: JSON.stringify(request.body),
     });
     body = await response.text();
   } catch (error) {
-    if (plan.timedOut()) return failed(`${endpoint.providerId}/${endpoint.modelId} timed out after ${timeout}ms`, -1);
+    if (plan.timedOut()) {
+      return {
+        ...failed(`${endpoint.providerId}/${endpoint.modelId} timed out after ${timeout}ms`, -1),
+        killed: true,
+      };
+    }
     if (signal?.aborted) return { ...failed("run cancelled"), aborted: true, killed: true };
     return failed(`request to ${endpoint.providerId} failed: ${error?.message || error}`, -2);
   } finally {
@@ -157,8 +295,8 @@ const run = async (
     return failed(`${endpoint.providerId} returned a non-JSON body: ${body.slice(0, 200)}`);
   }
 
-  const text = parsed.choices?.[0]?.message?.content ?? "";
-  const tokens = readUsage(parsed.usage);
+  const text = responseText(endpoint.protocol, parsed);
+  const tokens = responseUsage(endpoint.protocol, parsed);
   const budgetExceeded = maxTokens != null && tokens.total > maxTokens;
   // An empty completion *is* the empty-output case here, unlike a transport failure —
   // it is often model-specific, so reporting it lets retry.js spend the same-model
@@ -183,4 +321,4 @@ const run = async (
 // model, so the full attempt plan applies.
 registerHarness("llm", { run, needsAgentHome: false, supportsRetry: true, supportsImages: true });
 
-export const __test__ = { readUsage, systemPrompt, userContent };
+export const __test__ = { readUsage, systemPrompt, userContent, buildRequest, responseText, responseUsage };
