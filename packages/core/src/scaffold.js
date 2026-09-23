@@ -63,7 +63,7 @@ export const scaffold = (
   cfg,
   o,
   runtimeOverride,
-  { agentFiles = true, agentHomeKind = "opencode" } = {},
+  { agentFiles = true, agentHomeKind = "opencode", agentHomeKinds = null } = {},
 ) => {
   const runtime = resolveRuntime(runtimeOverride);
   if (agentFiles && o.catalogEntryDir && (o.catalogAgentsOverride || o.catalogSkillsDir)) {
@@ -71,29 +71,33 @@ export const scaffold = (
   }
   o.runFolder = claimRunFolder(root, o.id, runtime);
   const home = path.join(runsDir(root), o.runFolder);
-  if (agentFiles) scaffoldAgentFiles(root, cfg, o, runtime, home, agentHomeKind);
+  if (agentFiles) scaffoldAgentFiles(root, cfg, o, runtime, home, agentHomeKinds || [agentHomeKind]);
   writeAlterJson(root, cfg, o, runtime, home);
   return home;
 };
 
-const scaffoldAgentFiles = (root, cfg, o, runtime, home, agentHomeKind) => {
+const scaffoldAgentFiles = (root, cfg, o, runtime, home, agentHomeKinds) => {
+  const kinds = new Set(agentHomeKinds);
   gitInit(home);
   cpSync(ALTER_HOME_TEMPLATE_DIR, home, { recursive: true });
-  if (agentHomeKind === "codex" || agentHomeKind === "grok") {
+  if (!kinds.has("opencode")) {
     rmSync(path.join(home, ".opencode"), { recursive: true, force: true });
     writeTextAtomic(path.join(home, "AGENTS.md"), buildBody(o).trimEnd() + "\n");
-    if (o.catalogEntryDir && o.catalogSkillsDir && !o.textOnly) {
-      const src = path.join(o.catalogEntryDir, o.catalogSkillsDir);
-      if (existsSync(src)) {
-        const dest = agentHomeKind === "grok"
-          ? path.join(home, ".grok", "skills")
-          : path.join(home, ".agents", "skills");
+  } else {
+    scaffoldOpenCodeAgentFiles(o, home);
+    if (kinds.has("codex") || kinds.has("grok")) {
+      writeTextAtomic(path.join(home, "AGENTS.md"), buildBody(o).trimEnd() + "\n");
+    }
+  }
+  if ((kinds.has("codex") || kinds.has("grok")) && o.catalogEntryDir && o.catalogSkillsDir && !o.textOnly) {
+    const src = path.join(o.catalogEntryDir, o.catalogSkillsDir);
+    if (existsSync(src)) {
+      for (const kind of ["codex", "grok"].filter((item) => kinds.has(item))) {
+        const dest = kind === "grok" ? path.join(home, ".grok", "skills") : path.join(home, ".agents", "skills");
         mkdirSync(dest, { recursive: true });
         cpSync(src, dest, { recursive: true, filter: (from) => path.basename(from) !== ".gitkeep" });
       }
     }
-  } else {
-    scaffoldOpenCodeAgentFiles(o, home);
   }
   if (o.nestable) scaffoldChildKit(root, cfg, o, home);
 };
@@ -204,9 +208,10 @@ const writeAlterJson = (root, cfg, o, runtime, home) => {
         id: o.id,
         name: o.name || null,
         description: o.description || null,
-        model: o.model,
+        model: o.modelCandidates?.[0]?.model || o.model,
         model_candidates: o.modelCandidates?.map((candidate) => ({ ...candidate })) || null,
-        executor: o.executor || null,
+        routing: o.routing || null,
+        executor: o.baseExecutor || o.executor || null,
         capability: o.capability ? { ...o.capability } : null,
         nestable: !!o.nestable,
         web: !!o.webAccess,

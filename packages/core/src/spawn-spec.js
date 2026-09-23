@@ -3,6 +3,7 @@ export const DEFAULT_SPAWN_OPTIONS = Object.freeze({
   description: null,
   model: null,
   modelCandidates: null,
+  routing: null,
   prompt: null,
   images: [],
   readGrants: [],
@@ -47,4 +48,11 @@ export const createSpawnOptions = (overrides = {}) => ({
   modelCandidates: overrides.modelCandidates == null
     ? null
     : overrides.modelCandidates.map((candidate) => ({ ...candidate })),
+  routing: overrides.routing == null
+    ? null
+    : {
+      ...overrides.routing,
+      allowed_residencies: overrides.routing.allowed_residencies == null ? undefined : [...overrides.routing.allowed_residencies],
+      required_capabilities: overrides.routing.required_capabilities == null ? undefined : [...overrides.routing.required_capabilities],
+    },
 });

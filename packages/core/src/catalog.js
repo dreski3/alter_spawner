@@ -5,6 +5,7 @@ import { kitDir } from "./config.js";
 import { validateOutputContract } from "./output-contract.js";
 import { writeJsonAtomic } from "./persistence.js";
 import { resolveRuntime } from "./runtime.js";
+import { validateRoutingPolicy } from "./request-planner.js";
 import {
   PROJECT_AGENTS_FILE,
   PROJECT_SKILLS_DIR,
@@ -25,9 +26,8 @@ export const validateManifest = (m, name) => {
   if (m.fallback_model != null && (typeof m.fallback_model !== "string" || !m.fallback_model.trim())) {
     fail(`catalog entry "${name}": fallback_model must be a non-empty string or null.`);
   }
-  if (m.routing != null) {
-    fail(`catalog entry "${name}": routing requirements are not supported yet; only ordered model_candidates are supported.`);
-  }
+  validateRoutingPolicy(m.routing, `catalog entry "${name}": routing`);
+  if (m.routing != null && m.model_candidates == null) fail(`catalog entry "${name}": routing requires model_candidates.`);
   if (m.model_candidates != null) {
     if (!Array.isArray(m.model_candidates) || m.model_candidates.length === 0) {
       fail(`catalog entry "${name}": model_candidates must be a non-empty array.`);
@@ -36,16 +36,12 @@ export const validateManifest = (m, name) => {
       fail(`catalog entry "${name}": model_candidates cannot be combined with model or fallback_model.`);
     }
     const ids = new Set();
-    const models = new Set();
     for (let i = 0; i < m.model_candidates.length; i++) {
       const candidate = m.model_candidates[i];
       if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
         fail(`catalog entry "${name}": model_candidates[${i}] must be an object.`);
       }
-      if (candidate.executor != null) {
-        fail(`catalog entry "${name}": executor is set on the Alter, not on model_candidates[${i}].`);
-      }
-      const unsupported = Object.keys(candidate).find((key) => !["id", "model"].includes(key));
+      const unsupported = Object.keys(candidate).find((key) => !["id", "model", "executor"].includes(key));
       if (unsupported) {
         fail(`catalog entry "${name}": model_candidates[${i}].${unsupported} is not supported.`);
       }
@@ -63,10 +59,9 @@ export const validateManifest = (m, name) => {
       ) {
         fail(`catalog entry "${name}": model_candidates[${i}].model must be a "provider/model" reference.`);
       }
-      if (models.has(candidate.model)) {
-        fail(`catalog entry "${name}": duplicate model candidate "${candidate.model}".`);
+      if (candidate.executor != null && !["llm", "opencode", "codex", "grok"].includes(candidate.executor)) {
+        fail(`catalog entry "${name}": model_candidates[${i}].executor must be llm, opencode, codex, or grok.`);
       }
-      models.add(candidate.model);
     }
   }
   if (m.max_tokens != null && !(Number.isInteger(m.max_tokens) && m.max_tokens > 0)) {
@@ -189,6 +184,7 @@ export const resolveCatalogEntry = (root, cfg, name) => {
 export const applyCatalog = (o, entry) => {
   const m = entry.manifest;
   if (o.description == null) o.description = m.description;
+  if (o.routing == null && o.model == null) o.routing = m.routing ? { ...m.routing } : null;
   if (m.model_candidates && o.model == null && o.modelCandidates == null) {
     o.modelCandidates = m.model_candidates.map((candidate) => ({ ...candidate }));
     o.model = o.modelCandidates[0].model;
@@ -248,6 +244,7 @@ const manifestFromOptions = (name, o, runtime, { project = false } = {}) => ({
   ...(o.modelCandidates != null
     ? { model_candidates: o.modelCandidates }
     : { model: o.model || null, fallback_model: o.fallbackModel || null }),
+  routing: o.routing || null,
   max_tokens: o.maxTokens ?? null,
   nestable: !!o.nestable,
   web: !!o.webAccess,

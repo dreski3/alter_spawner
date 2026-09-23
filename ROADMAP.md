@@ -28,6 +28,11 @@
   composition.
 - Expand live-provider compatibility coverage and publish supported provider
   expectations.
+- Revisit the native Grok executor: a live run saw an expired CLI token and
+  repeated permission failures opening `~/.grok/auth.json.lock`, then timed out
+  twice before Codex fallback succeeded. Diagnose auth refresh under the
+  isolated runtime and confirm a short live smoke run before recommending
+  native xAI routing again. Use OpenCode as the default in the meantime.
 - Add migration fixtures whenever a persisted schema version changes.
 
 ## Hybrid inference and decision routing
@@ -60,14 +65,16 @@ candidate. Fallback stops when an OpenCode attempt has begun tool activity.
 
 ### 2. Add an in-process request planner
 
-Plan each request against the candidate contract, choosing the model and
-backend together. Add the provider/model metadata needed for eligibility,
-including input and context limits, cost, and residency. Apply hard data and
-capability constraints before ranking candidates. Keep routing separate from
-retries: policy selects an eligible candidate before an attempt, while the
-attempt policy handles request failures and alternatives. Start with
-deterministic rules and the existing `llm` and agent-session adapters. Preserve
-the current embedding API.
+The planner selects a model and executor pair before attempts begin. Project
+provider definitions can declare input and context limits, residency,
+capabilities, and token prices. Request policy filters by authority, sandbox
+needs, input, residency, context, capabilities, and estimated cost, then uses
+manifest order or lowest estimated cost. The retry layer runs over the eligible
+routes. Mixed direct, OpenCode, and Codex candidates are the active documented
+routes; native Grok is deferred under Reliability. Agent sessions stop fallback
+after tool activity. The route trace is persisted.
+The embeddable API remains the integration surface. See
+[Inference routing](docs/inference-routing.md) for the contract.
 
 ### 3. Add pluggable decision advisers
 

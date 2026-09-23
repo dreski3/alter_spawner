@@ -15,7 +15,11 @@ const usage = (write = console.log) => {
   write("  update  [--source <path>]              (re-apply profile-owned files + new catalog entries)");
   write("  spawn   --name? --description? --model? --image <file>* --allow <p> --allow-write <p>");
   write("          --nestable? --web? --timeout? --rm? --verbose?");
-  write("          --catalog <name>? --executor <name>? --max-tokens <n>? --fallback-model <m>? --model-candidate <id=provider/model>*");
+  write("          --catalog <name>? --executor <name>? --max-tokens <n>? --fallback-model <m>?");
+  write("          --model-candidate <id=provider/model|id=executor:provider/model>*");
+  write("          --route-strategy <ordered|lowest_cost>? --route-residency <name>*");
+  write("          --route-context-tokens <n>? --route-output-tokens <n>? --route-max-cost <usd>?");
+  write("          --route-require-capability <name>*");
   write("          --allow-catalog <name>* | --allow-no-catalogs?");
   write("          --prompt-prefix <s>? --prompt-suffix <s>?");
   write("          --bash-allow <pattern>? --bash-only? --text-only?");

@@ -24,7 +24,7 @@ const catalogList = () => {
   }
   for (const { name, manifest: m } of entries) {
     console.log(
-      `${name}\t${m.model_candidates?.map((candidate) => candidate.model).join(" -> ") || m.model || "(inherit)"}\t${m.max_tokens ?? "-"}\t${[m.nestable && "+nest", m.web && "+web"].filter(Boolean).join(" ")}\t${m.description || ""}`
+      `${name}\t${m.model_candidates?.map((candidate) => candidate.executor ? `${candidate.executor}:${candidate.model}` : candidate.model).join(" -> ") || m.model || "(inherit)"}\t${m.max_tokens ?? "-"}\t${[m.nestable && "+nest", m.web && "+web"].filter(Boolean).join(" ")}\t${m.description || ""}`
     );
   }
 };
@@ -61,6 +61,7 @@ const catalogSave = (argv) => {
       description: aj.description,
       model: aj.model,
       modelCandidates: aj.model_candidates || null,
+      routing: aj.routing || null,
       executor: aj.executor || null,
       fallbackModel: aj.fallback_model,
       maxTokens: aj.max_tokens,

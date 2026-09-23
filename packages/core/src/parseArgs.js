@@ -31,10 +31,24 @@ export const parseSpawnArgs = (argv) => {
       const value = argv[++i] || "";
       const separator = value.indexOf("=");
       if (separator <= 0 || separator === value.length - 1) {
-        throw new Error("--model-candidate expects <id=provider/model>.");
+        throw new Error("--model-candidate expects <id=provider/model> or <id=executor:provider/model>.");
       }
-      (o.modelCandidates ??= []).push({ id: value.slice(0, separator), model: value.slice(separator + 1) });
+      const reference = value.slice(separator + 1);
+      const colon = reference.indexOf(":");
+      const slash = reference.indexOf("/");
+      const executor = colon > 0 && colon < slash ? reference.slice(0, colon) : null;
+      (o.modelCandidates ??= []).push({
+        id: value.slice(0, separator),
+        model: executor ? reference.slice(colon + 1) : reference,
+        ...(executor ? { executor } : {}),
+      });
     }
+    else if (a === "--route-strategy") (o.routing ??= {}).strategy = argv[++i];
+    else if (a === "--route-residency") ((o.routing ??= {}).allowed_residencies ??= []).push(argv[++i]);
+    else if (a === "--route-context-tokens") (o.routing ??= {}).required_context_tokens = Number(argv[++i]);
+    else if (a === "--route-output-tokens") (o.routing ??= {}).estimated_output_tokens = Number(argv[++i]);
+    else if (a === "--route-max-cost") (o.routing ??= {}).max_estimated_cost_usd = Number(argv[++i]);
+    else if (a === "--route-require-capability") ((o.routing ??= {}).required_capabilities ??= []).push(argv[++i]);
     else if (a === "--prompt-prefix") o.promptPrefix = argv[++i];
     else if (a === "--prompt-suffix") o.promptSuffix = argv[++i];
     else if (a === "--output-exact") o.outputContract = { type: "exact", value: argv[++i] };

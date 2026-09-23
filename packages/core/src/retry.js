@@ -15,18 +15,18 @@ export const buildAttemptPlan = (o, cfg, runtimeOverride, { allowRetries = true 
   // the same input gives the same answer, so a second attempt is a guaranteed-identical
   // failure, and the fallback tier — which escalates to a different *model* — is
   // incoherent for something that never called one.
-  const candidates = o.modelCandidates?.length
-    ? o.modelCandidates
-    : [{ model: o.model, id: null }];
-  const primary = candidates[0] || { model: o.model, id: null };
+  const candidates = o.plannedCandidates?.length || o.modelCandidates?.length
+    ? o.plannedCandidates || o.modelCandidates
+    : [{ model: o.model, id: null, executor: o.executor }];
+  const primary = candidates[0] || { model: o.model, id: null, executor: o.executor };
   if (!allowRetries) {
-    return [{ model: primary.model, reason: "initial", ...(primary.id ? { candidateId: primary.id } : {}) }];
+    return [{ model: primary.model, executor: primary.executor || o.executor, reason: "initial", ...(primary.id ? { candidateId: primary.id } : {}) }];
   }
   const sameRetries = cfg.retry?.same_harness_retries ?? 1;
   const fallbackRetries = cfg.retry?.fallback_retries ?? 1;
-  const plan = [{ model: primary.model, reason: "initial", ...(primary.id ? { candidateId: primary.id } : {}) }];
+  const plan = [{ model: primary.model, executor: primary.executor || o.executor, reason: "initial", ...(primary.id ? { candidateId: primary.id } : {}) }];
   for (let i = 0; i < sameRetries; i++) {
-    plan.push({ model: primary.model, reason: "retry_same_model", ...(primary.id ? { candidateId: primary.id } : {}) });
+    plan.push({ model: primary.model, executor: primary.executor || o.executor, reason: "retry_same_model", ...(primary.id ? { candidateId: primary.id } : {}) });
   }
   const fallbacks = o.modelCandidates?.length
     ? candidates.slice(1)
@@ -35,13 +35,14 @@ export const buildAttemptPlan = (o, cfg, runtimeOverride, { allowRetries = true 
         o.fallbackModel ||
         (o.catalogName ? null : cfg.default_fallback_model || runtime.env.ALTER_MODEL || null);
       return fallbackModel && fallbackModel !== primary.model
-        ? [{ model: fallbackModel, id: null }]
+        ? [{ model: fallbackModel, id: null, executor: o.executor }]
         : [];
     })();
   for (const candidate of fallbacks) {
     for (let i = 0; i < fallbackRetries; i++) {
       plan.push({
         model: candidate.model,
+        executor: candidate.executor || o.executor,
         reason: "retry_fallback_model",
         ...(candidate.id ? { candidateId: candidate.id } : {}),
       });
@@ -76,7 +77,6 @@ export const runWithRetries = async ({
   regenerateAgentFile = true,
 }) => {
   const runtime = resolveRuntime(runtimeOverride);
-  const harness = getHarness(harnessName);
   const plan = buildAttemptPlan(o, cfg, runtime, { allowRetries });
   const emit = (event) => {
     try {
@@ -88,8 +88,10 @@ export const runWithRetries = async ({
   for (let i = 0; i < plan.length; i++) {
     const attemptNumber = attempts.length + 1;
     const attemptModel = plan[i].model;
+    const attemptExecutor = plan[i].executor || harnessName;
+    const harness = getHarness(attemptExecutor);
     const candidateId = plan[i].candidateId || null;
-    if (regenerateAgentFile && i > 0 && attemptModel !== plan[i - 1].model) {
+    if (regenerateAgentFile && attemptExecutor === "opencode" && (i === 0 || attemptModel !== plan[i - 1].model || attemptExecutor !== plan[i - 1].executor)) {
       o.model = attemptModel;
       writeTextAtomic(
         path.join(home, ".opencode", "agents", "alter.md"),
@@ -102,6 +104,7 @@ export const runWithRetries = async ({
       type: "attempt.started",
       attempt: attemptNumber,
       model: attemptModel,
+      executor: attemptExecutor,
       reason: plan[i].reason,
       ...(candidateId ? { candidate_id: candidateId } : {}),
     });
@@ -120,6 +123,7 @@ export const runWithRetries = async ({
         ...event,
         attempt: attemptNumber,
         model: attemptModel,
+        executor: attemptExecutor,
         ...(candidateId ? { candidate_id: candidateId } : {}),
       }),
       environment: runtime.env,
@@ -148,6 +152,7 @@ export const runWithRetries = async ({
     attempts.push({
       attempt: attemptNumber,
       model: attemptModel,
+      executor: attemptExecutor,
       ...(candidateId ? { candidate_id: candidateId } : {}),
       reason: plan[i].reason,
       ok: res.ok,
@@ -168,6 +173,7 @@ export const runWithRetries = async ({
       event_log: res.eventLog ? path.relative(home, res.eventLog) : null,
     });
     o.model = attemptModel;
+    o.executor = attemptExecutor;
     // A budget overrun is terminal: retrying under the same fixed cap would deterministically
     // fail again regardless of model, so it doesn't advance to the fallback tier.
     // An empty result (`res.empty_output`, so `ok:false`) is *not* terminal and falls through

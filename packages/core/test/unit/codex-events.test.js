@@ -46,6 +46,18 @@ test("Codex events keep the last assistant message and ignore duplicate tool com
   assert.deepEqual(accumulator.tools, { calls: 1, errors: 0, byName: { web_search: 1 } });
 });
 
+test("Codex records tool activity when a tool starts", () => {
+  const accumulator = createCodexAccumulator();
+  const events = [];
+  consumeCodexEvent(JSON.stringify({ type: "item.started", item: { id: "command-1", type: "command_execution", status: "in_progress" } }), accumulator, (event) => events.push(event));
+  assert.equal(accumulator.tools.calls, 1);
+  assert.equal(events[0].status, "started");
+  consumeCodexEvent(JSON.stringify({ type: "item.completed", item: { id: "command-1", type: "command_execution", status: "failed" } }), accumulator);
+  assert.deepEqual(accumulator.tools, { calls: 1, errors: 1, byName: { shell: 1 } });
+  consumeCodexEvent(JSON.stringify({ type: "item.started", item: { id: "new-tool", type: "future_tool", status: "in_progress" } }), accumulator);
+  assert.equal(accumulator.tools.calls, 2);
+});
+
 test("Codex event parsing records failures and ignores malformed input", () => {
   const accumulator = createCodexAccumulator();
   assert.equal(consumeCodexEvent("", accumulator), false);

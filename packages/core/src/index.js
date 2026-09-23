@@ -81,6 +81,7 @@ export {
 export { resolveId, scaffold } from "./scaffold.js";
 export { buildFrontmatter, buildBody, buildAgentsMd } from "./frontmatter.js";
 export { buildAttemptPlan, runWithRetries } from "./retry.js";
+export { planRequest, validateRoutingPolicy } from "./request-planner.js";
 export { readAlterJson, resolveHome, listHomes, removeHome, writeResult } from "./homes.js";
 export { inspectRunCleanup, deleteRunCleanupCandidates } from "./run-maintenance.js";
 export {

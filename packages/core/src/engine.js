@@ -8,6 +8,7 @@ import { buildAttemptPlan, runWithRetries } from "./retry.js";
 import { writeResult, readAlterJson, resolveHome } from "./homes.js";
 import { createSpawnOptions } from "./spawn-spec.js";
 import { validateOutputContract } from "./output-contract.js";
+import { planRequest, validateRoutingPolicy } from "./request-planner.js";
 import { resolveRuntime } from "./runtime.js";
 import { withoutCapabilityGrant } from "./capability-client.js";
 import { getHarness } from "./harness/adapter.js";
@@ -90,10 +91,9 @@ const validateSpawnModelCandidates = (o) => {
     }
     if (o.fallbackModel) fail("modelCandidates cannot be combined with fallbackModel.");
     const ids = new Set();
-    const models = new Set();
     for (const candidate of o.modelCandidates) {
       const unsupported = candidate && typeof candidate === "object" && !Array.isArray(candidate)
-        ? Object.keys(candidate).find((key) => !["id", "model"].includes(key))
+        ? Object.keys(candidate).find((key) => !["id", "model", "executor"].includes(key))
         : null;
       if (unsupported) fail(`modelCandidates entry field "${unsupported}" is not supported.`);
       if (
@@ -105,9 +105,10 @@ const validateSpawnModelCandidates = (o) => {
         fail("each modelCandidates entry must have a non-empty id and a provider/model reference.");
       }
       if (ids.has(candidate.id)) fail(`duplicate model candidate id "${candidate.id}".`);
-      if (models.has(candidate.model)) fail(`duplicate model candidate "${candidate.model}".`);
+      if (candidate.executor != null && !["llm", "opencode", "codex", "grok"].includes(candidate.executor)) {
+        fail("modelCandidates executor must be llm, opencode, codex, or grok.");
+      }
       ids.add(candidate.id);
-      models.add(candidate.model);
     }
     if (o.model && o.model !== o.modelCandidates[0].model) {
       fail("model must match the first modelCandidates entry when both are provided.");
@@ -119,6 +120,8 @@ const validateSpawnModelCandidates = (o) => {
 const prepareSpawn = (root, cfg, o, runtime) => {
   if (o.catalog) applyCatalog(o, resolveCatalogEntry(root, cfg, o.catalog));
   validateSpawnModelCandidates(o);
+  validateRoutingPolicy(o.routing);
+  if (o.routing != null && o.modelCandidates == null) fail("routing requires modelCandidates.");
   validateOutputContract(o.outputContract);
   const incoming = runtime.env.ALTER_DEPTH !== undefined ? Number(runtime.env.ALTER_DEPTH) : -1;
   const depth = incoming + 1;
@@ -134,23 +137,52 @@ const prepareSpawn = (root, cfg, o, runtime) => {
   return o;
 };
 
-const prepareImages = (root, cfg, o, runtime, harnessName, adapter, { createOnly = false } = {}) => {
+const prepareImages = (root, o, runtime, { createOnly = false } = {}) => {
   if (!o.images?.length) return;
   if (createOnly) fail("images are invocation inputs and cannot be supplied to create-only Alters.");
-  if (!adapter.supportsImages) fail(`executor "${harnessName}" does not support image inputs.`);
   const images = validateImageFiles(root, o.images, {
     readGrants: [...o.readGrants, ...o.writeGrants],
     environment: runtime.env,
   });
   o.images = images.map((image) => image.path);
   o.imageMetadata = images.map((image) => image.metadata);
-  const models = buildAttemptPlan(o, cfg, runtime, { allowRetries: adapter.supportsRetry !== false })
-    .map((attempt) => attempt.model);
-  if (harnessName === "llm") {
-    validateDirectImageModels(models, cfg.providers, runtime.env);
-  } else if (harnessName === "opencode" && !o.opencodeProvider) {
-    validateImageModels(models, runtime.env);
+};
+
+const prepareExecution = (o, cfg, runtime, harness, prompt) => {
+  const defaultExecutor = o.executor || harness || "opencode";
+  o.baseExecutor = defaultExecutor;
+  if (o.modelCandidates?.length) {
+    const route = planRequest({ options: o, config: cfg, prompt, defaultExecutor, environment: runtime.env });
+    o.plannedCandidates = route.candidates;
+    o.routePlan = {
+      strategy: route.strategy,
+      estimated_input_tokens: route.estimated_input_tokens,
+      selected_candidate_id: route.candidates[0].id,
+      assessed: route.assessed,
+    };
+    o.model = route.candidates[0].model;
+    o.executor = route.candidates[0].executor;
   }
+  const { name: harnessName, adapter } = resolveExecutor(o, harness);
+  const attemptPlan = buildAttemptPlan(o, cfg, runtime, { allowRetries: adapter.supportsRetry !== false });
+  const byExecutor = new Map();
+  for (const attempt of attemptPlan) {
+    const name = attempt.executor || harnessName;
+    if (!byExecutor.has(name)) byExecutor.set(name, []);
+    byExecutor.get(name).push(attempt.model);
+  }
+  for (const [name, models] of byExecutor) {
+    const candidateAdapter = getHarness(name);
+    if (o.images?.length && !candidateAdapter.supportsImages) fail(`executor "${name}" does not support image inputs.`);
+    validateExecutorOptions(name, candidateAdapter, o, models);
+    if (o.images?.length && name === "llm") validateDirectImageModels(models, cfg.providers, runtime.env);
+    if (o.images?.length && name === "opencode" && !o.opencodeProvider) validateImageModels(models, runtime.env);
+  }
+  const configuredExecutors = o.modelCandidates?.map((candidate) => candidate.executor || defaultExecutor) || [...byExecutor.keys()];
+  const configuredAdapters = configuredExecutors.map((name) => getHarness(name));
+  const agentHomeKinds = [...new Set(configuredAdapters.filter((item) => item.needsAgentHome).map((item) => item.agentHomeKind))];
+  const regenerateAgentFile = configuredAdapters.some((item) => item.needsAgentHome && item.agentHomeKind === "opencode" && item.regeneratesAgentFile);
+  return { harnessName, adapter, agentHomeKinds, regenerateAgentFile, attemptPlan };
 };
 
 // `o` carries the parsed spawn options (see cli's parseSpawnArgs) plus
@@ -164,29 +196,22 @@ export const spawnAlter = async (
   const runtime = sandboxRuntime(runtimeOverride);
   const cfg = readConfig(root);
   prepareSpawn(root, cfg, o, runtime);
-  // Resolved before scaffolding, because the adapter decides how much to scaffold —
-  // and because an unknown executor should fail before anything is written to disk.
-  const { name: harnessName, adapter } = resolveExecutor(o, harness);
-  if (o.modelCandidates?.length && adapter.supportsRetry === false) {
-    fail(`executor "${harnessName}" does not support model candidates.`);
-  }
-  if (o.modelCandidates?.length > 1 && !["llm", "opencode"].includes(harnessName)) {
-    fail(`executor "${harnessName}" cannot prove model candidate fallback is safe; use "llm" or "opencode".`);
-  }
-  prepareImages(root, cfg, o, runtime, harnessName, adapter, { createOnly });
+  prepareImages(root, o, runtime, { createOnly });
+  const effectivePrompt = [o.promptPrefix, o.prompt, o.promptSuffix].filter(Boolean).join("\n\n");
+  const { harnessName, adapter, agentHomeKinds, regenerateAgentFile, attemptPlan } = prepareExecution(o, cfg, runtime, harness, effectivePrompt);
   // Pin the resolved name onto the Alter so alter.json and result.json record what
   // actually ran rather than "unspecified", and so `mind run` on this home later
   // reaches for the same adapter.
   o.executor = harnessName;
-  const attemptModels = buildAttemptPlan(o, cfg, runtime, { allowRetries: adapter.supportsRetry !== false }).map((attempt) => attempt.model);
-  validateExecutorOptions(harnessName, adapter, o, attemptModels);
-  const authorityRuntime = delegateAuthority(o, cfg, runtime, { attemptModels });
+  const attemptModels = attemptPlan.map((attempt) => attempt.model);
+  const attemptExecutors = attemptPlan.map((attempt) => attempt.executor || harnessName);
+  const authorityRuntime = delegateAuthority(o, cfg, runtime, { attemptModels, attemptExecutors });
   // `mind create` scaffolds a home without running anything, so it costs the tree no
   // node and holds no slot.
   if (createOnly) {
     const home = scaffold(root, cfg, o, authorityRuntime, {
-      agentFiles: adapter.needsAgentHome,
-      agentHomeKind: adapter.agentHomeKind,
+      agentFiles: agentHomeKinds.length > 0,
+      agentHomeKinds,
     });
     return { home, created: true, depth: o.depth, model: o.model, executor: harnessName };
   }
@@ -198,11 +223,10 @@ export const spawnAlter = async (
   let attempts;
   try {
     const home = scaffold(root, cfg, o, treeRuntime, {
-      agentFiles: adapter.needsAgentHome,
-      agentHomeKind: adapter.agentHomeKind,
+      agentFiles: agentHomeKinds.length > 0,
+      agentHomeKinds,
     });
     const timeout = o.timeout ?? cfg.run_timeout_ms ?? 180000;
-    const effectivePrompt = [o.promptPrefix, o.prompt, o.promptSuffix].filter(Boolean).join("\n\n");
     ({ res, attempts } = await runWithRetries({
       options: o,
       config: cfg,
@@ -220,7 +244,7 @@ export const spawnAlter = async (
       runtime: treeRuntime,
       // An adapter with no agent home has no generated agent definition on disk, so
       // there is nothing for a model swap to rewrite.
-      regenerateAgentFile: adapter.needsAgentHome && adapter.regeneratesAgentFile,
+      regenerateAgentFile,
       // A deterministic executor gets exactly one attempt; see buildAttemptPlan.
       allowRetries: adapter.supportsRetry !== false,
     }));
@@ -317,6 +341,7 @@ export const runExistingAlter = async (
     maxTokens: aj.max_tokens ?? null,
     fallbackModel: aj.fallback_model || null,
     modelCandidates: aj.model_candidates || null,
+    routing: aj.routing || null,
     opencodeProvider: aj.opencode_provider || null,
     opencodeVariant: aj.opencode_variant || null,
     outputContract: aj.output_contract || null,
@@ -326,19 +351,15 @@ export const runExistingAlter = async (
     mindBinPath,
   });
   validateSpawnModelCandidates(o);
+  validateRoutingPolicy(o.routing);
+  if (o.routing != null && o.modelCandidates == null) fail("routing requires modelCandidates.");
   validateOutputContract(o.outputContract);
-  const { name: harnessName, adapter } = resolveExecutor(o, harness);
-  if (o.modelCandidates?.length && adapter.supportsRetry === false) {
-    fail(`executor "${harnessName}" does not support model candidates.`);
-  }
-  if (o.modelCandidates?.length > 1 && !["llm", "opencode"].includes(harnessName)) {
-    fail(`executor "${harnessName}" cannot prove model candidate fallback is safe; use "llm" or "opencode".`);
-  }
+  prepareImages(root, o, runtime);
+  const { harnessName, adapter, regenerateAgentFile, attemptPlan } = prepareExecution(o, cfg, runtime, harness, prompt);
   o.executor = harnessName;
-  const attemptModels = buildAttemptPlan(o, cfg, runtime, { allowRetries: adapter.supportsRetry !== false }).map((attempt) => attempt.model);
-  validateExecutorOptions(harnessName, adapter, o, attemptModels);
-  const authorityRuntime = delegateAuthority(o, cfg, runtime, { attemptModels });
-  prepareImages(root, cfg, o, authorityRuntime, harnessName, adapter);
+  const attemptModels = attemptPlan.map((attempt) => attempt.model);
+  const attemptExecutors = attemptPlan.map((attempt) => attempt.executor || harnessName);
+  const authorityRuntime = delegateAuthority(o, cfg, runtime, { attemptModels, attemptExecutors });
   // A re-run is a real process and a real model call, so it draws on the tree budget
   // like any spawn. It matters that this is not skipped: `mind run` is inside a
   // nestable Alter's allowed command form, so it would otherwise be an unmetered way
@@ -360,7 +381,7 @@ export const runExistingAlter = async (
       pure: cfg.opencode_pure !== false,
       recordEvents: cfg.opencode_event_log === true,
       runtime: treeRuntime,
-      regenerateAgentFile: adapter.needsAgentHome,
+      regenerateAgentFile,
       // A deterministic executor gets exactly one attempt; see buildAttemptPlan.
       allowRetries: adapter.supportsRetry !== false,
     }));

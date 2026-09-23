@@ -20,6 +20,7 @@ export type SpawnOptions = {
   description: string | null;
   model: string | null;
   modelCandidates: ModelCandidate[] | null;
+  routing: RoutingPolicy | null;
   prompt: string | null;
   /** Image files attached to this invocation. Paths are validated and canonicalized before execution. */
   images: string[];
@@ -79,7 +80,30 @@ export type HarnessToolUsage = {
   byName: Record<string, number>;
 };
 
-export type ModelCandidate = { id: string; model: string };
+export type ModelCandidate = { id: string; model: string; executor?: "llm" | "opencode" | "codex" | "grok" };
+export type RoutingPolicy = {
+  strategy?: "ordered" | "lowest_cost";
+  allowed_residencies?: string[];
+  required_context_tokens?: number;
+  estimated_output_tokens?: number;
+  max_estimated_cost_usd?: number;
+  required_capabilities?: string[];
+};
+export type RoutingAssessment = {
+  candidate_id: string;
+  model: string;
+  executor: string;
+  estimated_cost_usd: number | null;
+  eligible: boolean;
+  reason: string | null;
+};
+export type RequestPlan = {
+  strategy: "ordered" | "lowest_cost";
+  estimated_input_tokens: number;
+  candidates: ModelCandidate[];
+  assessed: RoutingAssessment[];
+};
+export type RoutingTrace = Omit<RequestPlan, "candidates"> & { selected_candidate_id: string };
 
 export type AlterResponse = {
   tokens: AlterTokens;
@@ -102,9 +126,9 @@ export type AlterResponse = {
 };
 
 export type AlterRuntimeEvent =
-  | { type: "attempt.started"; attempt: number; model: string; candidate_id?: string; reason: string }
-  | { type: "output.delta"; attempt: number; model: string; candidate_id?: string; delta: string; text: string; sessionID: string | null }
-  | { type: "usage.updated"; attempt: number; model: string; candidate_id?: string; tokens: AlterTokens; steps: number; sessionID: string | null };
+  | { type: "attempt.started"; attempt: number; model: string; executor?: string; candidate_id?: string; reason: string }
+  | { type: "output.delta"; attempt: number; model: string; executor?: string; candidate_id?: string; delta: string; text: string; sessionID: string | null }
+  | { type: "usage.updated"; attempt: number; model: string; executor?: string; candidate_id?: string; tokens: AlterTokens; steps: number; sessionID: string | null };
 
 export type AlterAttemptReason = "initial" | "retry_same_model" | "retry_fallback_model";
 
@@ -112,6 +136,7 @@ export type AlterAttemptReason = "initial" | "retry_same_model" | "retry_fallbac
 export type AlterAttempt = {
   attempt: number;
   model: string;
+  executor?: string;
   candidate_id?: string;
   reason: AlterAttemptReason;
   ok: boolean;
@@ -149,6 +174,7 @@ export type AlterResult = {
   event_log: string | null;
   model: string;
   model_candidates?: ModelCandidate[] | null;
+  routing?: RoutingTrace | null;
   executor: string | null;
   catalog: string | null;
   depth: number;
@@ -216,7 +242,7 @@ export function delegateAuthority(
   spawnOptions: SpawnOptions,
   config: MindConfig,
   runtime: Runtime,
-  delegateOptions?: { attemptModels?: string[] | null },
+  delegateOptions?: { attemptModels?: string[] | null; attemptExecutors?: string[] | null },
 ): Runtime;
 export function authorityMaxDepth(config: MindConfig, runtime: Runtime): number;
 
@@ -276,6 +302,7 @@ export type CatalogManifest = {
   model?: string | null;
   fallback_model?: string | null;
   model_candidates?: ModelCandidate[];
+  routing?: RoutingPolicy | null;
   max_tokens?: number | null;
   nestable?: boolean;
   web?: boolean;
@@ -419,7 +446,7 @@ export function scaffold(
   cfg: MindConfig,
   options: SpawnOptions,
   runtime?: Runtime,
-  scaffoldOptions?: { agentFiles?: boolean; agentHomeKind?: "opencode" | "codex" | "grok" },
+  scaffoldOptions?: { agentFiles?: boolean; agentHomeKind?: "opencode" | "codex" | "grok"; agentHomeKinds?: Array<"opencode" | "codex" | "grok"> | null },
 ): string;
 
 export function buildFrontmatter(options: SpawnOptions): string;
@@ -432,7 +459,16 @@ export function buildAttemptPlan(
   cfg: MindConfig,
   runtime?: Runtime,
   planOptions?: { allowRetries?: boolean },
-): { model: string; reason: AlterAttemptReason; candidateId?: string }[];
+): { model: string; executor?: string; reason: AlterAttemptReason; candidateId?: string }[];
+
+export function validateRoutingPolicy(policy: RoutingPolicy | null | undefined, label?: string): void;
+export function planRequest(options: {
+  options: SpawnOptions;
+  config: MindConfig;
+  prompt: string;
+  defaultExecutor?: string;
+  environment?: Record<string, string | undefined>;
+}): RequestPlan;
 
 export function runWithRetries(options: {
   options: SpawnOptions;
@@ -462,6 +498,7 @@ export type AlterRecord = {
   description: string | null;
   model: string;
   model_candidates?: ModelCandidate[] | null;
+  routing?: RoutingPolicy | null;
   executor: string | null;
   capability: { id: string; input?: "text" | "json" } | null;
   nestable: boolean;
@@ -1492,13 +1529,21 @@ export type DirectProviderProtocol = "openai-responses" | "openai-compatible" | 
 export type DirectProviderModelConfig = {
   max_output_tokens?: number | null;
   input?: Array<"text" | "image">;
+  context_tokens?: number;
+  residency?: string;
+  capabilities?: string[];
+  cost?: { input_per_million: number; output_per_million: number };
 };
 export type DirectProviderConfig = {
-  protocol: DirectProviderProtocol;
+  protocol?: DirectProviderProtocol;
   base_url?: string;
   api_key_env?: string | null;
   max_output_tokens?: number | null;
   input?: Array<"text" | "image">;
+  context_tokens?: number;
+  residency?: string;
+  capabilities?: string[];
+  cost?: { input_per_million: number; output_per_million: number };
   models?: Record<string, DirectProviderModelConfig>;
 };
 export type DirectLlmEndpoint = Omit<LlmEndpoint, "apiKey"> & {
