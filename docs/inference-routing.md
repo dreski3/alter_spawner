@@ -162,6 +162,8 @@ plan against the new request and current provider metadata.
 `result.json` includes `timing.wall_duration_ms` from the start of the public
 call through initial result persistence and tree-slot release, along with
 planning, tree admission, scaffold, execution, attempt, and other durations.
+`timing.queue_ms` is the wait after a tree concurrency slot is first denied;
+it is included in `timing.admission_ms`.
 `timing.pre_persistence_duration_ms` shows the earlier point before result
 writing. The existing `duration_ms` remains the sum of
 clock-based attempt durations; each attempt also has monotonic `elapsed_ms` for

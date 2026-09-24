@@ -116,6 +116,7 @@ export type AlterTiming = {
   wall_duration_ms: number;
   planning_ms: number;
   admission_ms: number;
+  queue_ms?: number;
   scaffold_ms: number;
   execution_ms: number;
   attempts_ms: number;
@@ -1558,6 +1559,7 @@ export type TreeNodeHandle = {
   limits: TreeLimits;
   lock: FileLockOptions;
   runtime: Runtime;
+  queueWaitMs: number;
 };
 
 export function treeLedgerPath(root: string, treeId: string): string;

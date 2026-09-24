@@ -143,7 +143,7 @@ raw run references, and analysis together so a result can be reproduced.
   Unknown total cost remains null. Decision traces and benchmark summaries do
   not include prompts or payloads by default.
 
-#### 4.2 Build a labeled task set
+#### 4.2 Build a labeled task set — complete
 
 - Include short classification, extraction with an output contract, reasoning,
   image input, and tool-using tasks. Score exact checks where possible and use
@@ -157,6 +157,14 @@ raw run references, and analysis together so a result can be reproduced.
   a branching tree. Record node count, queue time, retries, token spend, and
   failures at each depth. Router-to-router edges are currently rejected; add
   labeled multi-router cases after that execution path is implemented.
+
+The versioned set in `benchmarks/task-set-v1.json` now contains ten task cases,
+thirteen router cases, and eight nested workloads. Automatic scorers and blind
+review packets keep harness success separate from task quality. Scripted router
+fixtures assert payload isolation and fallback behavior. The nested runner uses
+real Alter spawns and records per-depth queue, retry, token, and failure data;
+its depth-8 branching case reaches 17 nodes. These fixture runs validate the
+benchmark setup. Model comparisons and quality measurements start in 4.3.
 
 #### 4.3 Run paired comparisons
 

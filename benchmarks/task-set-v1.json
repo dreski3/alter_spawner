@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "id": "routing-benchmark-v1",
+  "tasks": [
+    { "id": "class-positive", "split": "development", "kind": "classification", "prompt": "Classify the sentiment as positive, negative, or neutral. Reply with one label only: The replacement arrived early and works perfectly.", "grading": { "type": "exact", "expected": "positive" } },
+    { "id": "class-negative", "split": "held_out", "kind": "classification", "prompt": "Classify the sentiment as positive, negative, or neutral. Reply with one label only: The update erased my saved settings twice.", "grading": { "type": "exact", "expected": "negative" } },
+    { "id": "extract-invoice", "split": "development", "kind": "extraction", "prompt": "Return only JSON with invoice_id and amount_eur from: Invoice INV-2047 was paid for EUR 38.50 on Tuesday.", "output_contract": { "type": "json" }, "grading": { "type": "json_fields", "expected": { "invoice_id": "INV-2047", "amount_eur": 38.5 } } },
+    { "id": "extract-contact", "split": "held_out", "kind": "extraction", "prompt": "Return only JSON with name and email from: Please contact Mira Sol at mira.sol@example.test before Friday.", "output_contract": { "type": "json" }, "grading": { "type": "json_fields", "expected": { "name": "Mira Sol", "email": "mira.sol@example.test" } } },
+    { "id": "reason-arithmetic", "split": "development", "kind": "reasoning", "prompt": "A box contains 7 red and 5 blue pens. Three red pens are removed. How many pens remain? Reply with the number only.", "grading": { "type": "exact", "expected": "9" } },
+    { "id": "reason-constraint", "split": "held_out", "kind": "reasoning", "prompt": "A support team has one engineer for two simultaneous incidents. Incident A affects 20 users and has a workaround. Incident B affects 3 users and exposes private data. Explain which incident should be handled first and why, in at most 80 words.", "grading": { "type": "rubric", "criteria": ["Prioritizes the privacy incident", "Explains why data exposure outweighs user count", "Mentions containment or mitigation", "Stays within 80 words"] } },
+    { "id": "image-red", "split": "development", "kind": "image", "prompt": "What is the dominant color of the square? Reply with one color word only.", "image": "fixtures/red-square.png", "grading": { "type": "exact", "expected": "red" } },
+    { "id": "image-blue", "split": "held_out", "kind": "image", "prompt": "What is the dominant color of the square? Reply with one color word only.", "image": "fixtures/blue-square.png", "grading": { "type": "exact", "expected": "blue" } },
+    { "id": "tool-uppercase", "split": "development", "kind": "tool", "prompt": "Use the uppercase tool on the text: ready now", "grading": { "type": "tool_result", "expected": "READY NOW", "required_tool": "demo.uppercase" } },
+    { "id": "tool-uppercase-held", "split": "held_out", "kind": "tool", "prompt": "Use the uppercase tool on the text: café receipt", "grading": { "type": "tool_result", "expected": "CAFÉ RECEIPT", "required_tool": "demo.uppercase" } }
+  ],
+  "router_cases": [
+    { "id": "route-billing", "split": "development", "signal": "Duplicate card charge and refund request", "payload": "Refund the duplicate 25 EUR charge. CANARY_BILLING_01", "adviser": { "behavior": "valid", "route": "billing" }, "expected_routes": ["billing"], "expected_outcome": "valid", "expected_selected_route": "billing" },
+    { "id": "route-technical", "split": "development", "signal": "Account sign-in fails after update", "payload": "Investigate login error 503. CANARY_TECH_02", "adviser": { "behavior": "valid", "route": "technical" }, "expected_routes": ["technical"], "expected_outcome": "valid", "expected_selected_route": "technical" },
+    { "id": "route-sales", "split": "held_out", "signal": "Need a team plan for next quarter", "payload": "Quote ten seats. CANARY_SALES_03", "adviser": { "behavior": "valid", "route": "sales" }, "expected_routes": ["sales"], "expected_outcome": "valid", "expected_selected_route": "sales" },
+    { "id": "route-tool", "split": "development", "signal": "Convert the supplied text to uppercase", "payload": "upper me CANARY_TOOL_04", "adviser": { "behavior": "valid", "route": "uppercase" }, "expected_routes": ["uppercase"], "expected_outcome": "valid", "expected_selected_route": "uppercase" },
+    { "id": "route-ambiguous-billing", "split": "development", "signal": "Invoice for a proposed plan has the wrong charge", "payload": "Review quote and invoice. CANARY_AMBIG_05", "adviser": { "behavior": "valid", "route": "billing" }, "expected_routes": ["billing", "sales"], "expected_outcome": "valid", "expected_selected_route": "billing" },
+    { "id": "route-ambiguous-technical", "split": "held_out", "signal": "Cannot open billing page after signing in", "payload": "Check account and invoice page. CANARY_AMBIG_06", "adviser": { "behavior": "valid", "route": "technical" }, "expected_routes": ["technical", "billing"], "expected_outcome": "valid", "expected_selected_route": "technical" },
+    { "id": "route-invalid-closed", "split": "development", "signal": "Refund request", "payload": "Keep private. CANARY_INVALID_07", "adviser": { "behavior": "out_of_set" }, "expected_routes": ["billing"], "expected_outcome": "invalid", "expected_selected_route": null },
+    { "id": "route-invalid-fallback", "split": "held_out", "signal": "Request a new plan", "payload": "Keep private. CANARY_INVALID_08", "adviser": { "behavior": "out_of_set" }, "fallback_route": "sales", "expected_routes": ["sales"], "expected_outcome": "invalid", "expected_selected_route": "sales" },
+    { "id": "route-error-closed", "split": "development", "signal": "Account access failure", "payload": "Keep private. CANARY_ERROR_09", "adviser": { "behavior": "error" }, "expected_routes": ["technical"], "expected_outcome": "error", "expected_selected_route": null },
+    { "id": "route-error-fallback", "split": "held_out", "signal": "Need an invoice", "payload": "Keep private. CANARY_ERROR_10", "adviser": { "behavior": "error" }, "fallback_route": "billing", "expected_routes": ["billing"], "expected_outcome": "error", "expected_selected_route": "billing" },
+    { "id": "route-timeout-closed", "split": "development", "signal": "Compare plans", "payload": "Keep private. CANARY_TIMEOUT_11", "adviser": { "behavior": "timeout" }, "expected_routes": ["sales"], "expected_outcome": "timeout", "expected_selected_route": null },
+    { "id": "route-timeout-fallback", "split": "held_out", "signal": "Refund this charge", "payload": "Keep private. CANARY_TIMEOUT_12", "adviser": { "behavior": "timeout" }, "fallback_route": "billing", "expected_routes": ["billing"], "expected_outcome": "timeout", "expected_selected_route": "billing" },
+    { "id": "route-canary", "split": "held_out", "signal": "Billing question with harmless summary", "payload": "A sensitive order body with CANARY_SECRET_13", "adviser": { "behavior": "valid", "route": "billing" }, "expected_routes": ["billing"], "expected_outcome": "valid", "expected_selected_route": "billing" }
+  ],
+  "nested_workloads": [
+    { "id": "chain-1", "split": "development", "shape": "chain", "max_depth": 1 },
+    { "id": "chain-2", "split": "development", "shape": "chain", "max_depth": 2 },
+    { "id": "chain-4", "split": "development", "shape": "chain", "max_depth": 4, "retry": { "depth": 2, "branch": "spine" } },
+    { "id": "chain-8", "split": "held_out", "shape": "chain", "max_depth": 8 },
+    { "id": "branch-1", "split": "development", "shape": "branch", "max_depth": 1 },
+    { "id": "branch-2", "split": "development", "shape": "branch", "max_depth": 2 },
+    { "id": "branch-4", "split": "development", "shape": "branch", "max_depth": 4 },
+    { "id": "branch-8", "split": "held_out", "shape": "branch", "max_depth": 8, "retry": { "depth": 4, "branch": "spine" }, "failure": { "depth": 6, "branch": "side" } }
+  ]
+}

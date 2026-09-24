@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { kitDir } from "./config.js";
 import { withFileLock } from "./file-lock.js";
 import { writeJsonAtomic } from "./persistence.js";
@@ -133,6 +134,7 @@ export const admitTreeNode = async ({
   const runtime = resolveRuntime(runtimeOverride);
   const nodeId = runtime.randomId(12);
   const deadline = Date.now() + admissionTimeoutMs;
+  let queueStarted = null;
   while (true) {
     const outcome = await withFileLock(
       file,
@@ -169,8 +171,9 @@ export const admitTreeNode = async ({
       },
       lock,
     );
-    if (outcome.admitted) return { file, nodeId, treeId, limits, lock, runtime };
+    if (outcome.admitted) return { file, nodeId, treeId, limits, lock, runtime, queueWaitMs: queueStarted == null ? 0 : performance.now() - queueStarted };
     if (outcome.reason !== "concurrency") fail(outcome.message);
+    if (queueStarted == null) queueStarted = performance.now();
     if (Date.now() >= deadline) {
       fail(
         `timed out waiting for a concurrency slot in tree "${treeId}" (max_concurrent_alters=${limits.maxConcurrent}).`,
