@@ -88,6 +88,7 @@ export type RoutingPolicy = {
   estimated_output_tokens?: number;
   max_estimated_cost_usd?: number;
   required_capabilities?: string[];
+  adviser?: { id: string; instructions: string; criteria: Record<string, string> };
 };
 export type RoutingAssessment = {
   candidate_id: string;
@@ -103,7 +104,10 @@ export type RequestPlan = {
   candidates: ModelCandidate[];
   assessed: RoutingAssessment[];
 };
-export type RoutingTrace = Omit<RequestPlan, "candidates"> & { selected_candidate_id: string };
+export type RoutingTrace = Omit<RequestPlan, "candidates"> & {
+  selected_candidate_id: string;
+  adviser?: { id: string; decision_reason: "adviser" | "fallback"; fallback_reason: string | null };
+};
 
 export type AlterResponse = {
   tokens: AlterTokens;
@@ -126,6 +130,7 @@ export type AlterResponse = {
 };
 
 export type AlterRuntimeEvent =
+  | { type: "network.route.selected"; router_id: string; route_id: string; component_id: string }
   | { type: "attempt.started"; attempt: number; model: string; executor?: string; candidate_id?: string; reason: string }
   | { type: "output.delta"; attempt: number; model: string; executor?: string; candidate_id?: string; delta: string; text: string; sessionID: string | null }
   | { type: "usage.updated"; attempt: number; model: string; executor?: string; candidate_id?: string; tokens: AlterTokens; steps: number; sessionID: string | null };
@@ -271,6 +276,7 @@ export type MindConfig = {
   opencode_pure: boolean;
   opencode_event_log: boolean;
   providers: Record<string, DirectProviderConfig>;
+  decision_advisers?: Record<string, { python?: string; model_dir?: string; timeout_ms?: number }>;
   retry: { same_harness_retries: number; fallback_retries: number };
   [key: string]: unknown;
 };
@@ -562,6 +568,7 @@ export function spawnAlter(
     signal?: AbortSignal;
     onEvent?: (event: AlterRuntimeEvent) => void;
     runtime?: Runtime;
+    advisers?: Record<string, DecisionAdviser>;
   },
 ): Promise<
   | {
@@ -591,6 +598,7 @@ export function runExistingAlter(
     signal?: AbortSignal;
     onEvent?: (event: AlterRuntimeEvent) => void;
     runtime?: Runtime;
+    advisers?: Record<string, DecisionAdviser>;
   },
 ): Promise<{ home: string; result: AlterResult; res: AlterResponse }>;
 
@@ -721,6 +729,7 @@ export type HarnessAdapter = {
   run(home: string, prompt: string, options: HarnessRunOptions): Promise<AlterResponse>;
   /** False for an adapter that reads nothing off disk, so the scaffolder writes only the run record. Default true. */
   needsAgentHome?: boolean;
+  supportsVirtualNesting?: boolean;
   /** False for a deterministic executor: one attempt, and no fallback-model tier. */
   supportsRetry?: boolean;
   /** True when the adapter can attach validated image files to a request. Default false. */
@@ -1819,6 +1828,13 @@ export type NetworkComponent = {
   catalog?: string;
   graph?: string;
   capability?: string;
+  input?: "text" | "json";
+  router?: {
+    adviser: string;
+    instructions: string;
+    routes: Array<{ id: string; component: string; description: string }>;
+    fallback_route: string | null;
+  };
   triggers: NetworkTrigger[];
   emits: string[];
   refractory: string | number | null;
@@ -1830,7 +1846,7 @@ export type NetworkDefinition = {
   id: string;
   name: string;
   description: string | null;
-  ego: { enabled: boolean; catalog: string | null; contextual: boolean; input_events: string[] } | null;
+  ego: { enabled: boolean; catalog: string | null; contextual: boolean; input_events: string[]; spawn: string[] } | null;
   interfaces: NetworkInterface[];
   components: NetworkComponent[];
 };
@@ -1842,6 +1858,54 @@ export type StoredNetworkDefinition = NetworkDefinition & {
 export const NETWORK_SCHEMA_VERSION: 1;
 export const NETWORK_ROLES: readonly NetworkRole[];
 export const NETWORK_TRIGGER_TYPES: readonly NetworkTrigger["type"][];
+export type DecisionRoute = { id: string; description: string; component?: string };
+export type DecisionAdviser = {
+  id?: string;
+  model?: string;
+  decide(request: { signal: string; instructions: string; routes: DecisionRoute[]; abortSignal?: AbortSignal }): Promise<{ id: string }>;
+};
+export function createLayaMlxAdviser(options?: { env?: Record<string, string | undefined>; python?: string; model_dir?: string; timeout_ms?: number }): DecisionAdviser;
+export function decideRoute(options: {
+  adviser: DecisionAdviser;
+  signal: string;
+  instructions: string;
+  routes: DecisionRoute[];
+  fallbackRoute?: string | null;
+  abortSignal?: AbortSignal;
+}): Promise<{ id: string; reason: "adviser" | "fallback"; fallbackReason: string | null }>;
+export type NetworkDecisionTrace = {
+  network_id: string;
+  network_revision: number | null;
+  router_id: string;
+  adviser: string;
+  adviser_model: string;
+  eligible_route_ids: string[];
+  selected_route_id: string | null;
+  decision_reason: "adviser" | "fallback" | null;
+  fallback_reason: string | null;
+  child_component_id: string | null;
+  child_run_id: string | null;
+  child_home: string | null;
+  child_ok: boolean | null;
+  duration_ms: number;
+  decision_duration_ms: number | null;
+  error: string | null;
+};
+export function runNetworkRoute(root: string, options: {
+  routerId: string;
+  routingSignal: string;
+  payload: string;
+  advisers?: Record<string, DecisionAdviser>;
+  capabilityRegistry?: CapabilityRegistry | null;
+  createCapabilitySession?: ((context: {
+    catalogId: string;
+    signal?: AbortSignal;
+    onEvent?: (event: CapabilityEvent) => void;
+  }) => Pick<CapabilityApprovalSession, "execute">) | null;
+  runtime?: Runtime;
+  abortSignal?: AbortSignal;
+  onEvent?: (event: AlterRuntimeEvent) => void;
+}): Promise<{ home: string; created: false; result: AlterResult; res: AlterResponse; decision: NetworkDecisionTrace | null }>;
 export function validateNetworkDefinition(
   value: unknown,
   options?: { source?: string; known?: { catalogs?: string[]; graphs?: string[]; oscillations?: string[]; capabilities?: string[] } },

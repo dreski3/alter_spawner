@@ -37,59 +37,95 @@
 
 ## Hybrid inference and decision routing
 
-The goal is to make a routed inference request the unit of planning while
-keeping the current embeddable Node engine as the first integration surface.
-An HTTP service, TypeScript migration, and a new concurrency framework are not
-prerequisites for the initial routing work.
+The next goal is to let a small, pluggable System 1 decision model choose a
+route for a request. Keep the embeddable Node engine as the first integration
+surface. An HTTP service, TypeScript migration, and a new concurrency framework
+are not prerequisites.
 
-### 1. Per-Alter ordered model candidates
+### 1. Per-Alter ordered model candidates — complete
 
-V1 implements the per-Alter candidate list and ordered fallback contract. See
-[Inference routing](docs/inference-routing.md) for the schema and behavior.
-Provider and model definitions remain project-level:
+Implemented ordered model candidates, candidate IDs, executor selection, and
+bounded fallback. The existing `model` and `fallback_model` fields still work.
+See [Inference routing](docs/inference-routing.md) for the current contract.
 
-```json
-{
-  "model_candidates": [
-    { "id": "local", "model": "mlx/qwen" },
-    { "id": "cloud", "model": "openai/gpt-4.1" }
-  ]
-}
+### 2. Add an in-process request planner — complete
+
+Implemented eligibility checks and deterministic ordering for model/executor
+pairs, including provider metadata, authority, capabilities, residency, context,
+and estimated cost. The retry layer uses eligible routes and persists its trace.
+Mixed direct, OpenCode, and Codex candidates are documented; native Grok remains
+deferred under Reliability. See [Inference routing](docs/inference-routing.md).
+
+### 3. Add pluggable System 1 decision advisers — initial scope complete
+
+Support two decision targets through one adviser contract: choosing among model
+routes that have already passed the request planner's hard constraints, and
+choosing which child Alter a router Alter may spawn. The adviser recommends a
+stable candidate ID; the host validates the choice and retains authority over
+execution. Start with the already downloaded, locally run `laya-mlx` as the
+default adviser for configured router Alters. Load its endpoint and model
+settings from project configuration rather than embedding machine-specific
+paths. Other local models and remote advisers, including Jev, can use the same
+contract later.
+
+The first end-to-end case is a network with a principal and four Alter nodes:
+one router and three sibling workers. The network definition declares that the
+principal may spawn the router, and that the router may spawn exactly those
+three workers. It also defines the router's decision model, the route IDs, and
+the descriptions or criteria used to choose among them. Execution is nested:
+
+```text
+principal -> router -> one of worker A, worker B, worker C
 ```
 
-Each entry has a stable id and a `provider/model` reference. All candidates use
-the Alter's one executor. Existing `model` and `fallback_model` fields continue
-to work; an explicit `--model` selects one model. Candidate ids, attempts, and
-the candidate model set are recorded, and model authority includes every
-candidate. Fallback stops when an OpenCode attempt has begun tool activity.
+The principal supplies a routing instruction or classification result and a
+separate request payload. The router's adviser sees only that routing signal and
+its own route definitions. The router checks the returned ID against its allowed
+children, spawns the selected worker, and forwards the payload unchanged. The
+worker's result returns through the router to the principal. The principal
+does not spawn or address the workers directly. This is an optional network
+path alongside direct spawning and graphs. A route can also target a
+deterministic host capability node to execute a defined operation from the
+forwarded input.
 
-### 2. Add an in-process request planner
+Implemented:
 
-The planner selects a model and executor pair before attempts begin. Project
-provider definitions can declare input and context limits, residency,
-capabilities, and token prices. Request policy filters by authority, sandbox
-needs, input, residency, context, capabilities, and estimated cost, then uses
-manifest order or lowest estimated cost. The retry layer runs over the eligible
-routes. Mixed direct, OpenCode, and Codex candidates are the active documented
-routes; native Grok is deferred under Reliability. Agent sessions stop fallback
-after tool activity. The route trace is persisted.
-The embeddable API remains the integration surface. See
-[Inference routing](docs/inference-routing.md) for the contract.
+- Extend the network definition with explicit spawn edges, router configuration,
+  adviser reference, and candidate IDs; validate references, duplicate IDs,
+  cycles, and inherited nesting and catalog authority before execution.
+- Define a bounded adviser input/output contract and adapter interface. Keep
+  the routing signal separate from the opaque request payload so an adviser
+  cannot rewrite the worker's task data.
+- Add the local `laya-mlx` adapter and make it the default for router nodes
+  that omit an adviser reference. Preserve the existing deterministic model
+  route ordering when no adviser is configured for ordinary inference.
+- Reject out-of-set, malformed, or ambiguous choices. On timeout or adviser
+  failure, use a configured deterministic fallback route or fail without
+  spawning a worker; never infer a different target from the payload.
+- Record the network revision, adviser and model, eligible route IDs, chosen
+  route, validation or fallback reason, nested run IDs, latency, and worker
+  outcome. Keep request payloads out of decision traces by default.
+- Verify classification and routing examples, unchanged payload forwarding,
+  forbidden child rejection, failure handling, and the two-level tree budget.
 
-### 3. Add pluggable decision advisers
-
-Allow optional decision engines to recommend among candidates that already
-passed the hard constraints. Evaluate Jev through its API and laya-mlx as a
-local decision engine for routing nodes. Validate every recommendation against
-the eligible candidate set; keep deterministic behavior when an adviser is
-unavailable or returns an unusable choice. Measure decision quality, latency,
-and data handling before making either adviser a default.
+One principal-spawned router now chooses and spawns exactly one authorized
+worker with local `laya-mlx`, returns its result, and leaves a trace of the
+decision and nested execution. The router can also choose a deterministic
+capability node. A live local-model smoke test verifies the two-level path.
+The initial network router contract and host API are described in
+[Network routing](docs/network-routing.md).
+The same opt-in adviser contract now selects among eligible model candidates;
+see [Inference routing](docs/inference-routing.md). Benchmarking and broader
+adviser adapters remain under the next milestone.
 
 ### 4. Benchmark and refine
 
 Compare direct local requests, direct cloud requests, attached OpenCode
 sessions, and spawned sessions on representative tasks. Measure end-to-end
 latency, cost, success rate, and quality, including the overhead of routing.
+For router Alters, compare adviser choices with labeled classification cases
+and the deterministic fallback. Measure wrong-route and invalid-choice rates,
+decision latency, and whether request data reaches only the chosen worker.
 Use results to refine candidate metadata and selection rules.
 
 ### 5. Add a service API if host integrations require it

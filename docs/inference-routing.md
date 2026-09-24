@@ -96,6 +96,34 @@ manifest order. It requires usable cost metadata. `max_estimated_cost_usd`
 excludes candidates above the specified estimate. If none remain, the request
 fails before a home is created.
 
+An optional adviser may choose the first attempt from the eligible candidates.
+It cannot add a route or bypass any hard constraint. The remaining candidates
+keep their deterministic order for retry and fallback:
+
+```json
+{
+  "routing": {
+    "strategy": "ordered",
+    "adviser": {
+      "id": "laya-mlx",
+      "instructions": "Choose the smallest model likely to handle this request.",
+      "criteria": {
+        "local": "Fast local model for simple text tasks",
+        "cloud": "Larger model for complex reasoning"
+      }
+    }
+  }
+}
+```
+
+The request prompt is the adviser's decision signal. Configure local
+`laya-mlx` paths under `decision_advisers` in `.alters/config.json`, as shown in
+[Network routing](network-routing.md). An in-process host can also pass an
+`advisers` map to `spawnAlter` or `runExistingAlter`. If the adviser is missing,
+times out, or returns an ineligible ID, selection falls back to the first route
+from the normal `ordered` or `lowest_cost` ranking. The route trace records the
+adviser ID and whether its choice or the deterministic fallback was used.
+
 The CLI accepts repeatable `--model-candidate id=provider/model` and
 `--model-candidate id=executor:provider/model` flags. A call can set routing
 requirements with `--route-strategy`, `--route-residency`,

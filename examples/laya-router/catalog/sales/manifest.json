@@ -1,0 +1,6 @@
+{
+  "name": "sales",
+  "description": "Receives sales requests unchanged.",
+  "executor": "function",
+  "capability": { "id": "demo.sales", "input": "text" }
+}

@@ -121,6 +121,42 @@ test("sensory and internal components may target host capabilities", () => {
   assert.equal(result.components[1].capability, "organelle.belief");
 });
 
+test("router edges are explicit and cannot point to undeclared or nested targets", () => {
+  const network = {
+    id: "dispatch", name: "Dispatch",
+    ego: { enabled: true, catalog: "principal", spawn: ["router"] },
+    components: [
+      {
+        id: "router", role: "internal", catalog: "router", triggers: [{ type: "manual" }],
+        router: {
+          instructions: "Choose a destination",
+          routes: [
+            { id: "a", component: "a", description: "First task" },
+            { id: "b", component: "b", description: "Second task" },
+          ],
+        },
+      },
+      { id: "a", role: "internal", catalog: "a", triggers: [{ type: "manual" }] },
+      { id: "b", role: "internal", catalog: "b", triggers: [{ type: "manual" }] },
+    ],
+  };
+  assert.deepEqual(validateNetworkDefinition(network).ego.spawn, ["router"]);
+  assert.equal(validateNetworkDefinition(network).components[0].router.adviser, "laya-mlx");
+  assert.throws(() => validateNetworkDefinition({
+    ...network, ego: { ...network.ego, spawn: ["missing"] },
+  }), /ego spawn references unavailable/);
+  assert.throws(() => validateNetworkDefinition({
+    ...network, components: network.components.map((component) => component.id === "router"
+      ? { ...component, router: { ...component.router, routes: [component.router.routes[0], { id: "b", component: "missing", description: "Other" }] } }
+      : component),
+  }), /references unavailable component/);
+  assert.throws(() => validateNetworkDefinition({
+    ...network, components: network.components.map((component) => component.id === "a"
+      ? { ...component, router: network.components[0].router }
+      : component),
+  }), /cannot target another router yet/);
+});
+
 test("applies immutable revisions and rejects stale writes", () => {
   const directory = root();
   const runtime = createRuntime({ now: () => Date.UTC(2026, 7, 15, 20, 0, 0) });

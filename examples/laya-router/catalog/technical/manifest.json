@@ -1,0 +1,6 @@
+{
+  "name": "technical",
+  "description": "Receives technical requests unchanged.",
+  "executor": "function",
+  "capability": { "id": "demo.technical", "input": "text" }
+}

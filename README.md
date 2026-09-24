@@ -749,6 +749,9 @@ See [ROADMAP.md](ROADMAP.md) for the fuller list and next steps.
 
 ## Examples
 
+- [`examples/laya-router`](examples/laya-router/README.md) defines a saved
+  network whose local Laya router chooses among three worker Alters and a
+  deterministic tool node, forwarding the request payload unchanged.
 - [`examples/cipher-relay`](examples/cipher-relay/README.md) demonstrates a
   nestable relay selecting isolated AES decryptor and format-decoder Alters,
   with separate sessions, homes, tool permissions, and token accounting.

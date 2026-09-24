@@ -84,6 +84,53 @@ const replaceHarnesses = (t, handlers) => {
   });
 };
 
+test("a pluggable adviser selects only eligible model routes and falls back to deterministic order", async (t) => {
+  const root = makeProject(t);
+  const seen = [];
+  replaceHarnesses(t, [["opencode", {
+    needsAgentHome: false,
+    async run(_home, prompt, options) {
+      seen.push({ prompt, model: options.model });
+      return reply(true, options.model);
+    },
+  }]]);
+  const options = () => createSpawnOptions({
+    name: "advised",
+    prompt: "Classify this request",
+    modelCandidates: [
+      { id: "local", model: "edge/small", executor: "opencode" },
+      { id: "cloud", model: "remote/large", executor: "opencode" },
+    ],
+    routing: {
+      allowed_residencies: ["local", "eu"],
+      adviser: {
+        id: "test-adviser",
+        instructions: "Pick the best route",
+        criteria: { local: "fast local", cloud: "larger model" },
+      },
+    },
+  });
+  const chosen = await spawnAlter(root, options(), {
+    advisers: { "test-adviser": { decide: async ({ routes }) => {
+      assert.deepEqual(routes.map((route) => route.id), ["local", "cloud"]);
+      return { id: "cloud" };
+    } } },
+  });
+  assert.equal(chosen.result.model, "remote/large");
+  assert.equal(chosen.result.routing.selected_candidate_id, "cloud");
+  assert.equal(chosen.result.routing.adviser.decision_reason, "adviser");
+  assert.deepEqual(seen.map((call) => call.model), ["remote/large"]);
+
+  const constrained = options();
+  constrained.routing.allowed_residencies = ["eu"];
+  const rejected = await spawnAlter(root, constrained, {
+    advisers: { "test-adviser": { decide: async () => ({ id: "local" }) } },
+  });
+  assert.equal(rejected.result.routing.selected_candidate_id, "cloud");
+  assert.equal(rejected.result.routing.adviser.decision_reason, "fallback");
+  assert.equal(rejected.result.routing.assessed.find((item) => item.candidate_id === "local").eligible, false);
+});
+
 test("request planner filters residency and context before ranking by cost", () => {
   const options = createSpawnOptions({
     modelCandidates: CANDIDATES,

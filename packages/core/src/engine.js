@@ -9,6 +9,7 @@ import { writeResult, readAlterJson, resolveHome } from "./homes.js";
 import { createSpawnOptions } from "./spawn-spec.js";
 import { validateOutputContract } from "./output-contract.js";
 import { planRequest, validateRoutingPolicy } from "./request-planner.js";
+import { createLayaMlxAdviser, decideRoute } from "./decision-adviser.js";
 import { resolveRuntime } from "./runtime.js";
 import { withoutCapabilityGrant } from "./capability-client.js";
 import { getHarness } from "./harness/adapter.js";
@@ -51,7 +52,7 @@ const resolveExecutor = (o, harness) => {
   // quietly be a plain completion instead.
   if (!adapter.needsAgentHome) {
     const claimed = [
-      o.nestable && "nestable",
+      o.nestable && !adapter.supportsVirtualNesting && "nestable",
       o.webAccess && "web",
       o.bashOnly && "bash_only",
       o.bashAllow?.length && "bash_allow",
@@ -151,20 +152,39 @@ const prepareImages = (root, o, runtime, { createOnly = false } = {}) => {
   o.imageMetadata = images.map((image) => image.metadata);
 };
 
-const prepareExecution = (o, cfg, runtime, harness, prompt) => {
+const prepareExecution = async (o, cfg, runtime, harness, prompt, { advisers = {}, signal, useAdviser = true } = {}) => {
   const defaultExecutor = o.executor || harness || "opencode";
   o.baseExecutor = defaultExecutor;
   if (o.modelCandidates?.length) {
     const route = planRequest({ options: o, config: cfg, prompt, defaultExecutor, environment: runtime.env });
-    o.plannedCandidates = route.candidates;
+    let candidates = route.candidates;
+    let adviserTrace = null;
+    if (useAdviser && o.routing?.adviser) {
+      const policy = o.routing.adviser;
+      const adviser = advisers[policy.id] || (policy.id === "laya-mlx"
+        ? { decide: (request) => createLayaMlxAdviser({ ...(cfg.decision_advisers?.[policy.id] || {}), env: runtime.env }).decide(request) }
+        : { decide: async () => { throw new Error(`unknown decision adviser: ${policy.id}`); } });
+      const decision = await decideRoute({
+        adviser,
+        signal: prompt,
+        instructions: policy.instructions,
+        routes: candidates.map((candidate) => ({ id: candidate.id, description: policy.criteria[candidate.id] })),
+        fallbackRoute: candidates[0].id,
+        abortSignal: signal,
+      });
+      candidates = [candidates.find((candidate) => candidate.id === decision.id), ...candidates.filter((candidate) => candidate.id !== decision.id)];
+      adviserTrace = { id: policy.id, decision_reason: decision.reason, fallback_reason: decision.fallbackReason };
+    }
+    o.plannedCandidates = candidates;
     o.routePlan = {
       strategy: route.strategy,
       estimated_input_tokens: route.estimated_input_tokens,
-      selected_candidate_id: route.candidates[0].id,
+      selected_candidate_id: candidates[0].id,
       assessed: route.assessed,
+      ...(adviserTrace ? { adviser: adviserTrace } : {}),
     };
-    o.model = route.candidates[0].model;
-    o.executor = route.candidates[0].executor;
+    o.model = candidates[0].model;
+    o.executor = candidates[0].executor;
   }
   const { name: harnessName, adapter } = resolveExecutor(o, harness);
   const attemptPlan = buildAttemptPlan(o, cfg, runtime, { allowRetries: adapter.supportsRetry !== false });
@@ -197,14 +217,14 @@ const prepareExecution = (o, cfg, runtime, harness, prompt) => {
 export const spawnAlter = async (
   root,
   o,
-  { createOnly = false, harness = null, signal, onEvent, runtime: runtimeOverride } = {},
+  { createOnly = false, harness = null, signal, onEvent, runtime: runtimeOverride, advisers = {} } = {},
 ) => {
   const runtime = sandboxRuntime(runtimeOverride);
   const cfg = readConfig(root);
   prepareSpawn(root, cfg, o, runtime);
   prepareImages(root, o, runtime, { createOnly });
   const effectivePrompt = [o.promptPrefix, o.prompt, o.promptSuffix].filter(Boolean).join("\n\n");
-  const { harnessName, adapter, agentHomeKinds, regenerateAgentFile, attemptPlan } = prepareExecution(o, cfg, runtime, harness, effectivePrompt);
+  const { harnessName, adapter, agentHomeKinds, regenerateAgentFile, attemptPlan } = await prepareExecution(o, cfg, runtime, harness, effectivePrompt, { advisers, signal, useAdviser: !createOnly });
   // Pin the resolved name onto the Alter so alter.json and result.json record what
   // actually ran rather than "unspecified", and so `mind run` on this home later
   // reaches for the same adapter.
@@ -317,7 +337,7 @@ export const runExistingAlter = async (
   root,
   homeArg,
   prompt,
-  { harness = null, mindBinPath = null, images = [], signal, onEvent, runtime: runtimeOverride } = {},
+  { harness = null, mindBinPath = null, images = [], signal, onEvent, runtime: runtimeOverride, advisers = {} } = {},
 ) => {
   const runtime = sandboxRuntime(runtimeOverride);
   const home = resolveHome(root, homeArg);
@@ -361,7 +381,7 @@ export const runExistingAlter = async (
   if (o.routing != null && o.modelCandidates == null) fail("routing requires modelCandidates.");
   validateOutputContract(o.outputContract);
   prepareImages(root, o, runtime);
-  const { harnessName, adapter, regenerateAgentFile, attemptPlan } = prepareExecution(o, cfg, runtime, harness, prompt);
+  const { harnessName, adapter, regenerateAgentFile, attemptPlan } = await prepareExecution(o, cfg, runtime, harness, prompt, { advisers, signal });
   o.executor = harnessName;
   const attemptModels = attemptPlan.map((attempt) => attempt.model);
   const attemptExecutors = attemptPlan.map((attempt) => attempt.executor || harnessName);

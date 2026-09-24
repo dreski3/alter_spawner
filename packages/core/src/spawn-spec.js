@@ -54,5 +54,9 @@ export const createSpawnOptions = (overrides = {}) => ({
       ...overrides.routing,
       allowed_residencies: overrides.routing.allowed_residencies == null ? undefined : [...overrides.routing.allowed_residencies],
       required_capabilities: overrides.routing.required_capabilities == null ? undefined : [...overrides.routing.required_capabilities],
+      adviser: overrides.routing.adviser == null ? undefined : {
+        ...overrides.routing.adviser,
+        criteria: { ...overrides.routing.adviser.criteria },
+      },
     },
 });

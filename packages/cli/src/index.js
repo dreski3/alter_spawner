@@ -27,6 +27,8 @@ const usage = (write = console.log) => {
   write("          --opencode-provider-file <json>?  <prompt>");
   write("  create  (same flags as spawn; scaffolds a home without running)");
   write("  run     <home-or-id> [--image <file>]* <prompt...>");
+  write("  network run <router-id> --signal <text> --payload <text> [--project <dir>]");
+  write("          [--registry-module <trusted-host-module>] [--verbose]  (run a saved network route)");
   write("  list    (list alter homes + status)");
   write("  tree    (nesting tree)");
   write("  show    <id>          (print result.json)");
@@ -67,6 +69,7 @@ const COMMANDS = {
   spawn: () => import("./commands/spawn.js"),
   create: () => import("./commands/create.js"),
   run: () => import("./commands/run.js"),
+  network: () => import("./commands/network.js"),
   list: () => import("./commands/list.js"),
   ls: () => import("./commands/list.js"),
   tree: () => import("./commands/tree.js"),

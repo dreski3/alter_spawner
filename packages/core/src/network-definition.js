@@ -97,6 +97,9 @@ const normalizeComponent = (value, index) => {
   const targets = ["catalog", "graph", "capability"].filter((field) => source[field] != null);
   if (targets.length !== 1) throw new Error(`component "${componentId}" requires exactly one of catalog, graph, or capability`);
   const target = targets[0];
+  if (source.input != null && (target !== "capability" || !["text", "json"].includes(source.input))) {
+    throw new Error(`component "${componentId}" input must be text or json on a capability component`);
+  }
   if (source.role === "active" && target !== "capability") {
     throw new Error(`active component "${componentId}" must target a host capability`);
   }
@@ -111,16 +114,53 @@ const normalizeComponent = (value, index) => {
     parseDuration(source.refractory, `component "${componentId}" refractory`);
     refractory = source.refractory;
   }
+  let router = null;
+  if (source.router != null) {
+    if (source.role !== "internal" || target !== "catalog") {
+      throw new Error(`router component "${componentId}" must be an internal catalog component`);
+    }
+    const definition = object(source.router, `component "${componentId}" router`);
+    const routes = definition.routes;
+    if (!Array.isArray(routes) || routes.length < 2 || routes.length > 100) {
+      throw new Error(`component "${componentId}" router requires 2–100 routes`);
+    }
+    const normalizedRoutes = routes.map((route, routeIndex) => {
+      const entry = object(route, `component "${componentId}" route ${routeIndex}`);
+      return {
+        id: id(entry.id, `component "${componentId}" route ${routeIndex} id`),
+        component: id(entry.component, `component "${componentId}" route ${routeIndex} component`),
+        description: text(entry.description, `component "${componentId}" route ${routeIndex} description`, { required: true, max: 1000 }),
+      };
+    });
+    if (new Set(normalizedRoutes.map((route) => route.id)).size !== normalizedRoutes.length) {
+      throw new Error(`component "${componentId}" router has duplicate route ids`);
+    }
+    if (new Set(normalizedRoutes.map((route) => route.component)).size !== normalizedRoutes.length) {
+      throw new Error(`component "${componentId}" router has duplicate targets`);
+    }
+    const fallback = definition.fallback_route == null ? null : id(definition.fallback_route, `component "${componentId}" fallback route`);
+    if (fallback && !normalizedRoutes.some((route) => route.id === fallback)) {
+      throw new Error(`component "${componentId}" fallback route is not declared`);
+    }
+    router = {
+      adviser: definition.adviser == null ? "laya-mlx" : id(definition.adviser, `component "${componentId}" adviser`),
+      instructions: text(definition.instructions, `component "${componentId}" router instructions`, { required: true, max: 1000 }),
+      routes: normalizedRoutes,
+      fallback_route: fallback,
+    };
+  }
   return {
     id: componentId,
     role: source.role,
     description: text(source.description, `component "${componentId}" description`, { max: 2000 }),
     [target]: text(source[target], `component "${componentId}" ${target}`, { required: true, max: 200 }),
+    ...(target === "capability" ? { input: source.input || "text" } : {}),
     triggers: triggers.map((trigger, triggerIndex) => normalizeTrigger(trigger, componentId, triggerIndex)),
     emits: uniqueStrings(source.emits, `component "${componentId}" emits`),
     refractory,
     budget: normalizeBudget(source.budget, componentId),
     enabled: source.enabled !== false,
+    ...(router ? { router } : {}),
   };
 };
 
@@ -160,6 +200,7 @@ export const validateNetworkDefinition = (value, { known = {}, source = "network
       catalog: text(value.catalog, `${source} ego catalog`, { max: 200 }),
       contextual: value.contextual !== false,
       input_events: uniqueStrings(value.input_events, `${source} ego input_events`),
+      spawn: uniqueStrings(value.spawn, `${source} ego spawn`),
     };
     if (ego.enabled && !ego.catalog) throw new Error(`${source} enabled ego requires a catalog`);
   }
@@ -180,6 +221,21 @@ export const validateNetworkDefinition = (value, { known = {}, source = "network
     }
     if (component.role === "active" && !actions.has(component.capability)) {
       throw new Error(`active component "${component.id}" capability must be declared as an interface action`);
+    }
+  }
+  const byId = new Map(normalized.components.map((component) => [component.id, component]));
+  for (const componentId of ego?.spawn || []) {
+    const component = byId.get(componentId);
+    if (!component || !component.enabled) throw new Error(`${source} ego spawn references unavailable component "${componentId}"`);
+  }
+  for (const component of normalized.components) {
+    for (const route of component.router?.routes || []) {
+      const target = byId.get(route.component);
+      if (!target || !target.enabled || target.id === component.id) {
+        throw new Error(`component "${component.id}" route "${route.id}" references unavailable component "${route.component}"`);
+      }
+      if (target.graph) throw new Error(`component "${component.id}" route "${route.id}" cannot target a graph component`);
+      if (target.router) throw new Error(`component "${component.id}" route "${route.id}" cannot target another router yet`);
     }
   }
   validateReferences(normalized, known);

@@ -11,6 +11,7 @@ const POLICY_KEYS = new Set([
   "estimated_output_tokens",
   "max_estimated_cost_usd",
   "required_capabilities",
+  "adviser",
 ]);
 
 const positiveInteger = (value) => Number.isInteger(value) && value > 0;
@@ -37,6 +38,18 @@ export const validateRoutingPolicy = (policy, label = "routing") => {
   }
   if (policy.max_estimated_cost_usd != null && !nonnegativeNumber(policy.max_estimated_cost_usd)) {
     fail(`${label}.max_estimated_cost_usd must be a non-negative number.`);
+  }
+  if (policy.adviser != null) {
+    const adviser = policy.adviser;
+    if (typeof adviser !== "object" || Array.isArray(adviser) ||
+      Object.keys(adviser).some((key) => !["id", "instructions", "criteria"].includes(key)) ||
+      typeof adviser.id !== "string" || !adviser.id.trim() ||
+      typeof adviser.instructions !== "string" || !adviser.instructions.trim() ||
+      !adviser.criteria || typeof adviser.criteria !== "object" || Array.isArray(adviser.criteria) ||
+      Object.keys(adviser.criteria).length === 0 ||
+      Object.values(adviser.criteria).some((value) => typeof value !== "string" || !value.trim())) {
+      fail(`${label}.adviser requires id, instructions, and a criteria map of candidate descriptions.`);
+    }
   }
 };
 
@@ -169,6 +182,13 @@ export const planRequest = ({ options, config, prompt, defaultExecutor = "openco
   }
   if (policy.strategy === "lowest_cost") {
     eligible.sort((a, b) => a.estimated_cost_usd - b.estimated_cost_usd || a.index - b.index);
+  }
+  if (policy.adviser) {
+    for (const item of eligible) {
+      if (!Object.hasOwn(policy.adviser.criteria, item.candidate_id)) {
+        fail(`routing adviser is missing criteria for eligible candidate "${item.candidate_id}".`);
+      }
+    }
   }
   return {
     strategy: policy.strategy || "ordered",
