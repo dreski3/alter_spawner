@@ -103,7 +103,14 @@ test("router Alter selects one worker and forwards the payload unchanged", async
   assert.equal(JSON.stringify(adviserInput).includes(payload), false);
   assert.equal(result.decision.selected_route_id, "billing");
   assert.equal(result.decision.child_ok, true);
+  assert.ok(result.decision.child_wall_duration_ms >= 0);
   assert.equal(result.decision.network_revision, 1);
+  assert.equal(result.decision.adviser_outcome, "valid");
+  assert.ok(result.decision.decision_duration_ms >= 0);
+  assert.ok(result.networkTiming.wall_duration_ms >= result.decision.decision_duration_ms);
+  assert.equal(result.treeUsage.runs, 2);
+  assert.equal(result.treeUsage.attempts, 2);
+  assert.equal(result.treeUsage.max_depth, 1);
   assert.equal(readFileSync(path.join(result.home, "decision.json"), "utf8").includes(payload), false);
   const ledger = JSON.parse(readFileSync(path.join(root, ".alters", "trees", readdirSync(path.join(root, ".alters", "trees"))[0]), "utf8"));
   assert.equal(ledger.nodes_admitted, 2);
@@ -134,6 +141,8 @@ test("invalid adviser choice fails closed unless an explicit fallback exists", a
   const denied = await runNetworkRoute(root, input);
   assert.equal(denied.result.ok, false);
   assert.equal(denied.decision.selected_route_id, null);
+  assert.equal(denied.decision.adviser_outcome, "invalid");
+  assert.ok(denied.decision.decision_duration_ms >= 0);
   assert.equal(workerCalls.length, 0);
   applyNetworkDefinition(root, {
     ...network,
@@ -145,6 +154,24 @@ test("invalid adviser choice fails closed unless an explicit fallback exists", a
   assert.equal(fallback.result.ok, true);
   assert.equal(fallback.decision.selected_route_id, "sales");
   assert.equal(fallback.decision.decision_reason, "fallback");
+  assert.equal(fallback.decision.adviser_outcome, "invalid");
+});
+
+test("adviser timeout is timed even when no worker is spawned", async (t) => {
+  workerCalls.length = 0;
+  const { root, registry } = fixture(t);
+  const run = await runNetworkRoute(root, {
+    routerId: "router",
+    routingSignal: "billing",
+    payload: "Keep this private",
+    capabilityRegistry: registry,
+    advisers: { "laya-mlx": { decide: async () => { throw new Error("decision timed out"); } } },
+  });
+  assert.equal(run.result.ok, false);
+  assert.equal(run.decision.adviser_outcome, "timeout");
+  assert.ok(run.decision.decision_duration_ms >= 0);
+  assert.equal(run.treeUsage.runs, 1);
+  assert.equal(workerCalls.length, 0);
 });
 
 test("local laya-mlx selects and spawns a worker in a two-level run", {

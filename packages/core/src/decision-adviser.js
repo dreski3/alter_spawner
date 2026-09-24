@@ -69,20 +69,26 @@ export const decideRoute = async ({ adviser, signal, instructions, routes, fallb
   let recommendation;
   let reason = "adviser";
   let fallbackReason = null;
+  let adviserOutcome = "valid";
   try {
     recommendation = await adviser.decide({ signal, instructions, routes, abortSignal });
     if (!recommendation || typeof recommendation !== "object" || Array.isArray(recommendation) ||
       typeof recommendation.id !== "string" || Object.keys(recommendation).length !== 1 ||
       !routes.some((route) => route.id === recommendation.id)) {
-      throw new Error("decision adviser returned an invalid route id");
+      const error = new Error("decision adviser returned an invalid route id");
+      error.decisionOutcome = "invalid";
+      throw error;
     }
   } catch (error) {
-    if (abortSignal?.aborted || !fallbackRoute) throw error;
+    adviserOutcome = error?.decisionOutcome || (abortSignal?.aborted ? "cancelled" : error?.message?.includes("timed out") ? "timeout" : "error");
+    if (abortSignal?.aborted || !fallbackRoute) {
+      const failure = new Error(error?.message || String(error), { cause: error });
+      failure.decisionOutcome = adviserOutcome;
+      throw failure;
+    }
     recommendation = { id: fallbackRoute };
     reason = "fallback";
-    fallbackReason = error?.message === "decision adviser returned an invalid route id"
-      ? "invalid_choice"
-      : error?.message?.includes("timed out") ? "timeout" : "adviser_unavailable";
+    fallbackReason = adviserOutcome === "invalid" ? "invalid_choice" : adviserOutcome === "timeout" ? "timeout" : "adviser_unavailable";
   }
-  return { id: recommendation.id, reason, fallbackReason };
+  return { id: recommendation.id, reason, fallbackReason, adviserOutcome };
 };

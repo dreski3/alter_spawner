@@ -87,7 +87,8 @@ const metadataFor = (model, providers) => {
   }
   if (metadata.cost != null && (
     typeof metadata.cost !== "object" || Array.isArray(metadata.cost) ||
-    !nonnegativeNumber(metadata.cost.input_per_million) || !nonnegativeNumber(metadata.cost.output_per_million)
+    !nonnegativeNumber(metadata.cost.input_per_million) || !nonnegativeNumber(metadata.cost.output_per_million) ||
+    (metadata.cost.cache_read_per_million != null && !nonnegativeNumber(metadata.cost.cache_read_per_million))
   )) {
     fail(`routing metadata for "${model}": cost needs non-negative input_per_million and output_per_million values.`);
   }

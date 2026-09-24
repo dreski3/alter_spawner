@@ -87,6 +87,14 @@ The principal spawns only the router through this call. The router is a recorded
 Alter at depth 0 and its selected child is recorded at depth 1. The returned
 `decision` and the router home's `decision.json` include the network revision,
 candidate IDs, selected route, child run, and outcome. They omit the payload.
+The decision trace also records adviser latency and an outcome of `valid`,
+`invalid`, `timeout`, `error`, or `cancelled`, including decisions that fail
+without a fallback. `network_timing.wall_duration_ms` covers the network call
+through its first decision write and adapter cleanup. `tree_usage` totals the
+router and selected child's reported attempts. Its missing-usage and
+missing-price counts explain unknown total cost while preserving the priced
+subtotal. The run-tree reader also follows
+children inside nested Alter homes for deeper Alter trees.
 The router suppresses catalog prompt prefixes and suffixes for the selected
 worker so its prompt remains exactly the principal's payload.
 The CLI can run the same saved network with `mind network run router --signal

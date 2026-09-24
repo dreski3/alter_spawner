@@ -113,12 +113,18 @@ test("a pluggable adviser selects only eligible model routes and falls back to d
   const chosen = await spawnAlter(root, options(), {
     advisers: { "test-adviser": { decide: async ({ routes }) => {
       assert.deepEqual(routes.map((route) => route.id), ["local", "cloud"]);
+      await new Promise((resolve) => setTimeout(resolve, 20));
       return { id: "cloud" };
     } } },
   });
   assert.equal(chosen.result.model, "remote/large");
   assert.equal(chosen.result.routing.selected_candidate_id, "cloud");
   assert.equal(chosen.result.routing.adviser.decision_reason, "adviser");
+  assert.equal(chosen.result.routing.adviser.outcome, "valid");
+  assert.ok(chosen.result.routing.adviser.duration_ms >= 10);
+  assert.ok(chosen.result.routing.planner_duration_ms >= 0);
+  assert.ok(chosen.result.timing.wall_duration_ms > chosen.result.duration_ms + 10);
+  assert.ok(chosen.result.timing.planning_ms >= chosen.result.routing.adviser.duration_ms);
   assert.deepEqual(seen.map((call) => call.model), ["remote/large"]);
 
   const constrained = options();

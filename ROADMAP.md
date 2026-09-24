@@ -120,13 +120,68 @@ adviser adapters remain under the next milestone.
 
 ### 4. Benchmark and refine
 
-Compare direct local requests, direct cloud requests, attached OpenCode
-sessions, and spawned sessions on representative tasks. Measure end-to-end
-latency, cost, success rate, and quality, including the overhead of routing.
-For router Alters, compare adviser choices with labeled classification cases
-and the deterministic fallback. Measure wrong-route and invalid-choice rates,
-decision latency, and whether request data reaches only the chosen worker.
-Use results to refine candidate metadata and selection rules.
+Build a repeatable benchmark before changing candidate priorities or adviser
+rules. Keep task inputs, labels, configuration, model versions, pricing sources,
+raw run references, and analysis together so a result can be reproduced.
+
+#### 4.1 Finish measurement and attribution — complete
+
+- The run result now records planning, adviser, admission, scaffold, execution,
+  and monotonic attempt times. Network decisions record their outcome and
+  latency, including invalid and failed choices. `summarizeRunTree` counts
+  retries and descendants, follows the selected router child, and separates
+  priced usage from unknown cost. A four-level Alter test covers the reader.
+- Public spawn and rerun timing now includes initial result persistence and
+  tree-slot release; network and principal timing covers their public calls.
+  Failed calls emit a sanitized measurement and save it under
+  `.alters/measurements/` when a project home exists, including failures before
+  a run home is created. Tree summaries expose root wall time and summed node
+  time separately so parallel branches are not treated as serial latency.
+- Each attempt saves a snapshot of its provider/model metadata and configured
+  prices. Tree summaries use that snapshot for new runs and count missing token
+  reports, missing prices, unreported adviser decisions, and incomplete runs.
+  Unknown total cost remains null. Decision traces and benchmark summaries do
+  not include prompts or payloads by default.
+
+#### 4.2 Build a labeled task set
+
+- Include short classification, extraction with an output contract, reasoning,
+  image input, and tool-using tasks. Score exact checks where possible and use
+  a blinded rubric for answers that need judgment. Record both harness success
+  and task quality; a completed request can still be wrong.
+- Label router signals for the three worker routes and the capability route.
+  Add ambiguous cases, out-of-set choices, adviser errors and timeouts, and
+  payload canaries. Assert that the adviser sees only the routing signal and
+  that only the chosen worker receives the payload.
+- Add nested Alter workloads with depth 1, 2, 4, and 8, including a chain and
+  a branching tree. Record node count, queue time, retries, token spend, and
+  failures at each depth. Router-to-router edges are currently rejected; add
+  labeled multi-router cases after that execution path is implemented.
+
+#### 4.3 Run paired comparisons
+
+- Compare direct local inference, direct cloud inference, an attached OpenCode
+  session, and a newly spawned session on the same eligible tasks. Hold model,
+  prompt, output limit, and permissions constant where possible; identify
+  cases where an executor changes the available tools or context.
+- Compare deterministic candidate order, lowest estimated cost, and adviser
+  selection. For network routers, compare adviser choices with a predefined
+  deterministic classifier and the configured failure fallback separately.
+- Run a small cost-capped pilot, then fix repetitions and acceptance thresholds
+  before the main run. Randomize condition order and report cold and warm runs
+  separately. Publish median and p95 end-to-end latency, routing overhead,
+  estimated API-equivalent cost, success, quality, wrong-route rate,
+  invalid-choice rate, and payload-isolation failures with sample counts.
+
+#### 4.4 Refine and verify
+
+- Use a development split to adjust candidate context, capability, residency,
+  output-limit, and price metadata, then selection and fallback rules. Do not
+  tune against the held-out cases.
+- Re-run the same matrix on held-out tasks. Accept a change only when its
+  latency or cost gain does not reduce the agreed success and quality targets,
+  violate hard routing constraints, or deliver a payload to an unchosen worker.
+  Record regressions and the final supported route expectations in the docs.
 
 ### 5. Add a service API if host integrations require it
 

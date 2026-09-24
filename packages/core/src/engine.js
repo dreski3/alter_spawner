@@ -1,4 +1,5 @@
 import { realpathSync, rmSync } from "node:fs";
+import { performance } from "node:perf_hooks";
 import path from "node:path";
 import { fail } from "./util.js";
 import { readConfig, runsDir } from "./config.js";
@@ -15,6 +16,7 @@ import { withoutCapabilityGrant } from "./capability-client.js";
 import { getHarness } from "./harness/adapter.js";
 import { validateDirectImageModels, validateImageFiles, validateImageModels } from "./image-input.js";
 import { authorityMaxDepth, delegateAuthority } from "./authority.js";
+import { measureRunCall } from "./run-measurement.js";
 import {
   admitTreeNode,
   releaseTreeNode,
@@ -30,7 +32,10 @@ import {
 // no ledger is created and nothing is serialized.
 const enterTree = async (root, cfg, o, runtime) => {
   const limits = treeLimits(cfg);
-  if (!treeGuardsEnabled(limits)) return { handle: null, runtime };
+  if (!treeGuardsEnabled(limits)) {
+    const treeId = runtime.env.ALTER_TREE || `tree_${runtime.randomId(8)}`;
+    return { handle: null, runtime: { ...runtime, env: { ...runtime.env, ALTER_TREE: treeId } } };
+  }
   const { treeId, file, parentNodeId } = resolveTreeContext(root, o, runtime);
   const handle = await admitTreeNode({ file, treeId, parentNodeId, depth: o.depth, limits, runtime });
   return { handle, runtime: withTreeEnv(runtime, { treeId, file, nodeId: handle.nodeId }) };
@@ -156,10 +161,13 @@ const prepareExecution = async (o, cfg, runtime, harness, prompt, { advisers = {
   const defaultExecutor = o.executor || harness || "opencode";
   o.baseExecutor = defaultExecutor;
   if (o.modelCandidates?.length) {
+    const plannerStarted = performance.now();
     const route = planRequest({ options: o, config: cfg, prompt, defaultExecutor, environment: runtime.env });
+    const plannerDuration = performance.now() - plannerStarted;
     let candidates = route.candidates;
     let adviserTrace = null;
     if (useAdviser && o.routing?.adviser) {
+      const adviserStarted = performance.now();
       const policy = o.routing.adviser;
       const adviser = advisers[policy.id] || (policy.id === "laya-mlx"
         ? { decide: (request) => createLayaMlxAdviser({ ...(cfg.decision_advisers?.[policy.id] || {}), env: runtime.env }).decide(request) }
@@ -173,13 +181,20 @@ const prepareExecution = async (o, cfg, runtime, harness, prompt, { advisers = {
         abortSignal: signal,
       });
       candidates = [candidates.find((candidate) => candidate.id === decision.id), ...candidates.filter((candidate) => candidate.id !== decision.id)];
-      adviserTrace = { id: policy.id, decision_reason: decision.reason, fallback_reason: decision.fallbackReason };
+      adviserTrace = {
+        id: policy.id,
+        decision_reason: decision.reason,
+        fallback_reason: decision.fallbackReason,
+        outcome: decision.adviserOutcome,
+        duration_ms: performance.now() - adviserStarted,
+      };
     }
     o.plannedCandidates = candidates;
     o.routePlan = {
       strategy: route.strategy,
       estimated_input_tokens: route.estimated_input_tokens,
       selected_candidate_id: candidates[0].id,
+      planner_duration_ms: plannerDuration,
       assessed: route.assessed,
       ...(adviserTrace ? { adviser: adviserTrace } : {}),
     };
@@ -214,17 +229,22 @@ const prepareExecution = async (o, cfg, runtime, harness, prompt, { advisers = {
 // `o` carries the parsed spawn options (see cli's parseSpawnArgs) plus
 // `mindBinPath`: the absolute path to the running `mind` CLI entrypoint,
 // baked into a nestable Alter's scoped bash permission.
-export const spawnAlter = async (
+const spawnAlterInternal = async (
   root,
   o,
   { createOnly = false, harness = null, signal, onEvent, runtime: runtimeOverride, advisers = {} } = {},
+  markHome = () => {},
 ) => {
+  const wallStarted = performance.now();
   const runtime = sandboxRuntime(runtimeOverride);
+  const wallStartedAt = new Date(runtime.now()).toISOString();
   const cfg = readConfig(root);
   prepareSpawn(root, cfg, o, runtime);
   prepareImages(root, o, runtime, { createOnly });
   const effectivePrompt = [o.promptPrefix, o.prompt, o.promptSuffix].filter(Boolean).join("\n\n");
+  const planningStarted = performance.now();
   const { harnessName, adapter, agentHomeKinds, regenerateAgentFile, attemptPlan } = await prepareExecution(o, cfg, runtime, harness, effectivePrompt, { advisers, signal, useAdviser: !createOnly });
+  const planningMs = performance.now() - planningStarted;
   // Pin the resolved name onto the Alter so alter.json and result.json record what
   // actually ran rather than "unspecified", and so `mind run` on this home later
   // reaches for the same adapter.
@@ -244,15 +264,22 @@ export const spawnAlter = async (
   // Admission comes before scaffolding: a tree that has spent its budget should say so
   // instead of leaving an orphan home behind, and a tree at its concurrency ceiling
   // should wait here rather than after doing work.
+  const admissionStarted = performance.now();
   const { handle: treeNode, runtime: treeRuntime } = await enterTree(root, cfg, o, authorityRuntime);
+  const admissionMs = performance.now() - admissionStarted;
+  o.treeId = treeRuntime.env.ALTER_TREE || null;
   let res;
   let attempts;
   try {
+    const scaffoldStarted = performance.now();
     const home = scaffold(root, cfg, o, treeRuntime, {
       agentFiles: agentHomeKinds.length > 0,
       agentHomeKinds,
     });
+    markHome(home);
+    const scaffoldMs = performance.now() - scaffoldStarted;
     const timeout = o.timeout ?? cfg.run_timeout_ms ?? 180000;
+    const executionStarted = performance.now();
     ({ res, attempts } = await runWithRetries({
       options: o,
       config: cfg,
@@ -274,10 +301,23 @@ export const spawnAlter = async (
       // A deterministic executor gets exactly one attempt; see buildAttemptPlan.
       allowRetries: adapter.supportsRetry !== false,
     }));
+    const executionMs = performance.now() - executionStarted;
     const startedAt = attempts[0].started_at;
     const endedAt = attempts[attempts.length - 1].ended_at;
     const totalDuration = attempts.reduce((s, a) => s + a.duration_ms, 0);
-    const result = writeResult(root, home, o, res, startedAt, endedAt, totalDuration, attempts);
+    const wallMs = performance.now() - wallStarted;
+    const timing = {
+      wall_started_at: wallStartedAt,
+      wall_ended_at: new Date(runtime.now()).toISOString(),
+      wall_duration_ms: wallMs,
+      planning_ms: planningMs,
+      admission_ms: admissionMs,
+      scaffold_ms: scaffoldMs,
+      execution_ms: executionMs,
+      attempts_ms: attempts.reduce((sum, attempt) => sum + (attempt.elapsed_ms ?? attempt.duration_ms), 0),
+      other_ms: Math.max(0, wallMs - planningMs - admissionMs - scaffoldMs - executionMs),
+    };
+    const result = writeResult(root, home, o, res, startedAt, endedAt, totalDuration, attempts, timing);
     if (o.rm) rmSync(home, { recursive: true, force: true });
     return { home, created: false, result, res };
   } finally {
@@ -333,14 +373,18 @@ const requireOwnDescendant = (root, home, runtime) => {
   );
 };
 
-export const runExistingAlter = async (
+const runExistingAlterInternal = async (
   root,
   homeArg,
   prompt,
   { harness = null, mindBinPath = null, images = [], signal, onEvent, runtime: runtimeOverride, advisers = {} } = {},
+  markHome = () => {},
 ) => {
+  const wallStarted = performance.now();
   const runtime = sandboxRuntime(runtimeOverride);
+  const wallStartedAt = new Date(runtime.now()).toISOString();
   const home = resolveHome(root, homeArg);
+  markHome(home);
   requireOwnDescendant(root, home, runtime);
   if (!prompt) fail("usage: mind run <home-or-id> <prompt...>");
   const aj = readAlterJson(home);
@@ -381,7 +425,9 @@ export const runExistingAlter = async (
   if (o.routing != null && o.modelCandidates == null) fail("routing requires modelCandidates.");
   validateOutputContract(o.outputContract);
   prepareImages(root, o, runtime);
+  const planningStarted = performance.now();
   const { harnessName, adapter, regenerateAgentFile, attemptPlan } = await prepareExecution(o, cfg, runtime, harness, prompt, { advisers, signal });
+  const planningMs = performance.now() - planningStarted;
   o.executor = harnessName;
   const attemptModels = attemptPlan.map((attempt) => attempt.model);
   const attemptExecutors = attemptPlan.map((attempt) => attempt.executor || harnessName);
@@ -390,10 +436,14 @@ export const runExistingAlter = async (
   // like any spawn. It matters that this is not skipped: `mind run` is inside a
   // nestable Alter's allowed command form, so it would otherwise be an unmetered way
   // to keep working after the node budget was exhausted.
+  const admissionStarted = performance.now();
   const { handle: treeNode, runtime: treeRuntime } = await enterTree(root, cfg, { ...o, depth }, authorityRuntime);
+  const admissionMs = performance.now() - admissionStarted;
+  o.treeId = treeRuntime.env.ALTER_TREE || null;
   let res;
   let attempts;
   try {
+    const executionStarted = performance.now();
     ({ res, attempts } = await runWithRetries({
       options: o,
       config: cfg,
@@ -411,12 +461,31 @@ export const runExistingAlter = async (
       // A deterministic executor gets exactly one attempt; see buildAttemptPlan.
       allowRetries: adapter.supportsRetry !== false,
     }));
+    const executionMs = performance.now() - executionStarted;
     const startedAt = attempts[0].started_at;
     const endedAt = attempts[attempts.length - 1].ended_at;
     const totalDuration = attempts.reduce((s, a) => s + a.duration_ms, 0);
-    const result = writeResult(root, home, o, res, startedAt, endedAt, totalDuration, attempts);
+    const wallMs = performance.now() - wallStarted;
+    const timing = {
+      wall_started_at: wallStartedAt,
+      wall_ended_at: new Date(runtime.now()).toISOString(),
+      wall_duration_ms: wallMs,
+      planning_ms: planningMs,
+      admission_ms: admissionMs,
+      scaffold_ms: 0,
+      execution_ms: executionMs,
+      attempts_ms: attempts.reduce((sum, attempt) => sum + (attempt.elapsed_ms ?? attempt.duration_ms), 0),
+      other_ms: Math.max(0, wallMs - planningMs - admissionMs - executionMs),
+    };
+    const result = writeResult(root, home, o, res, startedAt, endedAt, totalDuration, attempts, timing);
     return { home, result, res };
   } finally {
     await releaseTreeNode(treeNode, attempts?.reduce((sum, attempt) => sum + (attempt.tokens?.total || 0), 0) ?? res?.tokens?.total ?? 0);
   }
 };
+
+export const spawnAlter = (root, options, settings = {}) =>
+  measureRunCall(root, "spawn", settings.onEvent, (markHome) => spawnAlterInternal(root, options, settings, markHome));
+
+export const runExistingAlter = (root, homeArg, prompt, settings = {}) =>
+  measureRunCall(root, "run", settings.onEvent, (markHome) => runExistingAlterInternal(root, homeArg, prompt, settings, markHome));

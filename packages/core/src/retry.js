@@ -1,10 +1,12 @@
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { iso } from "./util.js";
 import { buildBody, buildFrontmatter } from "./frontmatter.js";
 import { getHarness } from "./harness/adapter.js";
 import { checkOutputContract } from "./output-contract.js";
 import { writeTextAtomic } from "./persistence.js";
 import { resolveRuntime } from "./runtime.js";
+import { snapshotPricing } from "./run-pricing.js";
 
 // Attempt plan: initial run, then `same_harness_retries` retries on the same model, then
 // `fallback_retries` retries on an escalated/fallback model (if one is available). A catalog
@@ -91,6 +93,7 @@ export const runWithRetries = async ({
     const attemptExecutor = plan[i].executor || harnessName;
     const harness = getHarness(attemptExecutor);
     const candidateId = plan[i].candidateId || null;
+    const pricing = snapshotPricing(attemptModel, cfg.providers);
     if (regenerateAgentFile && attemptExecutor === "opencode" && (i === 0 || attemptModel !== plan[i - 1].model || attemptExecutor !== plan[i - 1].executor)) {
       o.model = attemptModel;
       writeTextAtomic(
@@ -100,6 +103,7 @@ export const runWithRetries = async ({
     }
     const startedAt = iso(runtime.now());
     const startMs = runtime.now();
+    const startPerf = performance.now();
     emit({
       type: "attempt.started",
       attempt: attemptNumber,
@@ -165,11 +169,13 @@ export const runWithRetries = async ({
       llm_error: res.llm_error || null,
       capability_error: res.capability_error || null,
       tokens: res.tokens,
+      pricing,
       tools: res.tools ? { calls: res.tools.calls, errors: res.tools.errors, by_name: { ...res.tools.byName } } : null,
       tool_activity: !!res.toolActivity || (res.tools?.calls || 0) > 0,
       started_at: startedAt,
       ended_at: endedAt,
       duration_ms: runtime.now() - startMs,
+      elapsed_ms: performance.now() - startPerf,
       event_log: res.eventLog ? path.relative(home, res.eventLog) : null,
     });
     o.model = attemptModel;

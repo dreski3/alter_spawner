@@ -156,3 +156,39 @@ The run result records the planner's eligibility decisions, selected candidate,
 and each attempt's candidate, model, executor, outcome, and usage. The Alter
 home retains its original candidate list and routing policy so a rerun can
 plan against the new request and current provider metadata.
+
+## Measurement
+
+`result.json` includes `timing.wall_duration_ms` from the start of the public
+call through initial result persistence and tree-slot release, along with
+planning, tree admission, scaffold, execution, attempt, and other durations.
+`timing.pre_persistence_duration_ms` shows the earlier point before result
+writing. The existing `duration_ms` remains the sum of
+clock-based attempt durations; each attempt also has monotonic `elapsed_ms` for
+comparisons. `routing.planner_duration_ms` and, when configured,
+`routing.adviser.duration_ms` isolate decision overhead. Adviser traces include
+`outcome` so invalid choices and timeouts can be counted even when the
+deterministic route is used.
+
+Failures, including those before a run home exists, emit a `run.failed` event
+and carry `error.measurement`. If the project's `.alters/` directory exists,
+the same timing and phase are saved in `.alters/measurements/`. These records
+contain no prompt, payload, or error text.
+
+The exported `summarizeRunTree(root, home, { providers })` reads a completed
+run and all recorded descendants. It sums reported tokens from every attempt,
+including retries, and follows a network router's selected child. A recorded
+tree ID keeps children from an earlier rerun out of the total. The returned
+`tree_wall_duration_ms` is the root call's elapsed time;
+`summed_node_wall_duration_ms` is a separate diagnostic sum that may exceed it
+when nodes overlap. Each attempt stores the provider/model metadata and price
+assumptions from its run. New runs use these snapshots even if configuration
+later changes; the optional `providers` argument supplies prices for older
+runs without snapshots. `priced_cost_usd` is the supported subtotal.
+`estimated_api_cost_usd` is null if token usage, a model or cache-read price,
+adviser usage, or a child result is unavailable. The summary counts missing
+token reports, missing prices, unreported adviser decisions, incomplete runs,
+and missing timings separately. A zero-token model attempt is treated as
+unreported usage; deterministic function and capability nodes can report a
+genuine zero. These are API-equivalent estimates, not provider invoices or a
+measure of local compute cost.

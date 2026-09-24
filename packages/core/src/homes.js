@@ -78,7 +78,7 @@ export const removeHome = (root, arg) => {
   return home;
 };
 
-export const writeResult = (root, home, o, res, startedAt, endedAt, durationMs, attempts) => {
+export const writeResult = (root, home, o, res, startedAt, endedAt, durationMs, attempts, timing = null) => {
   const result = {
     schema_version: RESULT_SCHEMA_VERSION,
     id: o.id,
@@ -110,6 +110,7 @@ export const writeResult = (root, home, o, res, startedAt, endedAt, durationMs, 
     opencode_variant: o.opencodeVariant || null,
     catalog: o.catalogName || null,
     depth: o.depth,
+    tree_id: o.treeId || null,
     home: path.relative(root, home),
     spawned_by: o.spawned_by,
     graph_id: o.graphId || null,
@@ -119,6 +120,7 @@ export const writeResult = (root, home, o, res, startedAt, endedAt, durationMs, 
     started_at: startedAt,
     ended_at: endedAt,
     duration_ms: durationMs,
+    timing,
     attempts: attempts || null,
   };
   writeJsonAtomic(path.join(home, "result.json"), result);

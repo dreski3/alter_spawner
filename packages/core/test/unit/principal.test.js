@@ -56,6 +56,9 @@ test("a first principal turn opens a session and reports it back", async (t) => 
   assert.equal(calls[0].depth, PRINCIPAL_DEPTH, "alters it spawns land at depth 0");
   assert.equal(calls[0].alterId, "conv_1");
   assert.equal(calls[0].agent, null, "the project's own default agent runs, not the generated alter agent");
+  assert.ok(turn.timing.wall_duration_ms >= turn.timing.execution_ms);
+  assert.equal(turn.durationMs, turn.timing.wall_duration_ms);
+  assert.equal(turn.timing.attempts_ms, turn.attempts[0].elapsed_ms);
 });
 
 test("a later turn continues the session it is given", async (t) => {

@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { fail } from "./util.js";
 import { kitDir, readConfig } from "./config.js";
 import { runWithRetries } from "./retry.js";
@@ -7,6 +8,7 @@ import { createSpawnOptions } from "./spawn-spec.js";
 import { resolveRuntime } from "./runtime.js";
 import { getHarness } from "./harness/adapter.js";
 import { validateImageFiles, validateImageModels } from "./image-input.js";
+import { measureRunCall } from "./run-measurement.js";
 
 // A principal is the opposite of an Alter in the two ways that matter here.
 //
@@ -36,7 +38,7 @@ export const requirePrincipalProject = (projectDir) => {
   return projectDir;
 };
 
-export const runPrincipalTurn = async (projectDir, {
+const runPrincipalTurnInternal = async (projectDir, {
   prompt,
   images = [],
   sessionId = null,
@@ -58,6 +60,7 @@ export const runPrincipalTurn = async (projectDir, {
   onEvent,
   runtime: runtimeOverride,
 } = {}) => {
+  const wallStarted = performance.now();
   requirePrincipalProject(projectDir);
   if (typeof prompt !== "string" || !prompt.trim()) fail("principal turn requires a non-empty prompt");
   const runtime = resolveRuntime(runtimeOverride);
@@ -88,7 +91,7 @@ export const runPrincipalTurn = async (projectDir, {
     options.imageMetadata = prepared.map((image) => image.metadata);
     if (harness === "opencode") validateImageModels([options.model], runtime.env);
   }
-  const startedAt = runtime.now();
+  const executionStarted = performance.now();
   const { res, attempts } = await runWithRetries({
     options,
     config: { ...cfg, retry: { same_harness_retries: cfg.retry?.same_harness_retries ?? 1, fallback_retries: 0 } },
@@ -108,6 +111,8 @@ export const runPrincipalTurn = async (projectDir, {
     sessionId,
     regenerateAgentFile: false,
   });
+  const executionMs = performance.now() - executionStarted;
+  const wallMs = performance.now() - wallStarted;
   return {
     ok: res.ok,
     text: res.text,
@@ -123,8 +128,23 @@ export const runPrincipalTurn = async (projectDir, {
     budgetExceeded: res.budget_exceeded || false,
     emptyOutput: res.empty_output || false,
     exitCode: res.exitCode,
-    durationMs: runtime.now() - startedAt,
+    durationMs: wallMs,
+    timing: {
+      wall_duration_ms: wallMs,
+      planning_ms: executionStarted - wallStarted,
+      execution_ms: executionMs,
+      attempts_ms: attempts.reduce((sum, attempt) => sum + (attempt.elapsed_ms ?? attempt.duration_ms), 0),
+    },
     projectDir,
     res,
   };
 };
+
+export const runPrincipalTurn = (projectDir, options = {}) =>
+  measureRunCall(projectDir, "principal", options.onEvent,
+    () => runPrincipalTurnInternal(projectDir, options),
+    (output, duration) => {
+      output.durationMs = duration;
+      output.timing.wall_duration_ms = duration;
+      return output;
+    });

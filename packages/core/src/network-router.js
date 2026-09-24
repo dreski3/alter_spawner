@@ -1,5 +1,6 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import { readConfig } from "./config.js";
 import { readNetworkDefinition } from "./network-definition.js";
 import { createSpawnOptions } from "./spawn-spec.js";
@@ -10,6 +11,8 @@ import { HARNESS_ADAPTERS, registerHarness } from "./harness/adapter.js";
 import { createLayaMlxAdviser, decideRoute } from "./decision-adviser.js";
 import { writeJsonAtomic } from "./persistence.js";
 import { resolveRuntime } from "./runtime.js";
+import { summarizeRunTree } from "./run-tree-usage.js";
+import { measureRunCall } from "./run-measurement.js";
 
 const ZERO = Object.freeze({ input: 0, output: 0, reasoning: 0, cache_read: 0, total: 0 });
 
@@ -39,7 +42,7 @@ const describeCatalog = (root, cfg, component, payload) => {
   };
 };
 
-export const runNetworkRoute = async (root, {
+const runNetworkRouteInternal = async (root, {
   routerId,
   routingSignal,
   payload,
@@ -50,6 +53,7 @@ export const runNetworkRoute = async (root, {
   abortSignal,
   onEvent,
 } = {}) => {
+  const networkStarted = performance.now();
   if (typeof routingSignal !== "string" || !routingSignal.trim() || routingSignal.length > 4000) throw new Error("router signal must be 1–4000 characters");
   if (typeof payload !== "string") throw new Error("router payload must be a string");
   const network = readNetworkDefinition(root);
@@ -131,7 +135,7 @@ export const runNetworkRoute = async (root, {
     supportsVirtualNesting: true,
     supportsRetry: false,
     async run(home, routingSignal, { environment, depth, alterId, signal: parentSignal, timeout }) {
-      const started = runtime.now();
+      const started = performance.now();
       const controller = new AbortController();
       const abort = () => controller.abort();
       parentSignal?.addEventListener("abort", abort, { once: true });
@@ -140,19 +144,28 @@ export const runNetworkRoute = async (root, {
       const abortSignal = controller.signal;
       let decision;
       let decisionDuration = null;
+      let adviserOutcome = null;
       let child = null;
       let error = null;
       let errorCode = null;
       try {
-        decision = await decideRoute({
-          adviser,
-          signal: routingSignal,
-          instructions: router.router.instructions,
-          routes: router.router.routes,
-          fallbackRoute: router.router.fallback_route,
-          abortSignal,
-        });
-        decisionDuration = runtime.now() - started;
+        const decisionStarted = performance.now();
+        try {
+          decision = await decideRoute({
+            adviser,
+            signal: routingSignal,
+            instructions: router.router.instructions,
+            routes: router.router.routes,
+            fallbackRoute: router.router.fallback_route,
+            abortSignal,
+          });
+          adviserOutcome = decision.adviserOutcome;
+        } catch (cause) {
+          adviserOutcome = cause?.decisionOutcome || (abortSignal.aborted ? "cancelled" : "error");
+          throw cause;
+        } finally {
+          decisionDuration = performance.now() - decisionStarted;
+        }
         const target = targets.get(decision.id);
         if (!target) throw new Error(`router selected unavailable route "${decision.id}"`);
         if (abortSignal.aborted) throw new Error("router cancelled");
@@ -188,11 +201,13 @@ export const runNetworkRoute = async (root, {
         selected_route_id: decision?.id || null,
         decision_reason: decision?.reason || null,
         fallback_reason: decision?.fallbackReason || null,
+        adviser_outcome: adviserOutcome,
         child_component_id: decision ? targets.get(decision.id)?.component.id || null : null,
         child_run_id: child ? path.basename(child.home) : null,
         child_home: child ? path.relative(root, child.home) : null,
         child_ok: child?.result?.ok ?? null,
-        duration_ms: runtime.now() - started,
+        child_wall_duration_ms: child?.result?.timing?.wall_duration_ms ?? null,
+        duration_ms: performance.now() - started,
         decision_duration_ms: decisionDuration,
         error: errorCode,
       };
@@ -222,8 +237,27 @@ export const runNetworkRoute = async (root, {
         webAccess,
       },
     }), { signal: abortSignal, runtime, onEvent });
-    return { ...result, decision: decisionTrace };
+    const treeUsage = summarizeRunTree(root, result.home, { providers: cfg.providers });
+    const networkTiming = { wall_duration_ms: performance.now() - networkStarted };
+    if (decisionTrace) {
+      decisionTrace.tree_usage = treeUsage;
+      decisionTrace.network_timing = networkTiming;
+      writeJsonAtomic(path.join(result.home, "decision.json"), decisionTrace);
+    }
+    return { ...result, decision: decisionTrace, treeUsage, networkTiming };
   } finally {
     for (const name of createdAdapters) HARNESS_ADAPTERS.delete(name);
   }
 };
+
+export const runNetworkRoute = (root, options = {}) =>
+  measureRunCall(root, "network", options.onEvent,
+    () => runNetworkRouteInternal(root, options),
+    (output, duration) => {
+      output.networkTiming.wall_duration_ms = duration;
+      if (output.decision) {
+        output.decision.network_timing = output.networkTiming;
+        writeJsonAtomic(path.join(output.home, "decision.json"), output.decision);
+      }
+      return output;
+    });
