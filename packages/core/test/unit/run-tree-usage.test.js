@@ -62,6 +62,20 @@ test("run tree usage keeps unknown prices distinct from zero cost", (t) => {
   assert.equal(summary.estimated_api_cost_usd, null);
 });
 
+test("run tree usage prices cached tokens according to provider token totals", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "mind-tree-cache-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const home = path.join(root, ".alters", "runs", "one");
+  const pricing = { cost: { input_per_million: 1, output_per_million: 2, cache_read_per_million: 0.25 } };
+  writeRun(home, 0, [
+    { model: "priced/model", executor: "llm", tokens: { input: 100, output: 10, reasoning: 0, cache_read: 40, total: 110 }, pricing },
+    { model: "priced/model", executor: "opencode", tokens: { input: 60, output: 10, reasoning: 0, cache_read: 40, total: 110 }, pricing },
+  ]);
+  const summary = summarizeRunTree(root, home);
+  assert.equal(summary.priced_cost_usd, 0.00018);
+  assert.equal(summary.estimated_api_cost_usd, 0.00018);
+});
+
 test("run tree usage excludes children from an earlier rerun", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "mind-tree-usage-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));

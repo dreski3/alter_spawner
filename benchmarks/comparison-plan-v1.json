@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "id": "paired-inference-v1",
+  "seed": 73129,
+  "model_versions": {
+    "local": { "reference": "ollama/gemma4:e2b", "digest": "7fbdbf8f5e45" },
+    "cloud": { "reference": "mistral/ministral-8b-latest", "digest": null }
+  },
+  "price_source": "OpenCode cached Mistral model catalog (input/output 0.1 USD per million); unlisted cache-read conservatively charged at input rate; local Ollama API price assumed zero, checked 2026-09-24",
+  "credential_provider": "mistral",
+  "providers": {
+    "ollama": {
+      "protocol": "openai-compatible",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "api_key_env": null,
+      "input": ["text"],
+      "residency": "local",
+      "models": { "gemma4:e2b": { "cost": { "input_per_million": 0, "output_per_million": 0 } } }
+    },
+    "mistral": {
+      "protocol": "openai-compatible",
+      "base_url": "https://api.mistral.ai/v1",
+      "api_key_env": "BENCH_MISTRAL_API_KEY",
+      "input": ["text"],
+      "residency": "cloud",
+      "models": { "ministral-8b-latest": { "cost": { "input_per_million": 0.1, "output_per_million": 0.1, "cache_read_per_million": 0.1 } } }
+    }
+  },
+  "conditions": [
+    { "id": "local-direct", "executor": "llm", "model": "ollama/gemma4:e2b", "pair_group": "local" },
+    { "id": "cloud-direct", "executor": "llm", "model": "mistral/ministral-8b-latest", "pair_group": "cloud" },
+    { "id": "cloud-attached", "executor": "opencode", "model": "mistral/ministral-8b-latest", "pair_group": "cloud", "attach": true },
+    { "id": "cloud-fresh", "executor": "opencode", "model": "mistral/ministral-8b-latest", "pair_group": "cloud", "attach": false }
+  ],
+  "pilot": {
+    "case_ids": ["class-positive", "extract-invoice"],
+    "repetitions": 1,
+    "max_calls": 8,
+    "max_estimated_cost_usd": 0.02,
+    "max_wall_ms": 900000
+  },
+  "main": {
+    "case_ids": ["class-positive", "class-negative", "extract-invoice", "extract-contact", "reason-arithmetic", "reason-constraint"],
+    "repetitions": 2,
+    "max_calls": 48,
+    "max_estimated_cost_usd": 0.11,
+    "max_wall_ms": 3600000
+  },
+  "run": { "max_tokens": 12000, "max_input_tokens_for_cap": 16000, "max_output_tokens_for_cap": 12000, "timeout_ms": 120000 },
+  "acceptance": {
+    "min_harness_success_rate": 0.8,
+    "min_auto_quality_rate": 0.7,
+    "max_wrong_route_rate": 0,
+    "max_payload_isolation_failures": 0
+  }
+}

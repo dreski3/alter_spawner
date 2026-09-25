@@ -166,7 +166,7 @@ real Alter spawns and records per-depth queue, retry, token, and failure data;
 its depth-8 branching case reaches 17 nodes. These fixture runs validate the
 benchmark setup. Model comparisons and quality measurements start in 4.3.
 
-#### 4.3 Run paired comparisons
+#### 4.3 Run paired comparisons — complete
 
 - Compare direct local inference, direct cloud inference, an attached OpenCode
   session, and a newly spawned session on the same eligible tasks. Hold model,
@@ -180,6 +180,26 @@ benchmark setup. Model comparisons and quality measurements start in 4.3.
   separately. Publish median and p95 end-to-end latency, routing overhead,
   estimated API-equivalent cost, success, quality, wrong-route rate,
   invalid-choice rate, and payload-isolation failures with sample counts.
+
+The versioned comparison plan completed an 8-call pilot and a 48-call main
+matrix across local direct, cloud direct, attached OpenCode, and fresh
+OpenCode. A separate replay compared candidate order, lowest estimated cost,
+and local Laya selection; seven live network signals compared Laya with a
+fixed classifier, and six scripted failures measured fallback behavior. The
+depth-8 chain and 17-node branch fixtures were rerun with raw homes retained.
+The measured harness and quality rates missed the frozen targets, and the
+Laya router missed one held-out sales signal. These are inputs to 4.4. See
+[benchmark results](benchmarks/RESULTS-2026-09-24.md) for counts, costs,
+latency, model versions, limitations, and reproduction commands.
+
+A follow-up OpenCode subscription run with GPT-6 Luna and Grok 4.6 met the
+frozen text success and quality targets on all 48 paired calls. Both models
+also passed a 16-call image supplement using provider-valid 64 × 64 fixtures,
+and all four model-backed depth-8 trees reached their expected nodes without
+failed calls. On seven network signals per model, both chose valid routes
+without payload leaks. Grok added text to seven of 26 nested node answers,
+so exact output adherence remains a 4.4 refinement target. Per-run subscription
+cost is unknown. See [frontier benchmark results](benchmarks/RESULTS-FRONTIER-2026-09-24.md).
 
 #### 4.4 Refine and verify
 

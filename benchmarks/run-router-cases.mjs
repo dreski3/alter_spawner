@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,10 +9,15 @@ import { loadTaskSet } from "./task-set.mjs";
 
 const targetFor = (route) => route === "uppercase" ? "uppercase-tool" : route;
 
-export const runRouterCases = async ({ cases = loadTaskSet().set.router_cases, keepRuns = false } = {}) => {
+export const runRouterCases = async ({ cases = loadTaskSet().set.router_cases, keepRuns = false, outputRoot = null } = {}) => {
+  if (outputRoot && !keepRuns) throw new Error("outputRoot requires keepRuns");
   const records = [];
   for (const item of cases) {
-    const root = mkdtempSync(path.join(tmpdir(), "mind-router-benchmark-"));
+    const root = outputRoot ? path.join(outputRoot, item.id) : mkdtempSync(path.join(tmpdir(), "mind-router-benchmark-"));
+    if (outputRoot) {
+      if (existsSync(root)) throw new Error(`router output already exists: ${root}`);
+      mkdirSync(root, { recursive: true });
+    }
     try {
       setupLayaRouter(root);
       if (item.fallback_route) {

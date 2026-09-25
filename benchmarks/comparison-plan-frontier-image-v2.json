@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "id": "paired-opencode-frontier-image-v2",
+  "seed": 73130,
+  "cost_mode": "subscription",
+  "model_versions": {
+    "luna": { "reference": "openai/gpt-6-luna", "digest": null },
+    "grok": { "reference": "xai/grok-4.6", "digest": null }
+  },
+  "price_source": "OpenCode subscription access; per-run billed amount and comparable API-equivalent prices are unavailable, checked 2026-09-24",
+  "credential_provider": null,
+  "providers": {},
+  "image_fixture_overrides": {
+    "image-red": "fixtures/red-square-64.png",
+    "image-blue": "fixtures/blue-square-64.png"
+  },
+  "conditions": [
+    { "id": "luna-attached", "executor": "opencode", "model": "openai/gpt-6-luna", "pair_group": "luna", "attach": true },
+    { "id": "luna-fresh", "executor": "opencode", "model": "openai/gpt-6-luna", "pair_group": "luna", "attach": false },
+    { "id": "grok-attached", "executor": "opencode", "model": "xai/grok-4.6", "pair_group": "grok", "attach": true },
+    { "id": "grok-fresh", "executor": "opencode", "model": "xai/grok-4.6", "pair_group": "grok", "attach": false }
+  ],
+  "pilot": {
+    "case_ids": ["image-red"],
+    "repetitions": 1,
+    "max_calls": 4,
+    "max_estimated_cost_usd": null,
+    "max_wall_ms": 900000
+  },
+  "main": {
+    "case_ids": ["image-red", "image-blue"],
+    "repetitions": 2,
+    "max_calls": 16,
+    "max_estimated_cost_usd": null,
+    "max_wall_ms": 3600000
+  },
+  "run": { "max_tokens": 12000, "max_input_tokens_for_cap": 16000, "max_output_tokens_for_cap": 12000, "timeout_ms": 120000 },
+  "acceptance": {
+    "min_harness_success_rate": 0.8,
+    "min_auto_quality_rate": 0.7,
+    "max_wrong_route_rate": 0,
+    "max_payload_isolation_failures": 0
+  }
+}

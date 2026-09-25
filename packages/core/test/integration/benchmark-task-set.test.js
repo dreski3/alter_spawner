@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { blindReviewPacket, fixturePath, loadTaskSet, scoreBlindReview, scoreTask, validateTaskSet } from "../../../../benchmarks/task-set.mjs";
 import { runRouterCases } from "../../../../benchmarks/run-router-cases.mjs";
-import { runNestedMatrix } from "../../../../benchmarks/run-nested.mjs";
+import { runNestedMatrix, runNestedWorkload } from "../../../../benchmarks/run-nested.mjs";
 import { validateImageFiles } from "../../src/index.js";
 
 test("benchmark labels cover task, router, and deep nested matrices", () => {
@@ -60,4 +60,17 @@ test("nested matrix records per-depth queue, retries, spend, and failures throug
   assert.equal(deep.per_depth.reduce((sum, item) => sum + item.failed_nodes, 0), 1);
   assert.ok(deep.per_depth.some((item) => item.queue_ms > 0));
   assert.equal(deep.per_depth.reduce((sum, item) => sum + item.tokens, 0), deep.tree_usage.tokens.total);
+});
+
+test("model-backed nested benchmark preserves real per-node usage and depth", async () => {
+  const result = await runNestedWorkload({ id: "model-chain-2", split: "development", shape: "chain", max_depth: 2 }, {
+    model: "openai/gpt-6-luna",
+    modelRun: async () => ({ ok: true, text: "DONE", tokens: { input: 10, output: 1, reasoning: 0, cache_read: 0, total: 11 },
+      steps: 1, exitCode: 0, killed: false, budget_exceeded: false, empty_output: false, sessionID: null }),
+  });
+  assert.equal(result.passed, true);
+  assert.equal(result.tree_usage.runs, 3);
+  assert.equal(result.tree_usage.tokens.total, 33);
+  assert.equal(result.tree_usage.estimated_api_cost_usd, null);
+  assert.equal(result.exact_answer_nodes, 3);
 });

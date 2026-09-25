@@ -14,6 +14,12 @@
     "benchmark:validate": "node benchmarks/task-set.mjs",
     "benchmark:router-fixtures": "node benchmarks/run-router-cases.mjs",
     "benchmark:nested-fixtures": "node benchmarks/run-nested.mjs",
+    "benchmark:compare": "node benchmarks/run-comparison.mjs",
+    "benchmark:router-compare": "node benchmarks/compare-router-strategies.mjs",
+    "benchmark:frontier-nested": "node benchmarks/run-frontier-nested.mjs",
+    "benchmark:frontier-router": "node benchmarks/compare-frontier-routers.mjs",
+    "benchmark:candidate-policies": "node benchmarks/compare-candidate-policies.mjs",
+    "benchmark:apply-ratings": "node benchmarks/apply-blind-ratings.mjs",
     "check": "node scripts/check.mjs",
     "pack:check": "npm pack --dry-run --json --cache .npm-cache --workspace packages/core && npm pack --dry-run --json --cache .npm-cache --workspace packages/cli",
     "validate": "npm run check && npm test && npm run pack:check"

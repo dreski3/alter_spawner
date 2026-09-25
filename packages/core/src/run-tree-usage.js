@@ -46,9 +46,12 @@ const costOf = (attempt, providers) => {
   if (!cost || !Number.isFinite(cost.input_per_million) || cost.input_per_million < 0 ||
     !Number.isFinite(cost.output_per_million) || cost.output_per_million < 0) return null;
   const cacheRead = attempt.tokens.cache_read || 0;
-  if (cacheRead > attempt.tokens.input) return null;
   if (cacheRead > 0 && (!Number.isFinite(cost.cache_read_per_million) || cost.cache_read_per_million < 0)) return null;
-  return ((attempt.tokens.input - cacheRead) * cost.input_per_million +
+  const included = attempt.tokens.total === attempt.tokens.input + attempt.tokens.output;
+  const separate = attempt.tokens.total >= attempt.tokens.input + cacheRead + attempt.tokens.output;
+  if (cacheRead > 0 && !included && !separate) return null;
+  if (included && cacheRead > attempt.tokens.input) return null;
+  return ((attempt.tokens.input - (included ? cacheRead : 0)) * cost.input_per_million +
     cacheRead * (cost.cache_read_per_million || 0) +
     attempt.tokens.output * cost.output_per_million) / 1_000_000;
 };

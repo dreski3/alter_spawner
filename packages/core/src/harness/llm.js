@@ -189,7 +189,7 @@ const responseUsage = (protocol, body) => {
       output,
       reasoning: 0,
       cache_read: usage.cache_read_input_tokens || 0,
-      total: input + output,
+      total: input + (usage.cache_read_input_tokens || 0) + output,
     };
   }
   if (protocol === "gemini") {

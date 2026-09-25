@@ -187,6 +187,9 @@ when nodes overlap. Each attempt stores the provider/model metadata and price
 assumptions from its run. New runs use these snapshots even if configuration
 later changes; the optional `providers` argument supplies prices for older
 runs without snapshots. `priced_cost_usd` is the supported subtotal.
+Cache-read tokens are priced from reported totals whether a provider includes
+them in input tokens or reports them separately. Inconsistent token totals
+leave the attempt unpriced.
 `estimated_api_cost_usd` is null if token usage, a model or cache-read price,
 adviser usage, or a child result is unavailable. The summary counts missing
 token reports, missing prices, unreported adviser decisions, incomplete runs,
