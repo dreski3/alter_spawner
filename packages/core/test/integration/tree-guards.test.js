@@ -118,7 +118,9 @@ test("the slot is released even when a run throws", async (t) => {
       throw new Error("harness exploded");
     },
   });
-  await assert.rejects(() => spawn(root, "boom", { harness: "guard-throw" }), /harness exploded/);
+  const error = await spawn(root, "boom", { harness: "guard-throw" }).then(() => null, (cause) => cause);
+  assert.match(error.message, /harness exploded/);
+  assert.equal(error.measurement.phase, "after_home");
   // A leaked slot would wedge the next spawn until the stale timeout, and this
   // process is still alive so the pid prune would not reclaim it.
   const ok = await spawn(root, "after");
@@ -147,7 +149,10 @@ test("children inherit the tree, so the budget is one tree's rather than one lev
 
 test("with every limit off there is no ledger at all", async (t) => {
   const root = makeProject(t, { max_tree_nodes: null, max_tree_tokens: null, max_concurrent_alters: null });
-  await spawn(root, "a");
+  const first = await spawn(root, "a");
+  const second = await spawn(root, "b");
+  assert.ok(first.result.tree_id);
+  assert.notEqual(first.result.tree_id, second.result.tree_id);
   assert.equal(existsSync(path.join(root, ".alters", "trees")), false);
 });
 

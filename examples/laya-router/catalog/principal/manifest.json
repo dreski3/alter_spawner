@@ -1,0 +1,4 @@
+{
+  "name": "principal",
+  "description": "Owns the conversation and may delegate to the router."
+}

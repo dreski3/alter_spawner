@@ -14,8 +14,12 @@ const usage = (write = console.log) => {
   write("                                          (scaffold this directory as a mind project)");
   write("  update  [--source <path>]              (re-apply profile-owned files + new catalog entries)");
   write("  spawn   --name? --description? --model? --image <file>* --allow <p> --allow-write <p>");
-  write("          --nestable? --web? --timeout? --rm? --verbose?");
+  write("          --nestable? --web? --timeout? --variant <name>? --rm? --verbose?");
   write("          --catalog <name>? --executor <name>? --max-tokens <n>? --fallback-model <m>?");
+  write("          --model-candidate <id=provider/model|id=executor:provider/model>*");
+  write("          --route-strategy <ordered|lowest_cost>? --route-residency <name>*");
+  write("          --route-context-tokens <n>? --route-output-tokens <n>? --route-max-cost <usd>?");
+  write("          --route-require-capability <name>*");
   write("          --allow-catalog <name>* | --allow-no-catalogs?");
   write("          --prompt-prefix <s>? --prompt-suffix <s>?");
   write("          --bash-allow <pattern>? --bash-only? --text-only?");
@@ -23,6 +27,8 @@ const usage = (write = console.log) => {
   write("          --opencode-provider-file <json>?  <prompt>");
   write("  create  (same flags as spawn; scaffolds a home without running)");
   write("  run     <home-or-id> [--image <file>]* <prompt...>");
+  write("  network run <router-id> --signal <text> --payload <text> [--project <dir>]");
+  write("          [--registry-module <trusted-host-module>] [--verbose]  (run a saved network route)");
   write("  list    (list alter homes + status)");
   write("  tree    (nesting tree)");
   write("  show    <id>          (print result.json)");
@@ -63,6 +69,7 @@ const COMMANDS = {
   spawn: () => import("./commands/spawn.js"),
   create: () => import("./commands/create.js"),
   run: () => import("./commands/run.js"),
+  network: () => import("./commands/network.js"),
   list: () => import("./commands/list.js"),
   ls: () => import("./commands/list.js"),
   tree: () => import("./commands/tree.js"),

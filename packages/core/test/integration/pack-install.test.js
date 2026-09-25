@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 
 const repo = fileURLToPath(new URL("../../../../", import.meta.url));
 
@@ -68,7 +69,7 @@ test("the core package installs as an importable, documented library", (t) => {
     ["--input-type=module", "--eval", "import * as core from '@mind/core'; const initialized = core.initMind('./fixture'); console.log(core.spawnAlter instanceof Function, core.runOscillation instanceof Function, initialized.profile)"],
     { cwd: consumer, encoding: "utf8" },
   );
-  assert.equal(probe.trim(), "true true default");
+  assert.equal(stripVTControlCharacters(probe).trim(), "true true default");
   assert.equal(existsSync(path.join(consumer, "node_modules", "@mind", "core", "README.md")), true);
   assert.equal(existsSync(path.join(consumer, "node_modules", "@mind", "core", "LICENSE")), true);
 });

@@ -17,3 +17,5 @@ coverage/
 
 # Agent worktrees and local session state.
 .claude/
+.env
+benchmarks/results/

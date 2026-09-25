@@ -1,0 +1,6 @@
+{
+  "name": "billing",
+  "description": "Receives billing requests unchanged.",
+  "executor": "function",
+  "capability": { "id": "demo.billing", "input": "text" }
+}

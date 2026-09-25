@@ -19,6 +19,8 @@ export type SpawnOptions = {
   name: string | null;
   description: string | null;
   model: string | null;
+  modelCandidates: ModelCandidate[] | null;
+  routing: RoutingPolicy | null;
   prompt: string | null;
   /** Image files attached to this invocation. Paths are validated and canonicalized before execution. */
   images: string[];
@@ -78,6 +80,77 @@ export type HarnessToolUsage = {
   byName: Record<string, number>;
 };
 
+export type ModelCandidate = { id: string; model: string; executor?: "llm" | "opencode" | "codex" | "grok" };
+export type RoutingPolicy = {
+  strategy?: "ordered" | "lowest_cost";
+  allowed_residencies?: string[];
+  required_context_tokens?: number;
+  estimated_output_tokens?: number;
+  max_estimated_cost_usd?: number;
+  required_capabilities?: string[];
+  adviser?: { id: string; instructions: string; criteria: Record<string, string> };
+};
+export type RoutingAssessment = {
+  candidate_id: string;
+  model: string;
+  executor: string;
+  estimated_cost_usd: number | null;
+  eligible: boolean;
+  reason: string | null;
+};
+export type RequestPlan = {
+  strategy: "ordered" | "lowest_cost";
+  estimated_input_tokens: number;
+  candidates: ModelCandidate[];
+  assessed: RoutingAssessment[];
+};
+export type RoutingTrace = Omit<RequestPlan, "candidates"> & {
+  selected_candidate_id: string;
+  planner_duration_ms?: number;
+  adviser?: { id: string; decision_reason: "adviser" | "fallback"; fallback_reason: string | null; outcome: DecisionOutcome; duration_ms: number };
+};
+export type DecisionOutcome = "valid" | "invalid" | "timeout" | "error" | "cancelled";
+export type AlterTiming = {
+  wall_started_at: string;
+  wall_ended_at: string;
+  wall_duration_ms: number;
+  planning_ms: number;
+  admission_ms: number;
+  queue_ms?: number;
+  scaffold_ms: number;
+  execution_ms: number;
+  attempts_ms: number;
+  other_ms: number;
+  pre_persistence_duration_ms?: number | null;
+};
+export type AttemptPricing = {
+  source: "project_config" | "unavailable";
+  provider_id: string | null;
+  model_id: string | null;
+  input: string[] | null;
+  capabilities: string[] | null;
+  residency: string | null;
+  context_tokens: number | null;
+  max_output_tokens: number | null;
+  cost: { input_per_million: number | null; output_per_million: number | null; cache_read_per_million: number | null } | null;
+};
+export type RunTreeUsage = {
+  runs: number;
+  attempts: number;
+  max_depth: number | null;
+  tokens: AlterTokens;
+  priced_cost_usd: number;
+  estimated_api_cost_usd: number | null;
+  unpriced_attempts: number;
+  missing_token_usage_attempts: number;
+  missing_price_attempts: number;
+  unreported_adviser_decisions: number;
+  incomplete_runs: number;
+  tree_wall_duration_ms: number | null;
+  summed_node_wall_duration_ms: number | null;
+  missing_timing_runs: number;
+};
+
 export type AlterResponse = {
   tokens: AlterTokens;
   text: string;
@@ -92,21 +165,37 @@ export type AlterResponse = {
   contract_failed: boolean;
   contract_error: string | null;
   tools?: HarnessToolUsage | null;
+  toolActivity?: boolean;
+  retryable?: boolean;
   eventLog?: string | null;
   capability_error?: string | null;
 };
 
 export type AlterRuntimeEvent =
-  | { type: "attempt.started"; attempt: number; model: string; reason: string }
-  | { type: "output.delta"; attempt: number; model: string; delta: string; text: string; sessionID: string | null }
-  | { type: "usage.updated"; attempt: number; model: string; tokens: AlterTokens; steps: number; sessionID: string | null };
+  | { type: "run.failed"; measurement: RunFailureMeasurement }
+  | { type: "network.route.selected"; router_id: string; route_id: string; component_id: string }
+  | { type: "attempt.started"; attempt: number; model: string; executor?: string; candidate_id?: string; reason: string }
+  | { type: "output.delta"; attempt: number; model: string; executor?: string; candidate_id?: string; delta: string; text: string; sessionID: string | null }
+  | { type: "usage.updated"; attempt: number; model: string; executor?: string; candidate_id?: string; tokens: AlterTokens; steps: number; sessionID: string | null };
 
 export type AlterAttemptReason = "initial" | "retry_same_model" | "retry_fallback_model";
+
+export type RunFailureMeasurement = {
+  kind: "spawn" | "run" | "network" | "principal";
+  status: "failed";
+  phase: "before_home" | "after_home";
+  wall_started_at: string;
+  wall_ended_at: string;
+  wall_duration_ms: number;
+  home?: string;
+};
 
 /** One entry of the attempt plan, as recorded in `result.json`'s `attempts`. */
 export type AlterAttempt = {
   attempt: number;
   model: string;
+  executor?: string;
+  candidate_id?: string;
   reason: AlterAttemptReason;
   ok: boolean;
   exit_code: number | null;
@@ -116,10 +205,13 @@ export type AlterAttempt = {
   contract_failed: boolean;
   contract_error: string | null;
   tokens: AlterTokens;
+  pricing?: AttemptPricing;
   tools: AlterToolUsage | null;
+  tool_activity?: boolean;
   started_at: string;
   ended_at: string;
   duration_ms: number;
+  elapsed_ms?: number;
   event_log: string | null;
 };
 
@@ -141,9 +233,13 @@ export type AlterResult = {
   session_id: string | null;
   event_log: string | null;
   model: string;
+  model_candidates?: ModelCandidate[] | null;
+  routing?: RoutingTrace | null;
   executor: string | null;
+  opencode_variant?: string | null;
   catalog: string | null;
   depth: number;
+  tree_id?: string | null;
   home: string;
   spawned_by: string;
   graph_id: string | null;
@@ -153,6 +249,7 @@ export type AlterResult = {
   started_at: string;
   ended_at: string;
   duration_ms: number;
+  timing?: AlterTiming | null;
   attempts: AlterAttempt[] | null;
 };
 
@@ -208,7 +305,7 @@ export function delegateAuthority(
   spawnOptions: SpawnOptions,
   config: MindConfig,
   runtime: Runtime,
-  delegateOptions?: { attemptModels?: string[] | null },
+  delegateOptions?: { attemptModels?: string[] | null; attemptExecutors?: string[] | null },
 ): Runtime;
 export function authorityMaxDepth(config: MindConfig, runtime: Runtime): number;
 
@@ -236,6 +333,7 @@ export type MindConfig = {
   opencode_pure: boolean;
   opencode_event_log: boolean;
   providers: Record<string, DirectProviderConfig>;
+  decision_advisers?: Record<string, { python?: string; model_dir?: string; timeout_ms?: number }>;
   retry: { same_harness_retries: number; fallback_retries: number };
   [key: string]: unknown;
 };
@@ -267,6 +365,8 @@ export type CatalogManifest = {
   description: string;
   model?: string | null;
   fallback_model?: string | null;
+  model_candidates?: ModelCandidate[];
+  routing?: RoutingPolicy | null;
   max_tokens?: number | null;
   nestable?: boolean;
   web?: boolean;
@@ -284,6 +384,7 @@ export type CatalogManifest = {
   agents_md_override?: string | null;
   skills_dir?: string | null;
   opencode_provider?: Record<string, unknown> | null;
+  opencode_variant?: string | null;
   output_contract?: OutputContract | null;
   source?: { type: "local" | "mcp"; ref: string | null };
   created_at?: string;
@@ -410,20 +511,29 @@ export function scaffold(
   cfg: MindConfig,
   options: SpawnOptions,
   runtime?: Runtime,
-  scaffoldOptions?: { agentFiles?: boolean; agentHomeKind?: "opencode" | "codex" | "grok" },
+  scaffoldOptions?: { agentFiles?: boolean; agentHomeKind?: "opencode" | "codex" | "grok"; agentHomeKinds?: Array<"opencode" | "codex" | "grok"> | null },
 ): string;
 
 export function buildFrontmatter(options: SpawnOptions): string;
 export function buildBody(options: SpawnOptions): string;
 export function buildAgentsMd(options: SpawnOptions): string;
 
-/** Initial run, then same-model retries, then fallback-model retries if one is available. */
+/** Initial run, same-candidate retries, then ordered fallback-candidate retries if available. */
 export function buildAttemptPlan(
   options: SpawnOptions,
   cfg: MindConfig,
   runtime?: Runtime,
   planOptions?: { allowRetries?: boolean },
-): { model: string; reason: AlterAttemptReason }[];
+): { model: string; executor?: string; reason: AlterAttemptReason; candidateId?: string }[];
+
+export function validateRoutingPolicy(policy: RoutingPolicy | null | undefined, label?: string): void;
+export function planRequest(options: {
+  options: SpawnOptions;
+  config: MindConfig;
+  prompt: string;
+  defaultExecutor?: string;
+  environment?: Record<string, string | undefined>;
+}): RequestPlan;
 
 export function runWithRetries(options: {
   options: SpawnOptions;
@@ -452,6 +562,8 @@ export type AlterRecord = {
   name: string | null;
   description: string | null;
   model: string;
+  model_candidates?: ModelCandidate[] | null;
+  routing?: RoutingPolicy | null;
   executor: string | null;
   capability: { id: string; input?: "text" | "json" } | null;
   nestable: boolean;
@@ -471,6 +583,7 @@ export type AlterRecord = {
   graph_id: string | null;
   depends_on: string[];
   opencode_provider: Record<string, unknown> | null;
+  opencode_variant?: string | null;
   output_contract: OutputContract | null;
   images: AlterImageMetadata[];
   created_at: string;
@@ -512,6 +625,7 @@ export function spawnAlter(
     signal?: AbortSignal;
     onEvent?: (event: AlterRuntimeEvent) => void;
     runtime?: Runtime;
+    advisers?: Record<string, DecisionAdviser>;
   },
 ): Promise<
   | {
@@ -541,6 +655,7 @@ export function runExistingAlter(
     signal?: AbortSignal;
     onEvent?: (event: AlterRuntimeEvent) => void;
     runtime?: Runtime;
+    advisers?: Record<string, DecisionAdviser>;
   },
 ): Promise<{ home: string; result: AlterResult; res: AlterResponse }>;
 
@@ -613,6 +728,7 @@ export type PrincipalTurn = {
   emptyOutput: boolean;
   exitCode: number;
   durationMs: number;
+  timing: { wall_duration_ms: number; planning_ms: number; execution_ms: number; attempts_ms: number };
   projectDir: string;
   res: AlterResponse;
 };
@@ -671,6 +787,7 @@ export type HarnessAdapter = {
   run(home: string, prompt: string, options: HarnessRunOptions): Promise<AlterResponse>;
   /** False for an adapter that reads nothing off disk, so the scaffolder writes only the run record. Default true. */
   needsAgentHome?: boolean;
+  supportsVirtualNesting?: boolean;
   /** False for a deterministic executor: one attempt, and no fallback-model tier. */
   supportsRetry?: boolean;
   /** True when the adapter can attach validated image files to a request. Default false. */
@@ -1442,6 +1559,7 @@ export type TreeNodeHandle = {
   limits: TreeLimits;
   lock: FileLockOptions;
   runtime: Runtime;
+  queueWaitMs: number;
 };
 
 export function treeLedgerPath(root: string, treeId: string): string;
@@ -1482,13 +1600,21 @@ export type DirectProviderProtocol = "openai-responses" | "openai-compatible" | 
 export type DirectProviderModelConfig = {
   max_output_tokens?: number | null;
   input?: Array<"text" | "image">;
+  context_tokens?: number;
+  residency?: string;
+  capabilities?: string[];
+  cost?: { input_per_million: number; output_per_million: number; cache_read_per_million?: number };
 };
 export type DirectProviderConfig = {
-  protocol: DirectProviderProtocol;
+  protocol?: DirectProviderProtocol;
   base_url?: string;
   api_key_env?: string | null;
   max_output_tokens?: number | null;
   input?: Array<"text" | "image">;
+  context_tokens?: number;
+  residency?: string;
+  capabilities?: string[];
+  cost?: { input_per_million: number; output_per_million: number; cache_read_per_million?: number };
   models?: Record<string, DirectProviderModelConfig>;
 };
 export type DirectLlmEndpoint = Omit<LlmEndpoint, "apiKey"> & {
@@ -1761,6 +1887,13 @@ export type NetworkComponent = {
   catalog?: string;
   graph?: string;
   capability?: string;
+  input?: "text" | "json";
+  router?: {
+    adviser: string;
+    instructions: string;
+    routes: Array<{ id: string; component: string; description: string }>;
+    fallback_route: string | null;
+  };
   triggers: NetworkTrigger[];
   emits: string[];
   refractory: string | number | null;
@@ -1772,7 +1905,7 @@ export type NetworkDefinition = {
   id: string;
   name: string;
   description: string | null;
-  ego: { enabled: boolean; catalog: string | null; contextual: boolean; input_events: string[] } | null;
+  ego: { enabled: boolean; catalog: string | null; contextual: boolean; input_events: string[]; spawn: string[] } | null;
   interfaces: NetworkInterface[];
   components: NetworkComponent[];
 };
@@ -1784,6 +1917,59 @@ export type StoredNetworkDefinition = NetworkDefinition & {
 export const NETWORK_SCHEMA_VERSION: 1;
 export const NETWORK_ROLES: readonly NetworkRole[];
 export const NETWORK_TRIGGER_TYPES: readonly NetworkTrigger["type"][];
+export type DecisionRoute = { id: string; description: string; component?: string };
+export type DecisionAdviser = {
+  id?: string;
+  model?: string;
+  decide(request: { signal: string; instructions: string; routes: DecisionRoute[]; abortSignal?: AbortSignal }): Promise<{ id: string }>;
+};
+export function createLayaMlxAdviser(options?: { env?: Record<string, string | undefined>; python?: string; model_dir?: string; timeout_ms?: number }): DecisionAdviser;
+export function decideRoute(options: {
+  adviser: DecisionAdviser;
+  signal: string;
+  instructions: string;
+  routes: DecisionRoute[];
+  fallbackRoute?: string | null;
+  abortSignal?: AbortSignal;
+}): Promise<{ id: string; reason: "adviser" | "fallback"; fallbackReason: string | null; adviserOutcome: DecisionOutcome }>;
+export function summarizeRunTree(root: string, home: string, options?: { providers?: Record<string, DirectProviderConfig> }): RunTreeUsage;
+export type NetworkDecisionTrace = {
+  network_id: string;
+  network_revision: number | null;
+  router_id: string;
+  adviser: string;
+  adviser_model: string;
+  eligible_route_ids: string[];
+  selected_route_id: string | null;
+  decision_reason: "adviser" | "fallback" | null;
+  fallback_reason: string | null;
+  adviser_outcome: DecisionOutcome | null;
+  child_component_id: string | null;
+  child_run_id: string | null;
+  child_home: string | null;
+  child_ok: boolean | null;
+  child_wall_duration_ms: number | null;
+  duration_ms: number;
+  decision_duration_ms: number | null;
+  tree_usage?: RunTreeUsage;
+  network_timing?: { wall_duration_ms: number };
+  error: string | null;
+};
+export function runNetworkRoute(root: string, options: {
+  routerId: string;
+  routingSignal: string;
+  payload: string;
+  advisers?: Record<string, DecisionAdviser>;
+  capabilityRegistry?: CapabilityRegistry | null;
+  createCapabilitySession?: ((context: {
+    catalogId: string;
+    signal?: AbortSignal;
+    onEvent?: (event: CapabilityEvent) => void;
+  }) => Pick<CapabilityApprovalSession, "execute">) | null;
+  runtime?: Runtime;
+  abortSignal?: AbortSignal;
+  onEvent?: (event: AlterRuntimeEvent) => void;
+}): Promise<{ home: string; created: false; result: AlterResult; res: AlterResponse; decision: NetworkDecisionTrace | null; treeUsage: RunTreeUsage; networkTiming: { wall_duration_ms: number } }>;
 export function validateNetworkDefinition(
   value: unknown,
   options?: { source?: string; known?: { catalogs?: string[]; graphs?: string[]; oscillations?: string[]; capabilities?: string[] } },

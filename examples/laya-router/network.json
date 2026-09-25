@@ -1,0 +1,70 @@
+{
+  "id": "local-service-router",
+  "name": "Local service router",
+  "description": "A principal delegates classification to a Laya router, which spawns one child node.",
+  "ego": {
+    "enabled": true,
+    "catalog": "principal",
+    "spawn": ["router"]
+  },
+  "interfaces": [],
+  "components": [
+    {
+      "id": "router",
+      "role": "internal",
+      "catalog": "router",
+      "triggers": [{ "type": "manual" }],
+      "router": {
+        "adviser": "laya-mlx",
+        "instructions": "Which destination should handle the principal's classification?",
+        "routes": [
+          {
+            "id": "billing",
+            "component": "billing",
+            "description": "Billing questions, invoices, charges, payments, and refunds"
+          },
+          {
+            "id": "technical",
+            "component": "technical",
+            "description": "Technical problems, bugs, account access, and outages"
+          },
+          {
+            "id": "sales",
+            "component": "sales",
+            "description": "Sales questions, plans, pricing, and new purchases"
+          },
+          {
+            "id": "uppercase",
+            "component": "uppercase-tool",
+            "description": "Run the deterministic uppercase text tool"
+          }
+        ]
+      }
+    },
+    {
+      "id": "billing",
+      "role": "internal",
+      "catalog": "billing",
+      "triggers": [{ "type": "manual" }]
+    },
+    {
+      "id": "technical",
+      "role": "internal",
+      "catalog": "technical",
+      "triggers": [{ "type": "manual" }]
+    },
+    {
+      "id": "sales",
+      "role": "internal",
+      "catalog": "sales",
+      "triggers": [{ "type": "manual" }]
+    },
+    {
+      "id": "uppercase-tool",
+      "role": "internal",
+      "capability": "demo.uppercase",
+      "input": "text",
+      "triggers": [{ "type": "manual" }]
+    }
+  ]
+}

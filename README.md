@@ -199,6 +199,51 @@ Use `executor: "llm"` on a catalog entry or `--executor llm` at invocation.
 The OpenAI, Anthropic, and Gemini protocols use their standard public base URL
 when `base_url` is omitted. `openai-compatible` requires an explicit base URL.
 
+A catalog Alter can use an ordered `model_candidates` list instead of the
+legacy `model` and `fallback_model` fields. A candidate may select its own
+`executor`. The in-process planner checks request requirements against
+project-owned provider metadata before attempting a candidate. The default
+strategy preserves eligible manifest order; `lowest_cost` uses declared token
+prices. Candidate ids and executor names appear in attempt records and runtime
+events. OpenCode remains the default executor when none is selected. Passing
+`--model` pins a catalog run to that model.
+Use `--variant <name>` to select an OpenCode model variant, such as `none` for
+models that support disabling reasoning. Variant names and effects depend on
+the selected provider and model; the flag is only supported by the OpenCode
+executor.
+When creating or updating an entry with `mind catalog save`, repeat
+`--model-candidate id=provider/model` or
+`--model-candidate id=executor:provider/model` to set the list.
+
+```json
+{
+  "name": "reviewer",
+  "description": "Reviews a proposed change.",
+  "model_candidates": [
+    { "id": "local", "model": "local/reviewer", "executor": "llm" },
+    { "id": "cloud", "model": "openai/gpt-example", "executor": "opencode" }
+  ],
+  "routing": { "strategy": "ordered", "allowed_residencies": ["local", "eu"] }
+}
+```
+
+Provider metadata may declare `input`, `context_tokens`, `residency`,
+`capabilities`, and `cost` with `input_per_million` and
+`output_per_million` prices. Routing policy can set a context allowance,
+allowed residencies, a cost ceiling, and required capabilities. OpenCode and
+Codex stop retrying once a tool call has started, to avoid repeating
+possible side effects. See [inference routing](docs/inference-routing.md) for
+the full schema and selection rules.
+
+To use OpenCode first and the Codex CLI on failure:
+
+```sh
+mind spawn --name routing-smoke \
+  --model-candidate primary=opencode:openai/gpt-6-luna \
+  --model-candidate backup=codex:openai/gpt-6-luna \
+  "Reply with exactly: routing-ok"
+```
+
 The `codex` executor runs the installed Codex CLI non-interactively and reuses
 its existing authentication. It accepts OpenAI model references, strips the
 `openai/` namespace for the CLI, preserves session IDs for resumed turns, and
@@ -224,30 +269,15 @@ Codex's hosted live web search without opening command networking. Codex current
 `opencode_variant` because those controls do not have equivalent Codex CLI
 enforcement.
 
-The `grok` executor runs the installed Grok CLI in headless mode and reuses
-its existing authentication (`XAI_API_KEY`, `GROK_AUTH_PATH`, or
-`~/.grok/auth.json`). It accepts xAI model references, strips the `xai/`
-namespace for the CLI, preserves session IDs for resumed turns, and normalizes
-streaming JSON events into the same result, usage, tool, cancellation, retry,
-image, and event-log contract as OpenCode and Codex.
+Use OpenAI models through OpenCode for now. xAI provider use, including native
+Grok CLI execution, is paused while its authentication refresh failure is
+investigated; see [ROADMAP.md](ROADMAP.md#reliability) for the follow-up.
 
-```bash
-mind spawn \
-  --executor grok \
-  --model xai/grok-4.5 \
-  --name grok-reviewer \
-  --description "Reviews the requested code change." \
-  "Review the implementation and report concrete defects."
-```
-
-Grok runs with an isolated `GROK_HOME` inside the Alter home, so the user's
-MCP servers, hooks, skills, and memory are not inherited. Authentication is
-passed through without copying credentials into the home. Subagent spawning
-and plan mode are disabled. The harness requests a per-run `strict` sandbox
-profile that denies child-process networking, keeps writes to the Alter home
-plus declared write paths, and adds declared read paths. When Grok cannot
-apply that profile because a runtime socket such as `/var/run/docker.sock` is
-a symlink, the harness uses Grok's built-in `workspace` profile instead:
+The Grok runtime, when revisited, uses an isolated `GROK_HOME` inside the Alter
+home, so the user's MCP servers, hooks, skills, and memory are not inherited.
+Subagent spawning and plan mode are disabled. The harness requests a per-run
+`strict` sandbox profile and falls back to Grok's built-in `workspace` profile
+when the strict profile cannot be applied:
 writes stay in the Alter home and temporary directories, and reads are not
 limited to the declared grants. `--web` enables Grok's hosted web search
 without opening command networking. Images travel inline when they fit in the
@@ -382,7 +412,7 @@ passes.
 ```bash
 mind work collaborate \
   --planner openai/gpt-5.6-luna \
-  --planner xai/grok-4.5 \
+  --planner openai/gpt-5.6-sol \
   --worker openai/gpt-5.6-luna \
   --write packages/core/src \
   --write packages/core/test \
@@ -500,6 +530,9 @@ stdout, saved to `<home>/result.md`, with stats in `<home>/result.json` (tokens,
 steps, model, per-attempt history). A run that exits cleanly but returns no
 final message is therefore a failure, not a success — recorded as
 `ok:false, empty_output:true` and retried through the fallback tiers.
+`mind spawn --verbose` prints a post-run summary with total tokens and usage by
+attempt. It estimates API-equivalent cost from configured provider rates or the
+local OpenCode model catalog; this is not a billing total.
 
 **`bash_allow`** — a catalog entry can grant a scoped bash rule for one
 specific external command (e.g. `"python3 /abs/path/cipher.py **"`),
@@ -695,7 +728,9 @@ untouched with `storage: null`.
 - The `codex` harness currently supports only OpenAI model references and does
   not support nestable or command-allowlisted Alters. Use `opencode` for those
   cases. The direct `llm` executor has no tools or sessions.
-- The `grok` harness currently supports only xAI model references and does
+- Native Grok CLI use is deferred pending investigation of authentication
+  refresh failures. Use OpenCode for xAI models in the meantime. The `grok`
+  harness currently supports only xAI model references and does
   not support nestable or command-allowlisted Alters. Its strict sandbox
   falls back to Grok's `workspace` profile when a runtime socket is a
   symlink, which leaves temporary directories writable and reads
@@ -714,6 +749,9 @@ See [ROADMAP.md](ROADMAP.md) for the fuller list and next steps.
 
 ## Examples
 
+- [`examples/laya-router`](examples/laya-router/README.md) defines a saved
+  network whose local Laya router chooses among three worker Alters and a
+  deterministic tool node, forwarding the request payload unchanged.
 - [`examples/cipher-relay`](examples/cipher-relay/README.md) demonstrates a
   nestable relay selecting isolated AES decryptor and format-decoder Alters,
   with separate sessions, homes, tool permissions, and token accounting.

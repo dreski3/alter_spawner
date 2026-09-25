@@ -5,6 +5,7 @@ import { kitDir } from "./config.js";
 import { validateOutputContract } from "./output-contract.js";
 import { writeJsonAtomic } from "./persistence.js";
 import { resolveRuntime } from "./runtime.js";
+import { validateRoutingPolicy } from "./request-planner.js";
 import {
   PROJECT_AGENTS_FILE,
   PROJECT_SKILLS_DIR,
@@ -19,6 +20,50 @@ export const validateManifest = (m, name) => {
   if (!m.name) fail(`catalog entry "${name}": manifest.json missing "name".`);
   if (m.name !== name) fail(`catalog entry "${name}": manifest.json "name" (${m.name}) does not match folder name.`);
   if (!m.description) fail(`catalog entry "${name}": manifest.json missing "description".`);
+  if (m.model != null && (typeof m.model !== "string" || !m.model.trim())) {
+    fail(`catalog entry "${name}": model must be a non-empty string or null.`);
+  }
+  if (m.fallback_model != null && (typeof m.fallback_model !== "string" || !m.fallback_model.trim())) {
+    fail(`catalog entry "${name}": fallback_model must be a non-empty string or null.`);
+  }
+  validateRoutingPolicy(m.routing, `catalog entry "${name}": routing`);
+  if (m.routing != null && m.model_candidates == null) fail(`catalog entry "${name}": routing requires model_candidates.`);
+  if (m.model_candidates != null) {
+    if (!Array.isArray(m.model_candidates) || m.model_candidates.length === 0) {
+      fail(`catalog entry "${name}": model_candidates must be a non-empty array.`);
+    }
+    if (m.model != null || m.fallback_model != null) {
+      fail(`catalog entry "${name}": model_candidates cannot be combined with model or fallback_model.`);
+    }
+    const ids = new Set();
+    for (let i = 0; i < m.model_candidates.length; i++) {
+      const candidate = m.model_candidates[i];
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+        fail(`catalog entry "${name}": model_candidates[${i}] must be an object.`);
+      }
+      const unsupported = Object.keys(candidate).find((key) => !["id", "model", "executor"].includes(key));
+      if (unsupported) {
+        fail(`catalog entry "${name}": model_candidates[${i}].${unsupported} is not supported.`);
+      }
+      if (typeof candidate.id !== "string" || !candidate.id.trim() || candidate.id !== candidate.id.trim()) {
+        fail(`catalog entry "${name}": model_candidates[${i}].id must be a non-empty string.`);
+      }
+      if (ids.has(candidate.id)) {
+        fail(`catalog entry "${name}": duplicate model candidate id "${candidate.id}".`);
+      }
+      ids.add(candidate.id);
+      const separator = typeof candidate.model === "string" ? candidate.model.indexOf("/") : -1;
+      if (
+        typeof candidate.model !== "string" || !candidate.model.trim() || candidate.model !== candidate.model.trim() ||
+        separator <= 0 || separator === candidate.model.length - 1
+      ) {
+        fail(`catalog entry "${name}": model_candidates[${i}].model must be a "provider/model" reference.`);
+      }
+      if (candidate.executor != null && !["llm", "opencode", "codex", "grok"].includes(candidate.executor)) {
+        fail(`catalog entry "${name}": model_candidates[${i}].executor must be llm, opencode, codex, or grok.`);
+      }
+    }
+  }
   if (m.max_tokens != null && !(Number.isInteger(m.max_tokens) && m.max_tokens > 0)) {
     fail(`catalog entry "${name}": max_tokens must be a positive integer or null.`);
   }
@@ -111,6 +156,9 @@ export const validateManifest = (m, name) => {
       }
     }
   }
+  if (m.opencode_variant != null && (typeof m.opencode_variant !== "string" || !m.opencode_variant.trim())) {
+    fail(`catalog entry "${name}": opencode_variant must be a non-empty string or null.`);
+  }
   validateOutputContract(m.output_contract, `catalog entry "${name}": output_contract`);
 };
 
@@ -139,8 +187,14 @@ export const resolveCatalogEntry = (root, cfg, name) => {
 export const applyCatalog = (o, entry) => {
   const m = entry.manifest;
   if (o.description == null) o.description = m.description;
-  if (o.model == null) o.model = m.model || null;
-  if (o.fallbackModel == null) o.fallbackModel = m.fallback_model || null;
+  if (o.routing == null && o.model == null) o.routing = m.routing ? { ...m.routing } : null;
+  if (m.model_candidates && o.model == null && o.modelCandidates == null) {
+    o.modelCandidates = m.model_candidates.map((candidate) => ({ ...candidate }));
+    o.model = o.modelCandidates[0].model;
+  } else if (!m.model_candidates && o.modelCandidates == null) {
+    if (o.model == null) o.model = m.model || null;
+    if (o.fallbackModel == null) o.fallbackModel = m.fallback_model || null;
+  }
   if (o.maxTokens == null) o.maxTokens = m.max_tokens ?? null;
   if (!o.nestable) o.nestable = !!m.nestable;
   if (!o.webAccess) o.webAccess = !!m.web;
@@ -159,6 +213,7 @@ export const applyCatalog = (o, entry) => {
   o.catalogAgentsOverride = m.agents_md_override || null;
   o.catalogSkillsDir = m.skills_dir || null;
   if (o.opencodeProvider == null) o.opencodeProvider = m.opencode_provider || null;
+  if (o.opencodeVariant == null) o.opencodeVariant = m.opencode_variant || null;
   if (o.outputContract == null) o.outputContract = m.output_contract || null;
   o.catalogName = m.name;
 };
@@ -190,8 +245,10 @@ export const listCatalogEntries = (root, cfg) => {
 const manifestFromOptions = (name, o, runtime, { project = false } = {}) => ({
   name,
   description: o.description || "Single-use sandboxed Alter.",
-  model: o.model || null,
-  fallback_model: o.fallbackModel || null,
+  ...(o.modelCandidates != null
+    ? { model_candidates: o.modelCandidates }
+    : { model: o.model || null, fallback_model: o.fallbackModel || null }),
+  routing: o.routing || null,
   max_tokens: o.maxTokens ?? null,
   nestable: !!o.nestable,
   web: !!o.webAccess,
@@ -212,6 +269,7 @@ const manifestFromOptions = (name, o, runtime, { project = false } = {}) => ({
   agents_md_override: o.agentsMdOverride ?? (project ? PROJECT_AGENTS_FILE : null),
   skills_dir: o.skillsDir ?? (project && !o.textOnly ? PROJECT_SKILLS_DIR : null),
   opencode_provider: o.opencodeProvider || null,
+  opencode_variant: o.opencodeVariant || null,
   output_contract: o.outputContract || null,
   source: { type: "local", ref: null },
   created_at: iso(runtime.now()),
@@ -257,12 +315,13 @@ export const saveCatalogEntry = (
   if (existsSync(dir) && !force) {
     fail(`catalog entry already exists: ${sanitized} (pass --force to overwrite)`);
   }
+  const manifest = manifestFromOptions(sanitized, o, runtime, { project });
+  validateManifest(manifest, sanitized);
   mkdirSync(dir, { recursive: true });
   // Seeded before the manifest is written, so the manifest never points at files that
   // are not there yet — resolveCatalogEntry now treats a dangling reference as a hard
   // error rather than falling back to the stock persona.
   if (project) scaffoldAlterProject(dir, { description: o.description || "", skills: !o.textOnly });
-  const manifest = manifestFromOptions(sanitized, o, runtime, { project });
   writeJsonAtomic(path.join(dir, "manifest.json"), manifest);
   return dir;
 };

@@ -74,30 +74,40 @@ export const readInheritedAuthority = (environment) => {
   }
 };
 
-const requestedModels = (o, attemptModels) => unique(attemptModels || [o.model, o.fallbackModel]);
+const requestedModels = (o, attemptModels) => unique(
+  [...(attemptModels || o.modelCandidates?.map((candidate) => candidate.model) || [o.model, o.fallbackModel]), ...(o.delegatedAuthority?.models || [])],
+);
+const requestedExecutors = (o, attemptExecutors) => unique(
+  [...(attemptExecutors || o.plannedCandidates?.map((candidate) => candidate.executor) || [o.executor]), ...(o.delegatedAuthority?.executors || [])],
+);
+const requestedCapabilities = (o) => unique([o.capability?.id, ...(o.delegatedAuthority?.capabilities || [])]);
+const requestedReadGrants = (o) => unique([...(o.readGrants || []), ...(o.delegatedAuthority?.readGrants || [])].map((grant) => path.resolve(grant)));
+const requestedWriteGrants = (o) => unique([...(o.writeGrants || []), ...(o.delegatedAuthority?.writeGrants || [])].map((grant) => path.resolve(grant)));
+const requestedBashAllow = (o) => unique([...(o.bashAllow || []), ...(o.delegatedAuthority?.bashAllow || [])]);
+const requestedWebAccess = (o) => !!(o.webAccess || o.delegatedAuthority?.webAccess);
 
-const currentAuthority = (o, cfg, attemptModels, inherited = null) => ({
+const currentAuthority = (o, cfg, attemptModels, attemptExecutors, inherited = null) => ({
   schema_version: AUTHORITY_SCHEMA_VERSION,
-  read_grants: unique((o.readGrants || []).map((grant) => path.resolve(grant))),
-  write_grants: unique((o.writeGrants || []).map((grant) => path.resolve(grant))),
-  bash_allow: unique(o.bashAllow || []),
-  web: !!o.webAccess,
+  read_grants: requestedReadGrants(o),
+  write_grants: requestedWriteGrants(o),
+  bash_allow: requestedBashAllow(o),
+  web: requestedWebAccess(o),
   nestable: !!o.nestable,
   models: requestedModels(o, attemptModels),
-  executors: o.executor ? [o.executor] : [],
-  capabilities: o.capability?.id ? [o.capability.id] : [],
+  executors: requestedExecutors(o, attemptExecutors),
+  capabilities: requestedCapabilities(o),
   allowed_catalogs: o.allowedCatalogs == null ? null : unique(o.allowedCatalogs.map(sanitizeName)),
   max_depth: inherited ? Math.min(cfg.max_depth ?? 5, inherited.max_depth) : cfg.max_depth ?? 5,
 });
 
-const validateAgainst = (o, inherited, attemptModels) => {
-  requireSubset("read grants", (o.readGrants || []).map((grant) => path.resolve(grant)), inherited.read_grants, { paths: true });
-  requireSubset("write grants", (o.writeGrants || []).map((grant) => path.resolve(grant)), inherited.write_grants, { paths: true });
-  requireSubset("bash permissions", o.bashAllow || [], inherited.bash_allow);
+const validateAgainst = (o, inherited, attemptModels, attemptExecutors) => {
+  requireSubset("read grants", requestedReadGrants(o), inherited.read_grants, { paths: true });
+  requireSubset("write grants", requestedWriteGrants(o), inherited.write_grants, { paths: true });
+  requireSubset("bash permissions", requestedBashAllow(o), inherited.bash_allow);
   requireSubset("models", requestedModels(o, attemptModels), inherited.models);
-  requireSubset("executors", o.executor ? [o.executor] : [], inherited.executors);
-  requireSubset("capabilities", o.capability?.id ? [o.capability.id] : [], inherited.capabilities);
-  if (o.webAccess && !inherited.web) fail("child authority exceeds parent web access.");
+  requireSubset("executors", requestedExecutors(o, attemptExecutors), inherited.executors);
+  requireSubset("capabilities", requestedCapabilities(o), inherited.capabilities);
+  if (requestedWebAccess(o) && !inherited.web) fail("child authority exceeds parent web access.");
   if (o.nestable && !inherited.nestable) fail("child authority exceeds parent nesting permission.");
   if (o.depth > inherited.max_depth) {
     fail(`parent authority max nesting depth (${inherited.max_depth}) reached; refusing depth ${o.depth}.`);
@@ -115,10 +125,10 @@ const validateAgainst = (o, inherited, attemptModels) => {
   }
 };
 
-export const delegateAuthority = (o, cfg, runtime, { attemptModels = null } = {}) => {
+export const delegateAuthority = (o, cfg, runtime, { attemptModels = null, attemptExecutors = null } = {}) => {
   const inherited = readInheritedAuthority(runtime.env);
-  if (inherited) validateAgainst(o, inherited, attemptModels);
-  const current = currentAuthority(o, cfg, attemptModels, inherited);
+  if (inherited) validateAgainst(o, inherited, attemptModels, attemptExecutors);
+  const current = currentAuthority(o, cfg, attemptModels, attemptExecutors, inherited);
   return {
     ...runtime,
     env: {

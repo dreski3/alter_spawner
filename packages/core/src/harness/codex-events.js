@@ -6,6 +6,7 @@ const TOOL_NAMES = Object.freeze({
   mcp_tool_call: "mcp",
   web_search: "web_search",
 });
+const NON_TOOL_ITEMS = new Set(["agent_message", "reasoning", "plan_update"]);
 
 export const createCodexAccumulator = () => ({
   tokens: EMPTY_TOKENS(),
@@ -13,7 +14,7 @@ export const createCodexAccumulator = () => ({
   sessionID: null,
   steps: 0,
   tools: { calls: 0, errors: 0, byName: {} },
-  toolIds: new Set(),
+  toolIds: new Map(),
   error: null,
 });
 
@@ -29,16 +30,22 @@ const errorText = (value) => {
   return value == null ? null : JSON.stringify(value);
 };
 
-const consumeTool = (item, accumulator, onEvent) => {
+const consumeTool = (item, accumulator, onEvent, started = false) => {
+  if (!item.type || NON_TOOL_ITEMS.has(item.type)) return;
   const name = item.type === "mcp_tool_call"
     ? [item.server, item.tool].filter(Boolean).join(".") || TOOL_NAMES[item.type]
-    : TOOL_NAMES[item.type];
-  if (!name) return;
+    : TOOL_NAMES[item.type] || item.type;
   const key = item.id || `${item.type}:${accumulator.tools.calls}`;
-  if (accumulator.toolIds.has(key)) return;
-  accumulator.toolIds.add(key);
   const failed = item.status === "failed" || item.status === "error" ||
     (Number.isInteger(item.exit_code) && item.exit_code !== 0) || !!item.error;
+  if (accumulator.toolIds.has(key)) {
+    if (failed && !accumulator.toolIds.get(key)) {
+      accumulator.toolIds.set(key, true);
+      accumulator.tools.errors += 1;
+    }
+    return;
+  }
+  accumulator.toolIds.set(key, failed);
   accumulator.tools.calls += 1;
   accumulator.tools.errors += failed ? 1 : 0;
   accumulator.tools.byName[name] = (accumulator.tools.byName[name] || 0) + 1;
@@ -46,7 +53,7 @@ const consumeTool = (item, accumulator, onEvent) => {
     type: "tool.used",
     tool: name,
     callID: item.id || null,
-    status: failed ? "error" : "completed",
+    status: failed ? "error" : started ? "started" : "completed",
     tools: {
       calls: accumulator.tools.calls,
       errors: accumulator.tools.errors,
@@ -67,6 +74,8 @@ export const consumeCodexEvent = (line, accumulator, onEvent) => {
   }
   if (event.type === "thread.started" && event.thread_id) {
     accumulator.sessionID ||= event.thread_id;
+  } else if (event.type === "item.started") {
+    consumeTool(event.item || {}, accumulator, onEvent, true);
   } else if (event.type === "item.completed") {
     const item = event.item || {};
     if (item.type === "agent_message" && typeof item.text === "string") {

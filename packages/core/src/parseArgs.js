@@ -9,6 +9,7 @@ export const parseSpawnArgs = (argv) => {
     if (a === "--name") o.name = argv[++i];
     else if (a === "--description") o.description = argv[++i];
     else if (a === "--model") o.model = argv[++i];
+    else if (a === "--variant") o.opencodeVariant = argv[++i];
     else if (a === "--image") o.images.push(normPath(argv[++i]));
     else if (a === "--allow") o.readGrants.push(normPath(argv[++i]));
     else if (a === "--allow-write") o.writeGrants.push(normPath(argv[++i]));
@@ -27,6 +28,28 @@ export const parseSpawnArgs = (argv) => {
     else if (a === "--allow-no-catalogs") o.allowedCatalogs = [];
     else if (a === "--max-tokens") o.maxTokens = Number(argv[++i]);
     else if (a === "--fallback-model") o.fallbackModel = argv[++i];
+    else if (a === "--model-candidate") {
+      const value = argv[++i] || "";
+      const separator = value.indexOf("=");
+      if (separator <= 0 || separator === value.length - 1) {
+        throw new Error("--model-candidate expects <id=provider/model> or <id=executor:provider/model>.");
+      }
+      const reference = value.slice(separator + 1);
+      const colon = reference.indexOf(":");
+      const slash = reference.indexOf("/");
+      const executor = colon > 0 && colon < slash ? reference.slice(0, colon) : null;
+      (o.modelCandidates ??= []).push({
+        id: value.slice(0, separator),
+        model: executor ? reference.slice(colon + 1) : reference,
+        ...(executor ? { executor } : {}),
+      });
+    }
+    else if (a === "--route-strategy") (o.routing ??= {}).strategy = argv[++i];
+    else if (a === "--route-residency") ((o.routing ??= {}).allowed_residencies ??= []).push(argv[++i]);
+    else if (a === "--route-context-tokens") (o.routing ??= {}).required_context_tokens = Number(argv[++i]);
+    else if (a === "--route-output-tokens") (o.routing ??= {}).estimated_output_tokens = Number(argv[++i]);
+    else if (a === "--route-max-cost") (o.routing ??= {}).max_estimated_cost_usd = Number(argv[++i]);
+    else if (a === "--route-require-capability") ((o.routing ??= {}).required_capabilities ??= []).push(argv[++i]);
     else if (a === "--prompt-prefix") o.promptPrefix = argv[++i];
     else if (a === "--prompt-suffix") o.promptSuffix = argv[++i];
     else if (a === "--output-exact") o.outputContract = { type: "exact", value: argv[++i] };
