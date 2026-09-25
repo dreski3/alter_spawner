@@ -89,6 +89,9 @@ Set `required_context_tokens` when a request needs a firm context allowance.
 Estimated cost uses the input estimate and `estimated_output_tokens`, the run's
 token cap, or the model's declared output limit. Cost metadata is in USD per
 million tokens. These figures are planning estimates, not billing totals.
+An image request needs positive image-input metadata from the project or model
+catalog; unknown support excludes the candidate. An `estimated_output_tokens`
+requirement above the request's `maxTokens` cap is rejected before execution.
 
 `ordered` is the default strategy and preserves eligible manifest order.
 `lowest_cost` sorts eligible candidates by estimated cost, breaking ties by
@@ -156,6 +159,27 @@ The run result records the planner's eligibility decisions, selected candidate,
 and each attempt's candidate, model, executor, outcome, and usage. The Alter
 home retains its original candidate list and routing policy so a rerun can
 plan against the new request and current provider metadata.
+
+## Verified route expectations
+
+The [September 2026 refinement](../benchmarks/RESULTS-REFINEMENT-2026-09-25.md)
+supports an attached OpenCode route to `openai/gpt-6-luna` for short text,
+strict JSON extraction, reasoning, and 64 × 64 image input under the tested
+12,000-token cap. A `lowest_cost` candidate policy chose Luna in all eight
+held-out calls with full reviewed quality. `xai/grok-4.6` remained an eligible
+second candidate; retryable fallback order was checked with a scripted harness,
+not a live provider failure. Configure `fallback_retries` above zero to use
+that second candidate after a retryable first attempt. Tool activity still
+stops agent-session fallback.
+
+These model references and the cached API-equivalent prices are mutable. Both
+were used through OpenCode subscriptions, whose billed per-run costs are
+unknown. No residency was verified for either provider. When residency is a
+hard requirement, declare verified metadata and use `allowed_residencies`;
+unknown residency fails eligibility. The common matrix did not verify tool
+tasks. The earlier local and Mistral routes missed the frozen quality targets,
+and Grok missed seven exact `DONE` answers in nested trees. Keep those routes
+out of strict-output defaults until a new held-out check passes.
 
 ## Measurement
 

@@ -123,16 +123,16 @@ export const planRequest = ({ options, config, prompt, defaultExecutor = "openco
   if (!options.modelCandidates?.length) fail("routing requires modelCandidates.");
   const inputTokens = Math.max(1, Math.ceil(Buffer.byteLength(prompt || "", "utf8") / 4));
   const hasImages = !!options.images?.length;
-  const catalog = hasImages && options.modelCandidates.some((candidate) => {
-    const { providerId } = splitModelRef(candidate.model);
-    return config.providers?.[providerId] == null;
-  }) ? imageCatalog(environment) : null;
+  if (policy.estimated_output_tokens != null && options.maxTokens != null && policy.estimated_output_tokens > options.maxTokens) {
+    fail("routing.estimated_output_tokens exceeds the request's maxTokens.");
+  }
+  const catalog = hasImages ? imageCatalog(environment) : null;
   const inherited = readInheritedAuthority(environment);
   const assessed = options.modelCandidates.map((candidate, index) => {
     const executor = candidate.executor || defaultExecutor;
     const adapter = getHarness(executor);
     const metadata = metadataFor(candidate.model, config.providers);
-    const { providerId } = splitModelRef(candidate.model);
+    const imageSupported = metadata.input == null ? modelImageSupport(candidate.model, catalog) : metadata.input.includes("image");
     const outputTokens = policy.estimated_output_tokens ?? (
       options.maxTokens != null && metadata.max_output_tokens != null
         ? Math.min(options.maxTokens, metadata.max_output_tokens)
@@ -149,8 +149,7 @@ export const planRequest = ({ options, config, prompt, defaultExecutor = "openco
     else if (adapter.supportsRetry === false) reason = "executor does not support retries";
     else if (needsSandbox(options) && !adapter.needsAgentHome) reason = "request needs a sandbox";
     else if (executor === "llm" && !directEndpointAvailable(candidate.model, config.providers, environment)) reason = "direct endpoint is unavailable";
-    else if (hasImages && (!adapter.supportsImages || metadata.input?.includes("image") === false ||
-      (config.providers?.[providerId] == null && modelImageSupport(candidate.model, catalog) === false))) {
+    else if (hasImages && (!adapter.supportsImages || imageSupported !== true || modelImageSupport(candidate.model, catalog) === false)) {
       reason = "image input is unsupported";
     } else if (metadata.input?.includes("text") === false) reason = "text input is unsupported";
     else if (policy.allowed_residencies && !policy.allowed_residencies.includes(metadata.residency)) reason = "residency is not allowed";

@@ -17,6 +17,9 @@ export const loadComparisonPlan = (file = defaultPlan) => {
   if (plan?.schema_version !== 1 || !Array.isArray(plan.conditions) || plan.conditions.length < 2 ||
     !Number.isInteger(plan.seed) || !plan.pilot || !plan.main) throw new Error("invalid comparison plan");
   if (plan.cost_mode != null && !["api", "subscription"].includes(plan.cost_mode)) throw new Error("invalid cost mode");
+  if (plan.cost_mode !== "subscription" && plan.conditions.some((condition) => condition.model_candidates)) {
+    throw new Error("candidate-route comparisons require subscription cost mode until multi-attempt cost caps are supported");
+  }
   if (plan.image_fixture_overrides != null && (typeof plan.image_fixture_overrides !== "object" ||
     Array.isArray(plan.image_fixture_overrides) || Object.values(plan.image_fixture_overrides).some((value) =>
       typeof value !== "string" || !/^fixtures\/[a-z0-9-]+\.png$/.test(value)))) {
@@ -151,7 +154,7 @@ export const runPairedComparison = async ({
       const record = {
         case_id: task.id,
         condition_id: condition.id,
-        model: condition.model,
+        model: condition.model_candidates ? null : condition.model,
         executor: condition.executor,
         repetition: entry.repetition,
         ...(image ? { image_fixture: image } : {}),
@@ -165,7 +168,9 @@ export const runPairedComparison = async ({
           description: "Follow the task directions and return only the answer.",
           prompt: task.prompt,
           images: image ? [path.join(here, image)] : [],
-          model: condition.model,
+          model: condition.model_candidates ? null : condition.model,
+          modelCandidates: condition.model_candidates || null,
+          routing: condition.routing || null,
           executor: condition.executor,
           textOnly: true,
           outputContract: task.output_contract || null,
@@ -176,6 +181,13 @@ export const runPairedComparison = async ({
         Object.assign(record, {
           status: "completed",
           run_home: run.home,
+          model: run.result.model || condition.model,
+          executor: run.result.executor || condition.executor,
+          ...(condition.model_candidates ? {
+            selected_candidate: run.result.routing?.selected_candidate_id ?? null,
+            wrong_route: run.result.routing?.selected_candidate_id !== condition.expected_candidate_id,
+            invalid_choice: run.result.routing?.adviser?.outcome == null ? null : run.result.routing.adviser.outcome !== "valid",
+          } : {}),
           harness_ok: score.harness_ok,
           quality_score: score.quality_score,
           needs_blinded_review: score.needs_blinded_review,

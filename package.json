@@ -20,6 +20,7 @@
     "benchmark:frontier-router": "node benchmarks/compare-frontier-routers.mjs",
     "benchmark:candidate-policies": "node benchmarks/compare-candidate-policies.mjs",
     "benchmark:apply-ratings": "node benchmarks/apply-blind-ratings.mjs",
+    "benchmark:verify-refinement": "node benchmarks/verify-refinement.mjs",
     "check": "node scripts/check.mjs",
     "pack:check": "npm pack --dry-run --json --cache .npm-cache --workspace packages/core && npm pack --dry-run --json --cache .npm-cache --workspace packages/cli",
     "validate": "npm run check && npm test && npm run pack:check"

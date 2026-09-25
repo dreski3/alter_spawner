@@ -201,7 +201,7 @@ without payload leaks. Grok added text to seven of 26 nested node answers,
 so exact output adherence remains a 4.4 refinement target. Per-run subscription
 cost is unknown. See [frontier benchmark results](benchmarks/RESULTS-FRONTIER-2026-09-24.md).
 
-#### 4.4 Refine and verify
+#### 4.4 Refine and verify — complete
 
 - Use a development split to adjust candidate context, capability, residency,
   output-limit, and price metadata, then selection and fallback rules. Do not
@@ -210,6 +210,18 @@ cost is unknown. See [frontier benchmark results](benchmarks/RESULTS-FRONTIER-20
   latency or cost gain does not reduce the agreed success and quality targets,
   violate hard routing constraints, or deliver a payload to an unchosen worker.
   Record regressions and the final supported route expectations in the docs.
+
+The development split selected an explicit frontier candidate policy with
+declared context, image, output, and API-equivalent price metadata. Unknown
+residency remains a hard exclusion when a request specifies a residency.
+The ten-call development pilot and 40-call held-out text/image matrix passed;
+the routed condition selected Luna on all eight held-out calls, met all frozen
+targets, and had lower observed latency than attached Grok without a quality
+loss. Scripted router isolation and fail-closed checks passed 13/13. A planner
+fix also excludes unknown image support and rejects output estimates above the
+request cap. Grok's strict-output regression and the failed local/Mistral
+quality targets remain documented limitations. See [refinement results](benchmarks/RESULTS-REFINEMENT-2026-09-25.md)
+and [supported routes](docs/inference-routing.md).
 
 ### 5. Add a service API if host integrations require it
 

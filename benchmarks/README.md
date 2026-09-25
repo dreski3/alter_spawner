@@ -146,3 +146,27 @@ Run the two-call pilot before the fourteen-call labeled matrix:
 npm run benchmark:frontier-router -- --pilot --output benchmarks/results/router-frontier-pilot
 npm run benchmark:frontier-router -- --main --pilot-report benchmarks/results/router-frontier-pilot/report.json --output benchmarks/results/router-frontier-main
 ```
+
+## Refinement verification
+
+`refinement-plan-frontier-v1.json` freezes a lowest-cost candidate route after
+the development split. Its pilot uses development extraction and image cases;
+its main matrix uses only held-out text and image cases, with two repetitions
+across the four original OpenCode conditions plus the routed condition. The
+64 × 64 image overrides and API-equivalent model metadata are part of the
+versioned plan. Subscription charges remain unknown.
+
+```sh
+npm run benchmark:compare -- --pilot --plan benchmarks/refinement-plan-frontier-v1.json --output benchmarks/results/refinement-pilot
+npm run benchmark:compare -- --main --plan benchmarks/refinement-plan-frontier-v1.json --pilot-report benchmarks/results/refinement-pilot/report.json --output benchmarks/results/refinement-main
+npm run benchmark:apply-ratings -- benchmarks/results/refinement-main benchmarks/results/refinement-main/blind-ratings.json
+node benchmarks/run-router-cases.mjs > benchmarks/results/refinement-router-fixtures.json
+npm run benchmark:verify-refinement -- benchmarks/results/refinement-pilot benchmarks/results/refinement-main benchmarks/results/refinement-router-fixtures.json
+```
+
+Rate every `blind-packets.json` answer before opening `blind-map.json`.
+The final command checks hashes, split boundaries, completion, frozen targets,
+quality regressions, the observed latency gain, selected route, and scripted
+payload isolation; it writes `verification.json` and exits nonzero on a failed
+gate. See [the refinement result](RESULTS-REFINEMENT-2026-09-25.md) for the
+completed run, regressions, and supported route scope.

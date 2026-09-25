@@ -121,3 +121,34 @@ test("image comparison records the enlarged fixture and its hash", async (t) => 
   assert.match(run.report.image_fixture_sha256["fixtures/red-square-64.png"], /^[a-f0-9]{64}$/);
   assert.equal(run.report.analysis.conditions["grok-fresh"].all.auto_quality_rate, 1);
 });
+
+test("refinement plan runs the frozen candidate route beside paired conditions", async (t) => {
+  const outputDir = mkdtempSync(path.join(tmpdir(), "mind-refinement-comparison-"));
+  t.after(() => rmSync(outputDir, { recursive: true, force: true }));
+  const planInfo = loadComparisonPlan(new URL("../../../../benchmarks/refinement-plan-frontier-v1.json", import.meta.url));
+  const routed = [];
+  const run = await runPairedComparison({
+    phase: "pilot", planInfo, outputDir,
+    startServer: async () => ({ environment: { OPENCODE_SERVER_URL: "http://127.0.0.1:1" }, stop: async () => {} }),
+    invoke: async (root, options) => {
+      if (options.modelCandidates) routed.push(options);
+      const home = path.join(root, ".alters", "runs", options.name);
+      mkdirSync(home, { recursive: true });
+      const model = options.modelCandidates ? options.modelCandidates[0].model : options.model;
+      const result = {
+        ok: true, text: options.images.length ? "red" : '{"invoice_id":"INV-2047","amount_eur":38.5}',
+        model, executor: "opencode", timing: { wall_duration_ms: 12 }, depth: 0, tree_id: `tree-${options.name}`,
+        routing: options.modelCandidates ? { selected_candidate_id: "luna", planner_duration_ms: 1 } : null,
+        attempts: [{ model, executor: "opencode", tokens, pricing: { cost: null } }],
+      };
+      writeFileSync(path.join(home, "result.json"), JSON.stringify(result));
+      return { home, result };
+    },
+  });
+  assert.equal(run.report.completed_calls, 10);
+  assert.equal(routed.length, 2);
+  assert.equal(routed.every((options) => options.model == null && options.routing.strategy === "lowest_cost"), true);
+  assert.equal(run.records.filter((record) => record.condition_id === "routed-lowest-cost")
+    .every((record) => record.selected_candidate === "luna" && record.wrong_route === false), true);
+  assert.equal(run.report.analysis.conditions["routed-lowest-cost"].all.wrong_route_rate, 0);
+});

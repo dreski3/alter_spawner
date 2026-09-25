@@ -203,6 +203,41 @@ test("image and tool requirements select only capable routes", () => {
   assert.equal(tools.assessed[0].reason, "required capability is unavailable");
 });
 
+test("image routing excludes routes with unknown image support", () => {
+  const providers = structuredClone(PROVIDERS);
+  delete providers.remote.models.large.input;
+  const options = createSpawnOptions({ modelCandidates: CANDIDATES, images: ["/example.png"] });
+  assert.throws(() => planRequest({
+    options,
+    config: { providers },
+    prompt: "Describe the image.",
+    environment: { OPENCODE_MODELS_PATH: "/nonexistent/models.json" },
+  }), /no eligible model candidate/);
+});
+
+test("the estimated output requirement must fit the request token cap", () => {
+  const options = createSpawnOptions({
+    modelCandidates: CANDIDATES,
+    maxTokens: 100,
+    routing: { estimated_output_tokens: 101 },
+  });
+  assert.throws(() => planRequest({ options, config: { providers: PROVIDERS }, prompt: "Review this." }),
+    /estimated_output_tokens exceeds/);
+});
+
+test("candidate output limits are enforced before the lowest-cost choice", () => {
+  const providers = structuredClone(PROVIDERS);
+  providers.edge.models.small.max_output_tokens = 64;
+  const options = createSpawnOptions({
+    modelCandidates: CANDIDATES,
+    maxTokens: 100,
+    routing: { strategy: "lowest_cost", estimated_output_tokens: 100 },
+  });
+  const plan = planRequest({ options, config: { providers }, prompt: "Review this." });
+  assert.deepEqual(plan.candidates.map(({ id }) => id), ["cloud"]);
+  assert.equal(plan.assessed[0].reason, "output limit is too small");
+});
+
 test("CLI flags define model and executor routes with request policy", () => {
   const options = parseSpawnArgs([
     "--model-candidate", "local=llm:edge/small",
@@ -388,6 +423,30 @@ test("a catalog routing policy selects the cheaper model before any attempt", as
   assert.equal(result.routing.selected_candidate_id, "local");
   assert.equal(result.executor, "llm");
   assert.equal(result.text, "local-ok");
+});
+
+test("lowest-cost selection advances to the next eligible route after a retryable failure", async (t) => {
+  const root = makeProject(t, { retry: { same_harness_retries: 0, fallback_retries: 1 } });
+  const calls = [];
+  replaceHarnesses(t, [["opencode", { run: async (_home, prompt, options) => {
+    calls.push({ prompt, model: options.model });
+    return options.model === "edge/small" ? reply(false, "") : reply(true, "recovered");
+  } }]]);
+  const { result } = await spawnAlter(root, createSpawnOptions({
+    prompt: "Review this request.",
+    modelCandidates: [
+      { id: "cloud", model: "remote/large", executor: "opencode" },
+      { id: "local", model: "edge/small", executor: "opencode" },
+    ],
+    routing: { strategy: "lowest_cost", estimated_output_tokens: 100 },
+  }));
+  assert.equal(result.ok, true);
+  assert.equal(result.routing.selected_candidate_id, "local");
+  assert.deepEqual(result.attempts.map((attempt) => attempt.candidate_id), ["local", "cloud"]);
+  assert.deepEqual(calls, [
+    { prompt: "Review this request.", model: "edge/small" },
+    { prompt: "Review this request.", model: "remote/large" },
+  ]);
 });
 
 test("a hard residency requirement rejects every candidate before scaffolding", async (t) => {
